@@ -24,7 +24,7 @@ wiki/
 
 1. **添加新信息**：告诉 LLM 新信息，它会自动更新相关 wiki 页面
 2. **查询知识**：直接问 LLM，它会从 wiki 中综合回答
-3. **浏览知识**：用 Obsidian 打开 wiki 目录，查看知识图谱
+3. **浏览知识**：用任意 Markdown 编辑器打开 wiki 目录
 
 ## 维护原则
 
@@ -37,4 +37,4 @@ wiki/
 
 - 创建时间：2026-05-22
 - 初始知识：从 MEMORY.md 和 memory/*.md 迁移
-- 工具：OpenClaw + Obsidian
+- 工具：OpenClaw
