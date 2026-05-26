@@ -10,8 +10,231 @@ import os
 import subprocess
 import sys
 import re
+import shutil
+import urllib.request
+import tempfile
 from datetime import datetime, timedelta
 from collections import Counter
+
+# ==================== DEPENDENCY CHECK ====================
+def check_obsidian():
+    """Check if Obsidian is installed / 检测 Obsidian 是否安装"""
+    # Check common install paths
+    paths = [
+        r"C:\Users\{}\AppData\Local\Obsidian\Obsidian.exe".format(os.getenv("USERNAME")),
+        r"C:\Program Files\Obsidian\Obsidian.exe",
+        r"C:\Program Files (x86)\Obsidian\Obsidian.exe",
+    ]
+    for p in paths:
+        if os.path.exists(p):
+            return True, p
+    # Check registry
+    try:
+        import winreg
+        key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Obsidian")
+        path, _ = winreg.QueryValueEx(key, "InstallLocation")
+        winreg.CloseKey(key)
+        if path and os.path.exists(path):
+            return True, os.path.join(path, "Obsidian.exe")
+    except Exception:
+        pass
+    return False, None
+
+def check_openclaw():
+    """Check if OpenClaw is installed / 检测 OpenClaw 是否安装"""
+    # Check if openclaw CLI exists
+    try:
+        result = subprocess.run(["openclaw", "--version"], capture_output=True, text=True, timeout=5)
+        if result.returncode == 0:
+            return True, result.stdout.strip()
+    except Exception:
+        pass
+    # Check common install paths
+    paths = [
+        r"C:\Users\{}\AppData\Local\Programs\openclaw\openclaw.exe".format(os.getenv("USERNAME")),
+        r"C:\Program Files\QClaw\openclaw.exe",
+        r"C:\Program Files (x86)\QClaw\openclaw.exe",
+    ]
+    for p in paths:
+        if os.path.exists(p):
+            return True, p
+    return False, None
+
+def download_file(url, dest):
+    """Download file / 下载文件 (blocking, simple)"""
+    import urllib.request
+    # Use a simple download - progress bar is indeterminate
+    urllib.request.urlretrieve(url, dest)
+
+def install_obsidian(parent_window):
+    """Download and install Obsidian / 下载并安装 Obsidian"""
+    url = "https://github.com/obsidianmd/obsidian-releases/releases/download/v1.8.10/Obsidian-1.8.10.exe"
+    tmp = tempfile.gettempdir()
+    installer = os.path.join(tmp, "Obsidian-setup.exe")
+    
+    # Show download dialog / 显示下载对话框
+    dlg = tk.Toplevel(parent_window)
+    dlg.title("Downloading Obsidian / 下载 Obsidian")
+    dlg.geometry("400x120")
+    dlg.configure(bg=BG)
+    dlg.transient(parent_window)
+    dlg.grab_set()
+    
+    tk.Label(dlg, text="Downloading Obsidian installer...\n正在下载 Obsidian 安装包...", 
+             bg=BG, fg=FG, font=("Segoe UI", 10)).pack(pady=15)
+    progress = ttk.Progressbar(dlg, mode="indeterminate")
+    progress.pack(fill="x", padx=30, pady=5)
+    progress.start()
+    dlg.update()
+    
+    try:
+        download_file(url, installer)
+        progress.stop()
+        dlg.destroy()
+        
+        # Run installer silently / 静默安装
+        result = subprocess.run([installer, "/SILENT", "/ALLUSERS"], timeout=300)
+        os.remove(installer)
+        return result.returncode == 0
+    except Exception as e:
+        progress.stop()
+        dlg.destroy()
+        messagebox.showerror("Error / 错误", "Failed to download Obsidian:\n{}".format(e))
+        return False
+
+def install_openclaw(parent_window):
+    """Install OpenClaw via npm / 通过 npm 安装 OpenClaw"""
+    try:
+        # Check if npm exists
+        subprocess.run(["npm", "--version"], capture_output=True, check=True, timeout=5)
+    except Exception:
+        messagebox.showerror("Error / 错误", 
+            "npm not found. Please install Node.js first:\n"
+            "npm 未找到，请先安装 Node.js：\nhttps://nodejs.org")
+        return False
+    
+    dlg = tk.Toplevel(parent_window)
+    dlg.title("Installing OpenClaw / 安装 OpenClaw")
+    dlg.geometry("450x120")
+    dlg.configure(bg=BG)
+    dlg.transient(parent_window)
+    dlg.grab_set()
+    
+    tk.Label(dlg, text="Installing OpenClaw globally...\n正在全局安装 OpenClaw...", 
+             bg=BG, fg=FG, font=("Segoe UI", 10)).pack(pady=15)
+    progress = ttk.Progressbar(dlg, mode="indeterminate")
+    progress.pack(fill="x", padx=30, pady=5)
+    progress.start()
+    dlg.update()
+    
+    try:
+        result = subprocess.run(["npm", "install", "-g", "openclaw"], 
+                               capture_output=True, text=True, timeout=300)
+        progress.stop()
+        dlg.destroy()
+        if result.returncode == 0:
+            messagebox.showinfo("Success / 成功", "OpenClaw installed successfully!\nOpenClaw 安装成功！")
+            return True
+        else:
+            messagebox.showerror("Error / 错误", "npm install failed:\n{}".format(result.stderr))
+            return False
+    except Exception as e:
+        progress.stop()
+        dlg.destroy()
+        messagebox.showerror("Error / 错误", "Failed to install OpenClaw:\n{}".format(e))
+        return False
+
+def show_welcome_and_check():
+    """Show welcome window and check dependencies / 显示欢迎窗口并检查依赖"""
+    root = tk.Tk()
+    root.title("MyWiki - First Run Setup / 首次运行设置")
+    root.geometry("520x420")
+    root.configure(bg=BG)
+    root.resizable(False, False)
+    
+    # Icon
+    if os.path.exists(ICON_PATH):
+        try:
+            root.iconbitmap(ICON_PATH)
+        except Exception:
+            pass
+    
+    # Title
+    tk.Label(root, text="📝 MyWiki", bg=BG, fg=ACCENT, font=("Segoe UI", 20, "bold")).pack(pady=(25, 5))
+    tk.Label(root, text="Personal Knowledge & Diary Manager\n个人知识库与日记管理工具", 
+             bg=BG, fg=FG, font=("Segoe UI", 10)).pack()
+    
+    tk.Frame(root, height=2, bg=ACCENT).pack(fill="x", padx=40, pady=15)
+    
+    # Check status
+    obsidian_ok, obsidian_path = check_obsidian()
+    openclaw_ok, openclaw_ver = check_openclaw()
+    
+    status_frame = tk.Frame(root, bg=BG)
+    status_frame.pack(pady=5)
+    
+    tk.Label(status_frame, text="System Check / 系统检测", bg=BG, fg=FG, font=("Segoe UI", 11, "bold")).pack(anchor="w", padx=30)
+    
+    def make_status(parent, label, ok):
+        f = tk.Frame(parent, bg=BG)
+        f.pack(fill="x", padx=30, pady=4)
+        emoji = "✅" if ok else "❌"
+        color = "#4ec9b0" if ok else "#f48771"
+        tk.Label(f, text="{} {}".format(emoji, label), bg=BG, fg=color, font=("Segoe UI", 10), anchor="w").pack(side="left")
+        return f
+    
+    make_status(status_frame, "Obsidian (知识库)", obsidian_ok)
+    make_status(status_frame, "OpenClaw (AI 助手)", openclaw_ok)
+    
+    tk.Frame(root, height=2, bg=ACCENT).pack(fill="x", padx=40, pady=10)
+    
+    btn_frame = tk.Frame(root, bg=BG)
+    btn_frame.pack(pady=10)
+    
+    proceed = tk.BooleanVar(value=False)
+    
+    def on_install_obsidian():
+        if install_obsidian(root):
+            messagebox.showinfo("Done / 完成", "Obsidian installed. Please restart MyWiki.\nObsidian 已安装，请重启 MyWiki。")
+            root.quit()
+    
+    def on_install_openclaw():
+        if install_openclaw(root):
+            messagebox.showinfo("Done / 完成", "OpenClaw installed. Please restart MyWiki.\nOpenClaw 已安装，请重启 MyWiki。")
+            root.quit()
+    
+    def on_proceed():
+        proceed.set(True)
+        root.quit()
+    
+    def on_exit():
+        proceed.set(False)
+        root.quit()
+    
+    if not obsidian_ok:
+        tk.Button(btn_frame, text="Install Obsidian / 安装 Obsidian", 
+                  command=on_install_obsidian,
+                  bg=ACCENT, fg="white", font=("Segoe UI", 10), relief="flat", padx=15, pady=5).pack(pady=3)
+    
+    if not openclaw_ok:
+        tk.Button(btn_frame, text="Install OpenClaw / 安装 OpenClaw", 
+                  command=on_install_openclaw,
+                  bg=ACCENT, fg="white", font=("Segoe UI", 10), relief="flat", padx=15, pady=5).pack(pady=3)
+    
+    btn_row = tk.Frame(btn_frame, bg=BG)
+    btn_row.pack(pady=(10, 0))
+    
+    label = "Continue / 继续" if (obsidian_ok and openclaw_ok) else "Skip & Continue / 跳过并继续"
+    tk.Button(btn_row, text=label, command=on_proceed,
+              bg="#4ec9b0", fg="white", font=("Segoe UI", 10, "bold"), relief="flat", padx=20, pady=6).pack(side="left", padx=5)
+    tk.Button(btn_row, text="Exit / 退出", command=on_exit,
+              bg="#333333", fg=FG, font=("Segoe UI", 10), relief="flat", padx=20, pady=6).pack(side="left", padx=5)
+    
+    tk.Label(root, text="Tips: Obsidian & OpenClaw are optional.\n提示：Obsidian 和 OpenClaw 是可选的，MyWiki 可独立运行。", 
+             bg=BG, fg="#666666", font=("Segoe UI", 8)).pack(pady=(10, 5))
+    
+    root.mainloop()
+    return proceed.get()
 
 # ==================== PATHS ====================
 WIKI_DIR = r"D:\Users\michael\MyWiki"
@@ -471,6 +694,12 @@ class WikiApp:
 
 # ==================== MAIN ====================
 if __name__ == "__main__":
+    # First run check / 首次运行检测
+    proceed = show_welcome_and_check()
+    if not proceed:
+        sys.exit(0)
+    
+    # Start main app / 启动主程序
     root = tk.Tk()
     app = WikiApp(root)
     root.mainloop()
