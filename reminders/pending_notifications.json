@@ -1,0 +1,20 @@
+[
+  {
+    "id": 1,
+    "message": "[Reminder] 测试Windows任务提醒",
+    "created_at": "2026-05-23T20:19:41.509918",
+    "status": "sent"
+  },
+  {
+    "id": 2,
+    "message": "[Reminder] 测试提醒 - MyWiki 新路径",
+    "created_at": "2026-05-26T15:54:01.058986",
+    "status": "sent"
+  },
+  {
+    "id": 3,
+    "message": "[Reminder] 测试提醒 - 绝对路径修复",
+    "created_at": "2026-05-26T15:59:00.183366",
+    "status": "sent"
+  }
+]

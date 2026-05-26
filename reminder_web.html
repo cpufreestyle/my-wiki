@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Quick Reminder - 快速提醒</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: "Microsoft YaHei", Arial, sans-serif;
+            background: #2b2b2b;
+            color: #ffffff;
+            padding: 20px;
+            max-width: 600px;
+            margin: 0 auto;
+        }
+        
+        h1 {
+            text-align: center;
+            margin-bottom: 30px;
+            font-size: 24px;
+        }
+        
+        .preset-buttons {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        
+        .btn {
+            padding: 15px;
+            font-size: 16px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s;
+            background: #4a9eff;
+            color: white;
+        }
+        
+        .btn:hover {
+            background: #357abd;
+            transform: translateY(-2px);
+        }
+        
+        .btn-custom {
+            background: #f0ad4e;
+        }
+        
+        .btn-custom:hover {
+            background: #ec971f;
+        }
+        
+        .btn-view {
+            background: #5cb85c;
+        }
+        
+        .btn-view:hover {
+            background: #4cae4c;
+        }
+        
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.7);
+            z-index: 1000;
+        }
+        
+        .modal-content {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: #3b3b3b;
+            padding: 30px;
+            border-radius: 12px;
+            min-width: 300px;
+            max-width: 90%;
+        }
+        
+        .modal-content h2 {
+            margin-bottom: 20px;
+        }
+        
+        .modal-content input,
+        .modal-content textarea {
+            width: 100%;
+            padding: 10px;
+            margin-bottom: 15px;
+            border: 1px solid #555;
+            border-radius: 6px;
+            background: #2b2b2b;
+            color: white;
+            font-size: 14px;
+        }
+        
+        .modal-buttons {
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+        }
+        
+        .btn-cancel {
+            background: #555;
+        }
+        
+        .btn-cancel:hover {
+            background: #666;
+        }
+        
+        #status {
+            text-align: center;
+            margin-top: 20px;
+            color: #888;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <h1>⏰ 快速提醒设置</h1>
+    
+    <div class="preset-buttons">
+        <button class="btn" onclick="setReminder('1小时后', 1)">1小时后</button>
+        <button class="btn" onclick="setReminder('2小时后', 2)">2小时后</button>
+        <button class="btn" onclick="setReminder('3小时后', 3)">3小时后</button>
+        <button class="btn" onclick="setReminder('明天9点', 'tomorrow_9')">明天9点</button>
+        <button class="btn" onclick="setReminder('明天18点', 'tomorrow_18')">明天18点</button>
+        <button class="btn" onclick="setReminder('下周9点', 'nextweek_9')">下周9点</button>
+    </div>
+    
+    <div class="preset-buttons">
+        <button class="btn btn-custom" onclick="customReminder()">➕ 自定义提醒</button>
+        <button class="btn btn-view" onclick="viewPending()">📋 查看待发送提醒</button>
+    </div>
+    
+    <div id="status">点击按钮设置提醒</div>
+    
+    <!-- 模态框：输入提醒内容 -->
+    <div id="modal" class="modal">
+        <div class="modal-content">
+            <h2 id="modal-title">设置提醒</h2>
+            <input type="text" id="reminder-text" placeholder="请输入提醒内容..." />
+            <div class="modal-buttons">
+                <button class="btn btn-cancel" onclick="closeModal()">取消</button>
+                <button class="btn" onclick="saveReminder()">确定</button>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        let currentPreset = null;
+        let currentHours = null;
+        
+        function setReminder(name, hours) {
+            currentPreset = name;
+            currentHours = hours;
+            document.getElementById('modal-title').textContent = `设置提醒：${name}`;
+            document.getElementById('modal').style.display = 'block';
+        }
+        
+        function customReminder() {
+            alert('自定义提醒功能开发中...\n\n暂时请使用预设按钮');
+        }
+        
+        function viewPending() {
+            fetch('/api/reminders/pending')
+                .then(res => res.json())
+                .then(data => {
+                    if (data.length === 0) {
+                        alert('当前没有待发送的提醒');
+                    } else {
+                        let text = '待发送提醒：\n\n';
+                        data.slice(-10).forEach(r => {
+                            text += `[${r.id}] ${r.remind_at}\n`;
+                            text += `    ${r.message}\n\n`;
+                        });
+                        alert(text);
+                    }
+                })
+                .catch(err => {
+                    alert('查看失败：' + err.message);
+                });
+        }
+        
+        function closeModal() {
+            document.getElementById('modal').style.display = 'none';
+            document.getElementById('reminder-text').value = '';
+        }
+        
+        function saveReminder() {
+            const text = document.getElementById('reminder-text').value.trim();
+            if (!text) {
+                alert('请输入提醒内容！');
+                return;
+            }
+            
+            // 计算提醒时间
+            let remindAt = new Date();
+            if (typeof currentHours === 'number') {
+                remindAt.setHours(remindAt.getHours() + currentHours);
+            } else {
+                // 处理 'tomorrow_9' 等预设
+                remindAt = getPresetTime(currentHours);
+            }
+            
+            // 调用 API 保存提醒
+            fetch('/api/reminders', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    remind_at: remindAt.toISOString(),
+                    message: text
+                })
+            })
+            .then(res => res.json())
+            .then(data => {
+                alert(`✅ 提醒已设置！\n\n时间：${remindAt.toLocaleString('zh-CN')}\n内容：${text}`);
+                closeModal();
+                document.getElementById('status').textContent = `已设置：${currentPreset}`;
+            })
+            .catch(err => {
+                alert('设置失败：' + err.message);
+            });
+        }
+        
+        function getPresetTime(preset) {
+            let date = new Date();
+            switch(preset) {
+                case 'tomorrow_9':
+                    date.setDate(date.getDate() + 1);
+                    date.setHours(9, 0, 0, 0);
+                    break;
+                case 'tomorrow_18':
+                    date.setDate(date.getDate() + 1);
+                    date.setHours(18, 0, 0, 0);
+                    break;
+                case 'nextweek_9':
+                    date.setDate(date.getDate() + (7 - date.getDay()));
+                    date.setHours(9, 0, 0, 0);
+                    break;
+            }
+            return date;
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,56 @@
+[
+  {
+    "id": 1,
+    "remind_at": "2026-05-23 19:15:52",
+    "message": "测试提醒：1分钟后",
+    "created_at": "2026-05-23 19:14:52",
+    "status": "expired"
+  },
+  {
+    "id": 2,
+    "remind_at": "2026-05-23 20:13:17",
+    "message": "测试持久化提醒",
+    "created_at": "2026-05-23 20:12:17",
+    "status": "expired",
+    "cron_job_id": null
+  },
+  {
+    "id": 3,
+    "remind_at": "2026-05-23 20:15:09",
+    "message": "测试Windows任务提醒",
+    "created_at": "2026-05-23 20:13:09",
+    "status": "sent",
+    "task_name": "Reminder_3"
+  },
+  {
+    "id": 4,
+    "remind_at": "2026-05-23 20:51:07",
+    "message": "记录心情",
+    "created_at": "2026-05-23 21:38:24",
+    "status": "expired"
+  },
+  {
+    "id": 5,
+    "remind_at": "2026-05-26 15:54:44",
+    "message": "测试提醒 - MyWiki 新路径",
+    "created_at": "2026-05-26 15:52:44",
+    "status": "sent",
+    "task_name": "Reminder_5"
+  },
+  {
+    "id": 6,
+    "remind_at": "2026-05-26 15:59:28",
+    "message": "测试提醒 - 绝对路径修复",
+    "created_at": "2026-05-26 15:57:28",
+    "status": "sent",
+    "task_name": "Reminder_6"
+  },
+  {
+    "id": 7,
+    "remind_at": "2026-05-26 18:00:00",
+    "message": "remember to write diary - MyWiki daily record",
+    "created_at": "2026-05-26 16:04:35",
+    "status": "pending",
+    "task_name": "WikiReminder_7"
+  }
+]
