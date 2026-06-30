@@ -10,8 +10,8 @@ OpenClaw (龙虾) 可以直接读取、创建和编辑 Obsidian Vault 中的 Mar
 ```
 ┌─────────────┐     Markdown Files     ┌─────────────┐
 │   OpenClaw   │ ◄────────────────────► │   Obsidian   │
-│  (AI Agent)  │   D:\Users\michael\    │   (Vault)    │
-│              │      MyWiki\           │              │
+│  (AI Agent)  │   Vault Folder         │   (Vault)    │
+│              │                        │              │
 └─────────────┘                        └─────────────┘
 ```
 
@@ -23,7 +23,22 @@ OpenClaw (龙虾) 可以直接读取、创建和编辑 Obsidian Vault 中的 Mar
 
 ## Setup / 配置步骤
 
-### Step 1: Open Vault in Obsidian / 在 Obsidian 中打开 Vault
+### macOS Setup / macOS 配置
+
+1. Open Obsidian / 打开 Obsidian
+2. Click **Open folder as vault** / 点击 **Open folder as vault**
+3. Select your wiki folder:
+   - Default: `~/.qclaw/workspace/wiki`
+   - Or: `/path/to/my-wiki`
+4. Done! All notes are now visible / 完成！所有笔记立即可见
+
+**Run Mac setup script / 运行 Mac 设置脚本:**
+```bash
+cd /path/to/my-wiki
+./scripts/setup-mac.sh
+```
+
+### Windows Setup / Windows 配置
 
 1. Open Obsidian / 打开 Obsidian
 2. Click **Open folder as vault** / 点击 **Open folder as vault**
@@ -37,8 +52,11 @@ Ask OpenClaw in chat:
 
 > "打开今天的日记" / "Open today's diary"
 
-OpenClaw will read `D:\Users\michael\MyWiki\daily\YYYY-MM-DD.md` directly.
+OpenClaw will read the diary file directly.
 OpenClaw 会直接读取日记文件。
+
+**macOS path / macOS 路径:** `~/.qclaw/workspace/wiki/daily/YYYY-MM-DD.md`
+**Windows path / Windows 路径:** `D:\Users\michael\MyWiki\daily\YYYY-MM-DD.md`
 
 ---
 
@@ -91,8 +109,14 @@ OpenClaw 直接编辑文件，Obsidian 中立即生效。
 OpenClaw sends the URI command:
 OpenClaw 发送 URI 命令：
 
+**macOS:**
+```bash
+open "obsidian://open?vault=my-wiki&file=daily/2026-06-30"
+```
+
+**Windows:**
 ```powershell
-Start-Process "obsidian://open?vault=MyWiki&file=daily/2026-05-26"
+Start-Process "obsidian://open?vault=MyWiki&file=daily/2026-06-30"
 ```
 
 ---
@@ -129,18 +153,66 @@ Only `.md` files appear in Obsidian. JSON files are managed by OpenClaw in the b
 
 ---
 
+## Cross-Platform Paths / 跨平台路径
+
+### macOS
+- Wiki folder: `~/.qclaw/workspace/wiki`
+- Or: `~/Documents/my-wiki`
+- Scripts: `python3 scripts/script_name.py`
+
+### Windows
+- Wiki folder: `D:\Users\michael\MyWiki`
+- Scripts: `python scripts\script_name.py`
+
+### Path Handling in Scripts / 脚本中的路径处理
+
+All Python scripts use `pathlib.Path` for cross-platform compatibility:
+所有 Python 脚本使用 `pathlib.Path` 实现跨平台兼容：
+
+```python
+from pathlib import Path
+
+# Works on both macOS and Windows
+wiki_root = Path(__file__).parent.parent
+daily_folder = wiki_root / "daily"
+```
+
+---
+
+## Mac Setup Script / Mac 设置脚本
+
+Use the provided setup script for macOS:
+使用提供的 Mac 设置脚本：
+
+```bash
+./scripts/setup-mac.sh
+```
+
+This script will / 此脚本会：
+- Check Python 3 installation / 检查 Python 3 安装
+- Install dependencies / 安装依赖
+- Make scripts executable / 设置脚本权限
+- Add frontmatter to notes / 为笔记添加 frontmatter
+- Update wiki index / 更新 wiki 索引
+
+---
+
 ## Tips / 小贴士
 
 - **Real-time sync**: Changes by OpenClaw appear in Obsidian instantly (no refresh needed)
   实时同步：OpenClaw 的修改在 Obsidian 中即时生效
+- **Cross-platform**: Works on both macOS and Windows
+  跨平台：同时支持 macOS 和 Windows
 - **No cloud needed**: Everything is local, fully private
   无需云端：全部本地存储，完全私密
-- **Backup**: Your vault is at `D:\Users\michael\MyWiki`, back it up as any folder
-  备份：Vault 在 `D:\Users\michael\MyWiki`，像普通文件夹一样备份
+- **Backup**: Your vault is a regular folder, back it up as any folder
+  备份：Vault 是普通文件夹，像普通文件夹一样备份
 - **Templates**: Ask OpenClaw to create templates for recurring note types
   模板：让 OpenClaw 为常用笔记类型创建模板
 - **Graph View**: Open Obsidian's Graph View to see connections between your notes
   关系图：打开 Obsidian 的 Graph View 查看笔记之间的关联
+- **Frontmatter**: All notes include YAML frontmatter for better Obsidian compatibility
+  Frontmatter：所有笔记包含 YAML frontmatter，提升 Obsidian 兼容性
 
 ---
 
@@ -154,7 +226,7 @@ Only `.md` files appear in Obsidian. JSON files are managed by OpenClaw in the b
 | "在Obsidian里打开XX" | Opens via URI / URI 打开 |
 | "创建学习笔记：React Hooks" | Creates concept note / 创建知识笔记 |
 | "我最近心情怎么样" | Analyzes mood data / 分析心情 |
-| "加个提醒明天下午3点开会" | Creates Windows scheduled task / 创建计划任务 |
+| "加个提醒明天下午3点开会" | Creates reminder notification / 创建提醒通知 |
 | "给日记打标签" | Auto-extracts tags / 自动提取标签 |
 
 ---
@@ -162,21 +234,21 @@ Only `.md` files appear in Obsidian. JSON files are managed by OpenClaw in the b
 ## Architecture / 架构
 
 ```
-WeChat (微信)
+WeChat (微信) / Telegram / Webchat
     │
     ▼
 OpenClaw (龙虾 AI Agent)
     │
-    ├── Read/Write ──► D:\Users\michael\MyWiki\
+    ├── Read/Write ──► Wiki Folder/
     │                      ├── daily/      ◄── Obsidian Vault
     │                      ├── mood/
     │                      ├── concepts/
     │                      ├── projects/
     │                      └── reminders/
     │
-    ├── URI Command ──► obsidian://open?vault=MyWiki&file=...
+    ├── URI Command ──► obsidian://open?vault=my-wiki&file=...
     │
-    └── Windows Tasks ──► Reminder notifications
+    └── Cron Jobs ──► Reminder notifications / 提醒通知
 ```
 
 ---
@@ -185,7 +257,42 @@ OpenClaw (龙虾 AI Agent)
 
 | Problem | Solution |
 |---------|----------|
-| Obsidian can't find vault | Make sure vault name is **MyWiki** / 确保仓库名为 MyWiki |
-| URI doesn't work | Check `obsidian://open?vault=MyWiki` format / 检查 URI 格式 |
+| Obsidian can't find vault | Make sure to select the correct folder / 确保选择正确文件夹 |
+| URI doesn't work | Check `obsidian://open?vault=my-wiki` format / 检查 URI 格式 |
 | File not showing in Obsidian | File must be `.md` extension / 文件必须是 `.md` 格式 |
 | Encoding issues | OpenClaw writes UTF-8, same as Obsidian default / OpenClaw 写 UTF-8 |
+| Scripts don't run on Mac | Run `chmod +x scripts/*.py` or use `setup-mac.sh` / 运行 setup-mac.sh |
+| Python not found on Mac | Install Python 3: `brew install python3` / 安装 Python 3 |
+
+---
+
+## Obsidian Plugins Recommendation / 推荐 Obsidian 插件
+
+- **Templates**: Create and use note templates / 创建和使用笔记模板
+- **Daily Notes**: Quick access to daily notes / 快速访问每日笔记
+- **Calendar**: Calendar view for daily notes / 每日笔记的日历视图
+- **Dataview**: Query and display data from notes / 查询和显示笔记数据
+- **Tag Pane**: Better tag management / 更好的标签管理
+- **Outline**: Outline view of current note / 当前笔记的大纲视图
+
+---
+
+## Advanced: Frontmatter / 高级：Frontmatter
+
+All notes now include YAML frontmatter for better Obsidian compatibility:
+所有笔记现在包含 YAML frontmatter 以提升 Obsidian 兼容性：
+
+```yaml
+---
+title: "2026-06-30"
+date: 2026-06-30
+tags: [daily]
+type: daily
+---
+```
+
+This enables:
+- Better sorting and filtering / 更好的排序和过滤
+- Dataview queries / Dataview 查询
+- Template support / 模板支持
+- Obsidian mobile app compatibility / Obsidian 移动端兼容
