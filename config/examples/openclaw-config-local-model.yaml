@@ -1,0 +1,55 @@
+# OpenClaw 配置示例 - 使用本地模型（Ollama）
+
+# 复制此文件到 ~/.config/openclaw/config.yaml
+# 或合并到现有配置文件
+
+models:
+  # 云端模型（备用）
+  - name: "qclaw/modelroute"
+    provider: "qclaw"
+    model: "qclaw/modelroute"
+    default: false
+
+  # 本地模型 - Ollama (推荐)
+  - name: "local-llama3"
+    provider: "openai-compatible"
+    base_url: "http://localhost:11434/v1"
+    api_key: "dummy"  # Ollama 不需要 API key
+    model: "llama3:8b"
+    default: true
+    options:
+      temperature: 0.7
+      num_ctx: 4096  # 上下文长度
+      num_predict: 2048  # 最大生成长度
+
+  # 本地模型 - Ollama (快速版本)
+  - name: "local-phi3-mini"
+    provider: "openai-compatible"
+    base_url: "http://localhost:11434/v1"
+    api_key: "dummy"
+    model: "phi3:mini"
+    default: false
+    options:
+      temperature: 0.7
+      num_ctx: 2048
+
+  # 本地模型 - Ollama (中文优化)
+  - name: "local-qwen"
+    provider: "openai-compatible"
+    base_url: "http://localhost:11434/v1"
+    api_key: "dummy"
+    model: "qwen:7b"
+    default: false
+    options:
+      temperature: 0.7
+      num_ctx: 4096
+
+# 工作区配置
+workspace:
+  path: "~/.qclaw/workspace"
+  wiki_path: "~/.qclaw/workspace/wiki"
+
+# 日志配置
+logging:
+  level: "info"
+  file: "~/.qclaw/logs/openclaw.log"
