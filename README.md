@@ -2,7 +2,7 @@
 
 > 基于 [Andrej Karpathy's LLM Wiki 理念](https://karpathy.github.io/2025/05/11/llm-wiki/) 构建的个人知识库系统
 
-[![Version](https://img.shields.io/badge/version-v1.2.0-blue)](https://github.com/cpufreestyle/my-wiki/releases/tag/v1.2.0)
+[![Version](https://img.shields.io/badge/version-v1.3.0-blue)](https://github.com/cpufreestyle/my-wiki/releases/tag/v1.3.0)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Obsidian](https://img.shields.io/badge/Obsidian-1.0+-purple)](https://obsidian.md)
 
@@ -17,6 +17,8 @@
 - [操作流程](#操作流程)
 - [目录结构](#目录结构)
 - [功能特性](#功能特性)
+- [双引擎支持 (vLLM + SGLang)](#双引擎支持-vllm--sglang)
+
 - [本地模型支持](#本地模型支持)
 - [日常使用](#日常使用)
 - [故障排除](#故障排除)
@@ -573,4 +575,64 @@ pip install -r requirements.txt
 
 **最后更新**: 2026-07-01
 
-**版本**: v1.2.0
+**版本**: v1.3.0
+
+---
+
+## 🚀 双引擎支持 (vLLM + SGLang)
+
+> 根据场景灵活切换推理引擎，兼顾**高吞吐量**和**低延迟**。
+
+### 为什么需要双引擎？
+
+| 引擎 | 优势 | 适合场景 |
+|------|------|----------|
+| **vLLM** (端口 4000) | 高吞吐量、稳定 | 批量处理、高并发 |
+| **SGLang** (端口 4001) | RadixAttention 缓存、快 2-10x | 多轮对话、长提示词 |
+
+### 快速开始
+
+```bash
+# 1. 一键部署双引擎到服务器
+bash scripts/auto_deploy_dual_engine.sh
+
+# 2. 设置 CC Switch（一键切换）
+python3 scripts/setup_ccswitch_dual_engine.py
+
+# 3. 启动实时监控
+python3 scripts/monitor_dual_engine.py
+
+# 4. 性能对比测试
+python3 scripts/benchmark_vllm_vs_sglang.py
+```
+
+### 核心功能
+
+- ✅ **自动化部署** - 一键在服务器上安装并启动两个引擎
+- ✅ **CC Switch 插件** - 在 GUI 中一键切换引擎
+- ✅ **实时监控** - 显示延迟、GPU 使用率、在线状态
+- ✅ **性能对比** - 自动测试并推荐最佳引擎
+- ✅ **总控菜单** - 集成所有工具的图形化界面
+
+### 使用建议
+
+**日常 coding（Codex CLI/App）→ 用 SGLang**
+- 多轮对话多（SOUL.md + AGENTS.md + 对话历史）
+- 长提示词多（系统提示词 + 项目上下文）
+- 需要低延迟（实时反馈）
+
+**批量处理（数据分析、文档生成）→ 用 vLLM**
+- 高吞吐量
+- 并发处理好
+- 稳定（长时间运行）
+
+### 详细文档
+
+查看 [双引擎完整指南](docs/DUAL_ENGINE_GUIDE.md) 获取：
+- 安装步骤
+- 配置示例
+- 性能对比
+- 故障排除
+
+---
+
