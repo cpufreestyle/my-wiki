@@ -17,6 +17,7 @@
 - [操作流程](#操作流程)
 - [目录结构](#目录结构)
 - [功能特性](#功能特性)
+- [本地模型支持](#本地模型支持)
 - [日常使用](#日常使用)
 - [故障排除](#故障排除)
 - [贡献](#贡献)
@@ -404,6 +405,29 @@ my-wiki/
 - ✅ **多设备同步**：通过 GitHub 同步
 - ✅ **自动推送**：定时推送到远程仓库
 - ✅ **备份**：Gitee 备份（可选）
+
+### 6. 本地模型支持 🆕
+
+- ✅ **隐私保护**：数据不离开本地，完全离线运行
+- ✅ **多解决方案**：支持 Ollama、LM Studio、GPT4All、llama.cpp
+- ✅ **OpenAI 兼容 API**：轻松集成到 OpenClaw 和 Obsidian
+- ✅ **成本节约**：无 API 费用，一次性硬件投入
+- ✅ **详细指南**：查看 [LOCAL-MODELS.md](LOCAL-MODELS.md)
+
+**快速开始（Ollama）**：
+```bash
+# 安装 Ollama
+brew install ollama
+
+# 启动服务
+ollama serve &
+
+# 拉取模型
+ollama pull llama3
+
+# 配置 OpenClaw 使用本地模型
+# 编辑 ~/.config/openclaw/config.yaml
+```
 
 ---
 
