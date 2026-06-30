@@ -1,3 +1,10 @@
+---
+title: "Index"
+date: 2026-07-01
+tags: []
+type: note
+---
+
 # Wiki Index
 ## 人物 (People)
 - [[people/Michael_Qiu.md|Michael Qiu]]

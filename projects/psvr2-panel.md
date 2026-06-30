@@ -1,3 +1,10 @@
+---
+title: "Psvr2 Panel"
+date: 2026-07-01
+tags: ['project']
+type: project
+---
+
 # PSVR2 Panel
 
 ## 项目概述

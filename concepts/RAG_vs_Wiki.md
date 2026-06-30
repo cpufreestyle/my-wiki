@@ -1,3 +1,10 @@
+---
+title: "Rag_Vs_Wiki"
+date: 2026-07-01
+tags: ['concept']
+type: note
+---
+
 # RAG vs Wiki 对比
 
 ## 两种知识管理范式

@@ -1,3 +1,10 @@
+---
+title: "Readme"
+date: 2026-07-01
+tags: []
+type: note
+---
+
 # Personal Knowledge Wiki
 
 基于 Karpathy 的 LLM Wiki 理念构建的个人知识库

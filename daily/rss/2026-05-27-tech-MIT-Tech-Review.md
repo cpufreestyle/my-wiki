@@ -1,3 +1,10 @@
+---
+title: "Tech Mit Tech Review"
+date: 2026-05-27
+tags: ['daily']
+type: daily
+---
+
 # MIT Tech Review - 2026-05-27
 
 **Tag**: #tech  **Source**: https://www.technologyreview.com/feed/

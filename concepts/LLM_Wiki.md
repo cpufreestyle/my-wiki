@@ -1,3 +1,10 @@
+---
+title: "Llm_Wiki"
+date: 2026-07-01
+tags: ['concept']
+type: note
+---
+
 # LLM Wiki 知识库构建模式
 
 ## 概念来源

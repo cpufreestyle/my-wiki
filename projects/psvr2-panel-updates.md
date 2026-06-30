@@ -1,3 +1,10 @@
+---
+title: "Psvr2 Panel Updates"
+date: 2026-07-01
+tags: ['project']
+type: project
+---
+
 # cpufreestyle/psvr2-panel Changelog
 
 **Updated**: 2026-05-27 16:42

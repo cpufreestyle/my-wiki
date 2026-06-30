@@ -1,3 +1,10 @@
+---
+title: "Weekly_Review"
+date: 2026-07-01
+tags: []
+type: note
+---
+
 # Weekly Review
 
 > Generated: 2026-05-27

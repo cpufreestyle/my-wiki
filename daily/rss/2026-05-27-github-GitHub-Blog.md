@@ -1,3 +1,10 @@
+---
+title: "Github Github Blog"
+date: 2026-05-27
+tags: ['daily']
+type: daily
+---
+
 # GitHub Blog - 2026-05-27
 
 **Tag**: #github  **Source**: https://github.blog/feed/

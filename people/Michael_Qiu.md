@@ -1,3 +1,10 @@
+---
+title: "Michael_Qiu"
+date: 2026-07-01
+tags: []
+type: note
+---
+
 # Michael Qiu
 
 ## 基本信息

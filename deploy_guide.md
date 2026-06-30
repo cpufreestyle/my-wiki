@@ -1,3 +1,10 @@
+---
+title: "Deploy_Guide"
+date: 2026-07-01
+tags: []
+type: note
+---
+
 # Deploy Guide / 部署指南
 
 OpenClaw + Obsidian + MyWiki 快速部署教程

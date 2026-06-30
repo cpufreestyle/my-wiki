@@ -1,3 +1,10 @@
+---
+title: "Sanguosha Mobile Updates"
+date: 2026-07-01
+tags: ['project']
+type: project
+---
+
 # cpufreestyle/sanguosha-mobile Changelog
 
 **Updated**: 2026-05-27 16:42

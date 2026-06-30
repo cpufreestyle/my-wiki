@@ -1,3 +1,10 @@
+---
+title: "Stock Crewai"
+date: 2026-07-01
+tags: ['project']
+type: project
+---
+
 # stock-crewai
 
 ## 项目概述

@@ -1,3 +1,10 @@
+---
+title: "Stock Crewai Updates"
+date: 2026-07-01
+tags: ['project']
+type: project
+---
+
 # cpufreestyle/stock-crewai Changelog
 
 **Updated**: 2026-05-27 16:42

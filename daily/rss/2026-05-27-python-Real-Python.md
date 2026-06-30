@@ -1,3 +1,10 @@
+---
+title: "Python Real Python"
+date: 2026-05-27
+tags: ['daily']
+type: daily
+---
+
 # Real Python - 2026-05-27
 
 **Tag**: #python  **Source**: https://realpython.com/atom.xml
