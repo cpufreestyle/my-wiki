@@ -1,3 +1,10 @@
+---
+title: "Obsidian_Integration"
+date: 2026-07-01
+tags: []
+type: note
+---
+
 # Obsidian + OpenClaw Integration / Obsidian 与 OpenClaw 联动指南
 
 OpenClaw (龙虾) can directly read, create, and edit Markdown files in your Obsidian vault — giving you an AI-powered second brain.
@@ -45,7 +52,17 @@ cd /path/to/my-wiki
 3. Select `D:\Users\michael\MyWiki` / 选择 `D:\Users\michael\MyWiki`
 4. Done! All notes are now visible / 完成！所有笔记立即可见
 
-### Step 2: Verify the Connection / 验证连接
+### Step 2: Name Your Vault / 命名你的 Vault
+
+⚠️ **重要**: When opening the folder in Obsidian, you need to give the vault a name. Remember this name for URI commands.
+⚠️ **重要**: 在 Obsidian 中打开文件夹时，需要给 vault 起个名字。记住这个名字用于 URI 命令。
+
+**Recommended vault names / 推荐的 vault 名称:**
+- `my-wiki` (推荐)
+- `wiki`
+- `knowledge-base`
+
+### Step 3: Verify the Connection / 验证连接
 
 Ask OpenClaw in chat:
 在聊天中告诉 OpenClaw：
@@ -57,6 +74,23 @@ OpenClaw 会直接读取日记文件。
 
 **macOS path / macOS 路径:** `~/.qclaw/workspace/wiki/daily/YYYY-MM-DD.md`
 **Windows path / Windows 路径:** `D:\Users\michael\MyWiki\daily\YYYY-MM-DD.md`
+
+### Step 4: Test Obsidian URI / 测试 Obsidian URI
+
+To open a note in Obsidian via URI:
+通过 URI 在 Obsidian 中打开笔记：
+
+**macOS:**
+```bash
+# Replace <vault-name> with your actual vault name
+# 将 <vault-name> 替换为你的实际 vault 名称
+open "obsidian://open?vault=<vault-name>&file=daily/2026-05-22"
+```
+
+**If you see "Unable to find a vault" error:**
+**如果看到 "Unable to find a vault" 错误：**
+- Check `HOW-TO-FIND-VAULT-NAME.md` for troubleshooting
+- 查看 `HOW-TO-FIND-VAULT-NAME.md` 了解故障排除
 
 ---
 
@@ -111,13 +145,27 @@ OpenClaw 发送 URI 命令：
 
 **macOS:**
 ```bash
-open "obsidian://open?vault=my-wiki&file=daily/2026-06-30"
+# Make sure to replace <vault-name> with your actual vault name
+# 确保将 <vault-name> 替换为你的实际 vault 名称
+open "obsidian://open?vault=<vault-name>&file=daily/2026-06-30"
 ```
 
 **Windows:**
 ```powershell
-Start-Process "obsidian://open?vault=MyWiki&file=daily/2026-06-30"
+Start-Process "obsidian://open?vault=<vault-name>&file=daily/2026-06-30"
 ```
+
+**⚠️ Important: Vault Name / 重要：Vault 名称**
+- The `<vault-name>` must match exactly what you named your vault in Obsidian
+- `<vault-name>` 必须与你在 Obsidian 中命名的 vault 完全一致
+- If you see "Unable to find a vault" error, check `HOW-TO-FIND-VAULT-NAME.md`
+- 如果看到 "Unable to find a vault" 错误，查看 `HOW-TO-FIND-VAULT-NAME.md`
+
+**Alternative: Use Quick Switcher / 替代方法：使用快速切换器**
+- Press `Cmd+O` (macOS) or `Ctrl+O` (Windows)
+- 按 `Cmd+O` (macOS) 或 `Ctrl+O` (Windows)
+- Type the file name / 输入文件名
+- Press Enter / 按回车
 
 ---
 
