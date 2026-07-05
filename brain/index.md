@@ -1,3 +1,8 @@
+---
+type: note
+title: MyWiki Knowledge Map
+---
+
 # MyWiki Knowledge Map
 
 > Auto-generated . 2026-07-05 19:01
