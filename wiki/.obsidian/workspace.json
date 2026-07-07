@@ -31,10 +31,14 @@
             "id": "ed92277e0003d2db",
             "type": "leaf",
             "state": {
-              "type": "graph",
-              "state": {},
-              "icon": "lucide-git-fork",
-              "title": "关系图谱"
+              "type": "markdown",
+              "state": {
+                "file": "OpenClaw/Video-Analysis-Skill创建记录.md",
+                "mode": "source",
+                "source": false
+              },
+              "icon": "lucide-file",
+              "title": "Video-Analysis-Skill创建记录"
             }
           }
         ]
@@ -180,6 +184,18 @@
               "icon": "lucide-list",
               "title": "欢迎 的大纲"
             }
+          },
+          {
+            "id": "9924def2c78244ca",
+            "type": "leaf",
+            "state": {
+              "type": "footnotes",
+              "state": {
+                "file": "OpenClaw/Video-Analysis-Skill创建记录.md"
+              },
+              "icon": "lucide-file-signature",
+              "title": "脚注"
+            }
           }
         ]
       }
@@ -196,11 +212,92 @@
       "daily-notes:打开/创建今天的日记": false,
       "templates:插入模板": false,
       "command-palette:打开命令面板": false,
-      "bases:新建数据库": false
+      "bases:新建数据库": false,
+      "publish:发布更改": false,
+      "workspaces:管理工作区布局": false,
+      "audio-recorder:开始/结束录音": false,
+      "markdown-importer:打开 Markdown 格式转换器": false,
+      "zk-prefixer:创建时间戳笔记": false,
+      "random-note:开始漫游笔记": false,
+      "obsidian-importer:Open Importer": false
     }
   },
-  "active": "30d2ce5b6e67a41c",
+  "floating": {
+    "id": "0a80bddc0060bd26",
+    "type": "floating",
+    "children": [
+      {
+        "id": "e00fa2e41918d54d",
+        "type": "window",
+        "children": [
+          {
+            "id": "3a586abb1da810fc",
+            "type": "tabs",
+            "children": [
+              {
+                "id": "c420afcc46337375",
+                "type": "leaf",
+                "state": {
+                  "type": "webviewer",
+                  "state": {
+                    "url": "https://login.microsoftonline.com/common/oauth2/v2.0/authorize?client_id=66553851-08fa-44f2-8bb1-1436f121a73d&scope=offline_access+user.read+notes.read&response_type=code&redirect_uri=obsidian%3A%2F%2Fimporter-auth%2F&response_mode=query&state=7ce21be24d8134e493f426efe587908e&sso_reload=true",
+                    "title": "登录到您的帐户",
+                    "mode": "webview"
+                  },
+                  "icon": "globe-2",
+                  "title": "登录到您的帐户"
+                }
+              }
+            ]
+          }
+        ],
+        "direction": "vertical",
+        "x": 512,
+        "y": 112,
+        "width": 1024,
+        "height": 800,
+        "maximize": false,
+        "zoom": 0
+      }
+    ]
+  },
+  "active": "68c72441e9cbf7e9",
   "lastOpenFiles": [
-    "欢迎.md"
+    "OpenClaw/memo-sync-setup_2026-07-08.md",
+    "OpenClaw/video-analysis-skill_2026-07-08.md",
+    "AI产品经理共学营/aipmday2-analysis_2026-07-08.md",
+    "AI产品经理共学营/aipmday-analysis_2026-07-07.md",
+    "brain/wiki.md",
+    "brain/weekly_review.md",
+    "brain/test-page.md.md",
+    "brain/readme.md",
+    "brain/performance.md",
+    "brain/obsidian_integration.md",
+    "brain/local-models.md",
+    "brain/knowledge_report.md",
+    "brain/index.md",
+    "brain/how-to-find-vault-name.md",
+    "brain/deploy_guide.md",
+    "brain",
+    "people/Michael_Qiu.md",
+    "people",
+    "concepts/RAG_vs_Wiki.md",
+    "concepts/LLM_Wiki.md",
+    "concepts",
+    "projects/stock-crewai.md",
+    "projects/stock-crewai-updates.md",
+    "projects/sanguosha-mobile-updates.md",
+    "projects/psvr2-panel.md",
+    "projects/psvr2-panel-updates.md",
+    "projects/my-wiki-updates.md",
+    "projects",
+    "daily/2026-07-03-memos-pull.md",
+    "daily/2026-07-07-memos-pull.md",
+    "OneNote/Michael 的笔记本/Quick Notes",
+    "OneNote/Michael 的笔记本",
+    "OneNote/Evernote [2]/神经症",
+    "OneNote/Evernote [2]",
+    "Apple Notes",
+    "OneNote"
   ]
 }

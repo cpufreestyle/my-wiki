@@ -2,7 +2,7 @@
 
 > 基于 [Andrej Karpathy's LLM Wiki 理念](https://karpathy.github.io/2025/05/11/llm-wiki/) 构建的个人知识库系统
 
-[![Version](https://img.shields.io/badge/version-v1.2.0-blue)](https://github.com/cpufreestyle/my-wiki/releases/tag/v1.2.0)
+[![Version](https://img.shields.io/badge/version-v2.0.0-blue)](https://github.com/cpufreestyle/my-wiki/releases/tag/v2.0.0)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Obsidian](https://img.shields.io/badge/Obsidian-1.0+-purple)](https://obsidian.md)
 
@@ -16,7 +16,8 @@
 - [详细安装指南](#详细安装指南)
 - [操作流程](#操作流程)
 - [目录结构](#目录结构)
-- [功能特性](#功能特性)
+- [功能模块](#功能模块)
+- [集成工具](#集成工具)
 - [本地模型支持](#本地模型支持)
 - [日常使用](#日常使用)
 - [故障排除](#故障排除)
@@ -334,8 +335,21 @@ graph TD
 
 ```
 my-wiki/
-├── README.md                      # 本文件
+├── README.md                      # 本文件 (v2.0)
 ├── INDEX.md                       # 知识索引（自动生成）
+├── wiki_tool.py                   # 统一工具入口 (v2.0)
+├── modules/                       # 功能模块 🆕
+│   ├── video-analysis/            # 视频分析
+│   │   ├── README.md
+│   │   └── analyze.py
+│   ├── memo-sync/                 # Memo 同步
+│   │   ├── README.md
+│   │   └── sync.py
+│   ├── obsidian-sync/             # Obsidian 双 Vault 同步
+│   │   ├── README.md
+│   │   └── sync.py
+│   └── a2a-agent/                 # A2A Agent 网络文档
+│       └── README.md
 ├── .obsidian/                     # Obsidian 配置
 │   ├── app.json                   # 应用设置
 │   ├── templates/                 # 模板
@@ -366,6 +380,78 @@ my-wiki/
 ├── attachments/                   # 附件（图片等）
 ├── requirements.txt               # Python 依赖
 └── .gitignore                     # Git 忽略规则
+```
+
+---
+
+## 🔌 功能模块
+
+MyWiki v2.0 集成以下功能模块，位于 `modules/` 目录：
+
+### 模块列表
+
+| 模块 | 目录 | 功能 |
+|------|------|------|
+| **Video Analysis** | `modules/video-analysis/` | FFmpeg 帧提取 + Vision 逐帧分析 → Markdown 报告 |
+| **Memo Sync** | `modules/memo-sync/` | 与本地 Memo (MemoAI) 应用双向同步 |
+| **Obsidian Sync** | `modules/obsidian-sync/` | 多 Vault 同步（Documents + Wiki） |
+| **A2A Agent** | `modules/a2a-agent/` | Google A2A 协议 Agent 网络文档索引 |
+
+### 模块使用
+
+```bash
+# 视频分析
+python wiki_tool.py video <video_path> --interval 30 --title "标题"
+
+# Memo 同步
+python wiki_tool.py memo-push <file.md> --title "标题"
+python wiki_tool.py memo-list
+python wiki_tool.py memo-search "关键词"
+python wiki_tool.py memo-pull
+
+# Obsidian 双 Vault 同步
+python wiki_tool.py sync-obsidian              # 同步到所有 Vault
+python wiki_tool.py sync-obsidian --vault documents  # 仅 Documents
+```
+
+### 模块架构
+
+```
+modules/
+├── video-analysis/
+│   ├── README.md          # 模块文档
+│   └── analyze.py         # 视频分析入口（ffprobe → ffmpeg → 采样 → 报告）
+├── memo-sync/
+│   ├── README.md          # 模块文档
+│   └── sync.py            # Memo SQLite 同步脚本
+├── obsidian-sync/
+│   ├── README.md          # 模块文档
+│   └── sync.py            # 多 Vault 同步脚本
+└── a2a-agent/
+    └── README.md          # A2A 网络文档索引
+```
+
+---
+
+## 🛠 集成工具
+
+### wiki_tool.py v2.0
+
+统一的命令行入口，集成所有模块：
+
+```bash
+# 基础命令
+python wiki_tool.py update                    # 更新 INDEX.md
+python wiki_tool.py daily                     # 创建今日笔记
+python wiki_tool.py search <query>            # 搜索 wiki
+
+# 模块命令
+python wiki_tool.py video <path> [opts]       # 视频分析
+python wiki_tool.py memo-push <file> [opts]   # 推送到 Memo
+python wiki_tool.py memo-list                 # 列出 Memo 文档
+python wiki_tool.py memo-search <keyword>     # 搜索 Memo
+python wiki_tool.py memo-pull                 # 从 Memo 拉取
+python wiki_tool.py sync-obsidian [opts]      # 同步到 Obsidian
 ```
 
 ---
@@ -571,6 +657,6 @@ pip install -r requirements.txt
 
 ---
 
-**最后更新**: 2026-07-01
+**最后更新**: 2026-07-08
 
-**版本**: v1.2.0
+**版本**: v2.0.0
