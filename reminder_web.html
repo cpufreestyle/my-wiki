@@ -185,15 +185,16 @@
             margin-top: 12px;
         }
         .btn {
-            border: none;
+            border: 1px solid var(--border);
             border-radius: var(--radius-btn);
             padding: 14px;
             font-size: 15px;
             font-weight: 600;
             font-family: inherit;
-            color: #fff;
+            background: var(--surface);
+            color: var(--text);
             cursor: pointer;
-            transition: background 0.15s ease, transform 0.1s ease;
+            transition: border-color 0.15s ease, transform 0.1s ease;
         }
         .btn:active {
             transform: scale(0.98);
@@ -203,16 +204,16 @@
             outline-offset: 2px;
         }
         .btn-custom {
-            background: var(--orange);
+            border-color: var(--orange);
         }
         .btn-custom:hover {
-            background: var(--orange-hover);
+            border-color: var(--orange-hover);
         }
         .btn-view {
-            background: var(--green);
+            border-color: var(--green);
         }
         .btn-view:hover {
-            background: var(--green-hover);
+            border-color: var(--green-hover);
         }
 
         /* ---------- Pending list ---------- */
@@ -246,6 +247,15 @@
             font-size: 14px;
             color: var(--text-secondary);
             padding: 20px 0;
+        }
+
+        /* ---------- Status (与桌面版 self.status 对齐) ---------- */
+        .status {
+            text-align: center;
+            font-size: 13px;
+            color: var(--text-secondary);
+            margin-top: 18px;
+            min-height: 18px;
         }
 
         /* ---------- Modal ---------- */
@@ -324,15 +334,16 @@
         .btn-secondary {
             background: var(--bg);
             color: var(--text);
+            border: 1px solid var(--border);
         }
         .btn-secondary:hover {
             filter: brightness(0.96);
         }
         .btn-primary {
-            background: var(--accent);
+            border-color: var(--accent);
         }
         .btn-primary:hover {
-            background: var(--accent-hover);
+            border-color: var(--accent-hover);
         }
 
         /* ---------- Toast ---------- */
@@ -435,6 +446,8 @@
             <button class="btn btn-custom" id="customBtn">➕ 自定义提醒</button>
             <button class="btn btn-view" id="viewBtn">📋 待发送</button>
         </div>
+
+        <p class="status" id="status" aria-live="polite">点击按钮设置提醒</p>
 
         <section id="pendingSection" hidden aria-live="polite">
             <h2 class="section-title">待发送提醒</h2>
@@ -542,6 +555,12 @@
             return date;
         }
 
+        // 格式化为 YYYY-MM-DD HH:MM（与桌面版 strftime('%Y-%m-%d %H:%M') 一致）
+        function fmt(dt) {
+            const pad = (n) => String(n).padStart(2, "0");
+            return `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())} ${pad(dt.getHours())}:${pad(dt.getMinutes())}`;
+        }
+
         function computeRemindAt() {
             if (typeof currentHours === "number") {
                 return new Date(Date.now() + currentHours * 3600 * 1000);
@@ -601,9 +620,11 @@
                 currentName = btn.dataset.name;
                 currentHours = btn.dataset.hours ? Number(btn.dataset.hours) : null;
                 currentKey = btn.dataset.key || null;
+                const remindAt = computeRemindAt();
                 $("#contentTitle").textContent = "设置提醒：" + currentName;
-                $("#contentSub").textContent = "请输入提醒内容";
+                $("#contentSub").textContent = "时间：" + fmt(remindAt);
                 $("#reminderText").value = "";
+                $("#reminderText").placeholder = "请输入提醒内容";
                 openModal("#contentModal");
                 setTimeout(() => $("#reminderText").focus(), 50);
             });
@@ -618,9 +639,10 @@
             const remindAt = computeRemindAt();
             const { demo } = await apiSave(remindAt, text);
             closeModal("#contentModal");
+            $("#status").textContent = "已设置：" + currentName;
             toast(
                 (demo ? "✅ 已本地保存（演示）" : "✅ 提醒已设置") +
-                "\n" + currentName + " · " + remindAt.toLocaleString("zh-CN")
+                "\n" + currentName + " · " + fmt(remindAt)
             );
         });
 
@@ -649,9 +671,10 @@
             const remindAt = new Date(timeVal);
             const { demo } = await apiSave(remindAt, text);
             closeModal("#customModal");
+            $("#status").textContent = "已设置：自定义";
             toast(
                 (demo ? "✅ 已本地保存（演示）" : "✅ 自定义提醒已设置") +
-                "\n" + remindAt.toLocaleString("zh-CN")
+                "\n" + fmt(remindAt)
             );
         });
 

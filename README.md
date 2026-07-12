@@ -2,7 +2,7 @@
 
 > 基于 [Andrej Karpathy's LLM Wiki 理念](https://karpathy.github.io/2025/05/11/llm-wiki/) 构建的个人知识库系统
 
-[![Version](https://img.shields.io/badge/version-v2.5.0-blue)](https://github.com/cpufreestyle/my-wiki/releases/tag/v2.5.0)
+[![Version](https://img.shields.io/badge/version-v2.6.0-blue)](https://github.com/cpufreestyle/my-wiki/releases/tag/v2.6.0)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Obsidian](https://img.shields.io/badge/Obsidian-1.0+-purple)](https://obsidian.md)
 
@@ -351,6 +351,8 @@ my-wiki/
 ├── rag.py                         # 语义 RAG 检索引擎 (BM25 / Ollama embedding)
 ├── theme.py                       # 统一设计 token（Apple 风浅/深色）🆕
 ├── reminder_web.html              # 提醒 Web UI（支持深色模式）🆕
+├── daily_web.html                  # 日记 Web UI（模板 / 标签提取 / 深色模式）🆕
+├── mood_web.html                   # 心情 Web UI（心情分析 / 语音 / 深色模式）🆕
 ├── FIGMA_DESIGN_SPEC.md           # Figma 设计规格文档 🆕
 ├── modules/                       # 功能模块 🆕
 │   ├── video-analysis/            # 视频分析
@@ -409,7 +411,7 @@ my-wiki/
 
 ## 🔌 功能模块
 
-MyWiki v2.5.0 集成以下功能模块，位于 `modules/` 目录：
+MyWiki v2.6.0 集成以下功能模块，位于 `modules/` 目录：
 
 ### 模块列表
 
@@ -606,15 +608,16 @@ MYWIKI_RAG_MODE=ollama python rag.py "你的问题" --rebuild
 ### 9. UI 主题统一（Apple 风浅 / 深色）🆕
 
 - ✅ **统一设计 token**：`theme.py` 集中管理颜色 / 字体 / 圆角 / 阴影，Web 端与桌面端共用同一套值，改一处即可整体换肤
-- ✅ **浅色 / 深色主题**：`reminder_web.html` 支持一键切换深色模式，偏好持久化到 `localStorage`
+- ✅ **浅色 / 深色主题**：`reminder_web.html` / `daily_web.html` / `mood_web.html` 均支持一键切换深色模式，偏好持久化到 `localStorage`
+- ✅ **桌面端功能网页化**：提醒 / 日记 / 心情三大桌面端功能均已提供对应的自包含网页版（同一套 Apple 风设计），无需启动 GUI 即可在浏览器使用
 - ✅ **设计规格沉淀**：`FIGMA_DESIGN_SPEC.md` 记录界面设计稿与规范，便于后续迭代与协作
-- ✅ **一致体验**：`reminder_ui.py` / `daily_ui.py` 同步适配统一 token
+- ✅ **一致体验**：`reminder_ui.py` / `daily_ui.py` / `wiki_app.py` 同步适配统一 token
 
 **换肤 / 切换主题**：
 
 ```bash
 # 改 theme.py 中的 LIGHT / DARK 字典即可整体调整配色
-# Web 端：打开 reminder_web.html，点击右上角 🌙/☀️ 切换深 / 浅色
+# Web 端：打开 reminder_web.html / daily_web.html / mood_web.html，点击右上角 🌙/☀️ 切换深 / 浅色
 ```
 
 ---
@@ -759,16 +762,19 @@ pip install -r requirements.txt
 仓库自带轻量测试（零第三方依赖），并配有 GitHub Actions 持续集成。
 
 ```bash
-# 1) reminder_web.html 结构 / 选择器一致性（Python 标准库，防 null 引用类 bug）
+# 1) Web UI 结构 / 选择器一致性（Python 标准库，防 null 引用类 bug）
 python -m unittest discover -s tests -p "test_*.py" -v
 
-# 2) reminder_web.html 纯日期逻辑（Node 内置 test runner，从 HTML 抽取函数运行）
+# 2) Web UI 纯逻辑（Node 内置 test runner，从 HTML 抽取函数运行）
 node --test "tests/**/*.test.mjs"
 ```
 
-- `tests/test_reminder_web.py`：校验脚本中每个 `#id` / `.class` 选择器都能命中真实元素、
-  预设卡片 `data-key` 与 `getPresetTime` 分支一致、关键 a11y 属性（`aria-modal`/`role`）在位。
+- `tests/test_reminder_web.py` / `tests/test_daily_web.py` / `tests/test_mood_web.py`：分别校验
+  三个网页版脚本中每个 `#id` / `.class` 选择器都能命中真实元素、关键 a11y 属性
+  （`aria-modal`/`role`）在位、深色模式与全局错误过滤器齐备。
 - `tests/reminder_web.logic.test.mjs`：校验 `getPresetTime` / `computeRemindAt` 的时间计算正确。
+- `tests/daily_web.logic.test.mjs`：校验 `extract_tags` 的停用词过滤 / 领域词加权 / `top_n` 生效。
+- `tests/mood_web.logic.test.mjs`：校验 `analyze_mood` 的关键词命中 / 否定词处理 / 中性回退。
 - `.github/workflows/ci.yml`：push / PR 到 `main` 时自动跑上述测试 + RAG/theme 冒烟检查。
 
 ---
@@ -784,4 +790,4 @@ node --test "tests/**/*.test.mjs"
 
 **最后更新**: 2026-07-12（主窗口主题统一 + 测试与 CI 保障）
 
-**版本**: v2.5.0
+**版本**: v2.6.0

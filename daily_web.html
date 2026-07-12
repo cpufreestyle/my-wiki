@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MyWiki 日记</title>
+    <style>
+        :root {
+            --bg: #f5f5f7;
+            --surface: #ffffff;
+            --text: #1d1d1f;
+            --text-secondary: #86868b;
+            --accent: #0a84ff;
+            --accent-hover: #0070e0;
+            --green: #34c759;
+            --green-hover: #2bb04e;
+            --border: #e5e5ea;
+            --radius-card: 14px;
+            --radius-btn: 10px;
+            --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.08);
+            --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.06);
+            --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display",
+                "PingFang SC", "Helvetica Neue", "Microsoft YaHei", sans-serif;
+            --mono: "SF Mono", Menlo, Consolas, "PingFang SC", monospace;
+        }
+
+        /* ---------- 深色模式 ---------- */
+        [data-theme="dark"] {
+            --bg: #1c1c1e;
+            --surface: #2c2c2e;
+            --text: #f5f5f7;
+            --text-secondary: #98989d;
+            --accent: #0a84ff;
+            --accent-hover: #409cff;
+            --green: #30d158;
+            --green-hover: #40d969;
+            --border: #3a3a3c;
+            --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4);
+            --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.5);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: var(--font);
+            background: var(--bg);
+            color: var(--text);
+            -webkit-font-smoothing: antialiased;
+            line-height: 1.45;
+            transition: background 0.2s ease, color 0.2s ease;
+        }
+
+        .app {
+            max-width: 560px;
+            margin: 0 auto;
+            padding: 32px 20px 48px;
+        }
+
+        /* ---------- Header ---------- */
+        .app-header {
+            position: relative;
+            text-align: center;
+            margin-bottom: 24px;
+        }
+        .app-header .icon {
+            width: 56px;
+            height: 56px;
+            margin: 0 auto 14px;
+            display: grid;
+            place-items: center;
+            font-size: 28px;
+            background: var(--surface);
+            border-radius: 16px;
+            box-shadow: var(--shadow-sm);
+        }
+        .app-header h1 {
+            font-size: 22px;
+            font-weight: 600;
+            letter-spacing: -0.01em;
+        }
+        .app-header p {
+            margin-top: 4px;
+            font-size: 14px;
+            color: var(--text-secondary);
+        }
+
+        .theme-toggle {
+            position: absolute;
+            top: 0;
+            right: 0;
+            width: 38px;
+            height: 38px;
+            border: none;
+            border-radius: 50%;
+            background: var(--surface);
+            color: var(--text);
+            font-size: 17px;
+            cursor: pointer;
+            box-shadow: var(--shadow-sm);
+            display: grid;
+            place-items: center;
+            transition: transform 0.15s ease, background 0.2s ease;
+        }
+        .theme-toggle:hover {
+            transform: scale(1.08);
+        }
+        .theme-toggle:active {
+            transform: scale(0.94);
+        }
+        .theme-toggle:focus-visible {
+            outline: 3px solid var(--accent);
+            outline-offset: 2px;
+        }
+
+        /* ---------- Date row ---------- */
+        .date-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 12px;
+        }
+        .date-row .date {
+            font-size: 16px;
+            font-weight: 600;
+        }
+        .date-row .spacer {
+            flex: 1;
+        }
+        .tool-btn {
+            border: 1px solid var(--border);
+            border-radius: var(--radius-btn);
+            padding: 8px 14px;
+            font-size: 13px;
+            font-weight: 600;
+            font-family: inherit;
+            background: var(--surface);
+            color: var(--text);
+            cursor: pointer;
+            transition: border-color 0.15s ease, transform 0.1s ease;
+        }
+        .tool-btn:hover {
+            border-color: var(--accent);
+        }
+        .tool-btn:active {
+            transform: scale(0.97);
+        }
+        .tool-btn:focus-visible {
+            outline: 3px solid var(--accent);
+            outline-offset: 2px;
+        }
+
+        /* ---------- Editor ---------- */
+        .editor-card {
+            background: var(--surface);
+            border-radius: var(--radius-card);
+            box-shadow: var(--shadow-sm);
+            padding: 14px;
+            transition: background 0.2s ease;
+        }
+        textarea.editor {
+            width: 100%;
+            min-height: 300px;
+            border: none;
+            outline: none;
+            resize: vertical;
+            background: transparent;
+            color: var(--text);
+            font-family: var(--mono);
+            font-size: 14px;
+            line-height: 1.6;
+        }
+
+        /* ---------- Bottom actions ---------- */
+        .bottom-row {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-top: 14px;
+        }
+        .tag-display {
+            flex: 1;
+            font-size: 13px;
+            color: var(--green);
+            word-break: break-all;
+        }
+        .save-btn {
+            border: 1px solid var(--accent);
+            border-radius: var(--radius-btn);
+            padding: 12px 22px;
+            font-size: 15px;
+            font-weight: 700;
+            font-family: inherit;
+            background: var(--accent);
+            color: #fff;
+            cursor: pointer;
+            transition: border-color 0.15s ease, transform 0.1s ease;
+        }
+        .save-btn:hover {
+            border-color: var(--accent-hover);
+            background: var(--accent-hover);
+        }
+        .save-btn:active {
+            transform: scale(0.98);
+        }
+        .save-btn:focus-visible {
+            outline: 3px solid var(--accent);
+            outline-offset: 2px;
+        }
+
+        /* ---------- Status ---------- */
+        .status {
+            text-align: center;
+            font-size: 13px;
+            color: var(--text-secondary);
+            margin-top: 18px;
+            min-height: 18px;
+        }
+
+        /* ---------- Toast ---------- */
+        .toast {
+            position: fixed;
+            left: 50%;
+            bottom: 32px;
+            transform: translateX(-50%) translateY(20px);
+            background: rgba(29, 29, 31, 0.92);
+            color: #fff;
+            padding: 12px 20px;
+            border-radius: 12px;
+            font-size: 14px;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.2s ease, transform 0.2s ease;
+            z-index: 2000;
+            max-width: 90%;
+            text-align: center;
+            white-space: pre-line;
+        }
+        .toast.show {
+            opacity: 1;
+            transform: translateX(-50%) translateY(0);
+        }
+
+        /* ---------- 响应式 ---------- */
+        @media (max-width: 480px) {
+            .app { padding: 28px 14px 40px; }
+            .app-header h1 { font-size: 20px; }
+            textarea.editor { min-height: 240px; }
+        }
+    </style>
+</head>
+<body>
+    <main class="app">
+        <header class="app-header">
+            <button class="theme-toggle" id="themeToggle" aria-label="切换深色模式" title="切换深色 / 浅色">🌙</button>
+            <div class="icon" aria-hidden="true">📓</div>
+            <h1>日记</h1>
+            <p>MyWiki · 记录今天的想法</p>
+        </header>
+
+        <div class="date-row">
+            <span class="date" id="todayLabel">—</span>
+            <span class="spacer"></span>
+            <button class="tool-btn" id="tagsBtn">🏷 标签</button>
+            <button class="tool-btn" id="templateBtn">📝 模板</button>
+        </div>
+
+        <div class="editor-card">
+            <textarea class="editor" id="editor" placeholder="开始写今天的日记…" aria-label="日记正文"></textarea>
+        </div>
+
+        <div class="bottom-row">
+            <span class="tag-display" id="tagDisplay"></span>
+            <button class="save-btn" id="saveBtn">💾 保存 (Ctrl+S)</button>
+        </div>
+
+        <p class="status" id="status" aria-live="polite">就绪</p>
+    </main>
+
+    <div class="toast" id="toast" role="status"></div>
+
+    <script>
+        // 屏蔽预览宿主 / 浏览器扩展注入脚本产生的跨域 "Script error." 噪音
+        window.addEventListener("error", (e) => {
+            if (!e || e.message === "Script error." || e.filename === "") {
+                e.preventDefault();
+                return true;
+            }
+        }, true);
+
+        const $ = (sel) => document.querySelector(sel);
+
+        // ---------- 主题（深色 / 浅色，与桌面版及 reminder_web.html 一致） ----------
+        const themeToggle = $("#themeToggle");
+        function applyTheme(t) {
+            document.documentElement.setAttribute("data-theme", t);
+            themeToggle.textContent = t === "dark" ? "☀️" : "🌙";
+            try { localStorage.setItem("mywiki-theme", t); } catch {}
+        }
+        (function initTheme() {
+            let t = "light";
+            try { t = localStorage.getItem("mywiki-theme") || "light"; } catch {}
+            applyTheme(t);
+        })();
+        themeToggle.addEventListener("click", () => {
+            const cur = document.documentElement.getAttribute("data-theme");
+            applyTheme(cur === "dark" ? "light" : "dark");
+        });
+
+        // ---------- 工具 ----------
+        function toast(msg) {
+            const el = $("#toast");
+            el.textContent = msg;
+            el.classList.add("show");
+            clearTimeout(el._t);
+            el._t = setTimeout(() => el.classList.remove("show"), 2400);
+        }
+
+        function getToday() {
+            const d = new Date();
+            const pad = (n) => String(n).padStart(2, "0");
+            return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+        }
+
+        function nowTime() {
+            const d = new Date();
+            const pad = (n) => String(n).padStart(2, "0");
+            return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+        }
+
+        // ---------- 标签提取（与桌面版 wiki_app.py:extract_tags 一致） ----------
+        // 停用词表（与桌面版 STOP_WORDS 一致）
+        const STOP_WORDS = new Set([
+            "的","了","是","在","我","有","和","就","不","人","都","一","一个","上","也",
+            "很","到","说","要","去","你","会","着","没有","看","好","自己","这",
+            "今天","明天","昨天","然后","这个","那个","什么","怎么","为什么",
+            "觉得","感觉","想","认为","知道","可以","可能","应该","需要",
+            "一下","一点","一些","几个","多少","很多","非常","特别","真的",
+            "还是","但是","不过","而且","或者","因为","所以","如果","虽然",
+            "已经","正在","将要","曾经","一直","总是","刚刚","刚才","现在",
+            "里面","外面","上面","下面","这里","那里",
+            "事情","东西","地方","时候","样子","方面","问题",
+            "比较","更","最","太","挺","蛮","稍微","有点",
+            "开始","继续","结束","完成","进行","发生","出现","变得"
+        ]);
+        // 领域关键词（命中即加权为 10，与桌面版 DOMAIN_KEYWORDS 一致）
+        const DOMAIN_KEYWORDS = [
+            "万达","商场","公园","医院","学校","公司","家","办公室","餐厅",
+            "唱歌","跳舞","看电影","逛街","购物","运动","健身","跑步","游泳",
+            "开会","加班","写代码","调试","测试","部署","上线","修复","优化",
+            "朋友","同事","家人","老板","客户","老师","同学",
+            "开心","难过","兴奋","焦虑","平静","愤怒",
+            "Python","JavaScript","React","Vue","Git","Docker","AI","LLM"
+        ];
+
+        function extract_tags(text, top_n = 5) {
+            const words = (text.match(/[一-龥a-zA-Z0-9]+/g) || [])
+                .filter((w) => !STOP_WORDS.has(w) && w.length >= 2 && w.length <= 4 && !/^\d+$/.test(w));
+            const counts = {};
+            for (const w of words) counts[w] = (counts[w] || 0) + 1;
+            const normal = Object.entries(counts)
+                .sort((a, b) => b[1] - a[1])
+                .slice(0, top_n * 2);
+            const domain = DOMAIN_KEYWORDS.filter((kw) => text.includes(kw)).map((kw) => [kw, 10]);
+            const all = domain.concat(normal).sort((a, b) => b[1] - a[1]);
+            return all.slice(0, top_n).map((x) => x[0]);
+        }
+
+        const DAILY_TEMPLATE = "\n## Done\n- \n\n## Thoughts\n- \n\n## Tomorrow\n- \n";
+
+        // ---------- 本地存储（与桌面版 daily/YYYY-MM-DD.md 对应，演示态用 localStorage） ----------
+        const LS_PREFIX = "mywiki_daily_";
+        function loadLocal(date) {
+            try { return localStorage.getItem(LS_PREFIX + date) ?? ""; } catch { return ""; }
+        }
+        function saveLocal(date, content) {
+            try { localStorage.setItem(LS_PREFIX + date, content); } catch {}
+        }
+
+        async function apiSave(date, content) {
+            try {
+                const res = await fetch("/api/daily", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ date, content }),
+                });
+                if (!res.ok) throw new Error("HTTP " + res.status);
+                return { ok: true, demo: false };
+            } catch {
+                return { ok: true, demo: true };
+            }
+        }
+
+        // ---------- 初始化 ----------
+        const today = getToday();
+        $("#todayLabel").textContent = today;
+        const initial = loadLocal(today);
+        $("#editor").value = initial || `# ${today} Diary\n\n`;
+
+        function setStatus(msg) {
+            $("#status").textContent = msg;
+        }
+
+        function insertTemplate() {
+            const ta = $("#editor");
+            ta.value += DAILY_TEMPLATE;
+            ta.focus();
+        }
+
+        async function saveDaily() {
+            const content = $("#editor").value.trim();
+            saveLocal(today, content);
+            const { demo } = await apiSave(today, content);
+            setStatus(`日记已保存 - ${today} ${nowTime()}${demo ? "（本地）" : ""}`);
+        }
+
+        function extractAndShowTags() {
+            const content = $("#editor").value;
+            const tags = extract_tags(content);
+            if (tags.length) {
+                $("#tagDisplay").textContent = "标签: " + tags.join(", ");
+                setStatus(`已提取 ${tags.length} 个标签`);
+            } else {
+                $("#tagDisplay").textContent = "";
+                setStatus("未发现关键词");
+            }
+        }
+
+        // ---------- 事件 ----------
+        $("#templateBtn").addEventListener("click", insertTemplate);
+        $("#tagsBtn").addEventListener("click", extractAndShowTags);
+        $("#saveBtn").addEventListener("click", saveDaily);
+        document.addEventListener("keydown", (e) => {
+            if ((e.ctrlKey || e.metaKey) && (e.key === "s" || e.key === "S")) {
+                e.preventDefault();
+                saveDaily();
+            }
+        });
+    </script>
+</body>
+</html>
