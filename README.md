@@ -338,6 +338,7 @@ my-wiki/
 ├── README.md                      # 本文件 (v2.0)
 ├── INDEX.md                       # 知识索引（自动生成）
 ├── wiki_tool.py                   # 统一工具入口 (v2.0)
+├── rag.py                         # 语义 RAG 检索引擎 🆕 (BM25 / Ollama embedding)
 ├── modules/                       # 功能模块 🆕
 │   ├── video-analysis/            # 视频分析
 │   │   ├── README.md
@@ -549,6 +550,34 @@ ollama pull llama3
 }
 ```
 
+### 8. 语义 RAG 检索 🆕
+
+- ✅ **真正的语义检索**：从子串匹配升级为语义相关性排序，更懂查询意图
+- ✅ **零依赖开箱即用**：默认 BM25 模式，纯标准库实现，中文字符 bigram 分词 + IDF 排序
+- ✅ **可选本地向量检索**：本机运行 Ollama + `nomic-embed-text` 时自动升级为 embedding 语义检索，完全离线、隐私友好
+- ✅ **智能分块**：按段落/标题切分笔记，精准召回相关片段并给出打分
+- ✅ **全链路集成**：`wiki_tool.py search`、`wiki_core.semantic_search()`、MCP 工具 `wiki_semantic_search` 三处统一，所有接入的 Agent 都能用上 RAG
+
+**使用方式**：
+```bash
+# 直接语义搜索
+python rag.py "如何配置本地模型 ollama"
+
+# 经 wiki_tool 入口（已升级为语义搜索）
+python wiki_tool.py search "obsidian 如何同步多设备笔记"
+
+# 启用本地向量检索（需 Ollama）
+MYWIKI_RAG_MODE=ollama python rag.py "你的问题" --rebuild
+```
+
+**环境变量**：
+
+| 变量 | 说明 | 默认 |
+|------|------|------|
+| `MYWIKI_RAG_MODE` | 检索模式 `bm25` / `ollama` | `bm25` |
+| `MYWIKI_OLLAMA_URL` | Ollama 服务地址 | `http://localhost:11434` |
+| `MYWIKI_EMBED_MODEL` | 嵌入模型名 | `nomic-embed-text` |
+
 ---
 
 ## 📝 日常使用
@@ -691,6 +720,6 @@ pip install -r requirements.txt
 
 ---
 
-**最后更新**: 2026-07-12
+**最后更新**: 2026-07-12（新增语义 RAG 检索）
 
 **版本**: v2.1.0

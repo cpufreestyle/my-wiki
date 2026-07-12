@@ -276,6 +276,22 @@ def query_links(topic: str, limit: int = 10):
     ]
 
 
+def semantic_search(query: str, limit: int = 10, mode: str = None):
+    """
+    语义检索 wiki（基于 rag.RAGEngine：BM25 或本地 Ollama embedding）。
+    失败时自动降级到原有全文搜索。
+    """
+    import sys as _sys
+    from pathlib import Path as _P
+    # 允许导入仓库根的 rag.py
+    _sys.path.insert(0, str(_P(__file__).resolve().parent.parent.parent))
+    try:
+        from rag import RAGEngine
+        return RAGEngine(mode=mode).search(query, limit)
+    except Exception:
+        return search(query, limit)
+
+
 # ---------------------------------------------------------------------------
 # 索引
 # ---------------------------------------------------------------------------

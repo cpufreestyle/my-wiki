@@ -34,7 +34,7 @@ sys.stderr.reconfigure(encoding="utf-8")
 sys.path.insert(0, str(Path(__file__).parent))
 from wiki_core import (  # noqa: E402
     search, read_note, write_note, list_notes,
-    create_daily_note, search_by_tag, update_index,
+    create_daily_note, search_by_tag, update_index, semantic_search,
 )
 from agent_registry import discover, list_agents  # noqa: E402
 
@@ -125,6 +125,19 @@ TOOLS = [
         "inputSchema": {"type": "object", "properties": {}},
     },
     {
+        "name": "wiki_semantic_search",
+        "description": "语义检索 Wiki（BM25 或本地 Ollama embedding），比全文搜索更懂意图，返回相关片段与打分",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "自然语言查询"},
+                "limit": {"type": "integer", "default": 10},
+                "mode": {"type": "string", "enum": ["bm25", "ollama"], "description": "检索模式，默认 bm25"},
+            },
+            "required": ["query"],
+        },
+    },
+    {
         "name": "wiki_index",
         "description": "重建 Wiki 的 INDEX.md 统一索引",
         "inputSchema": {"type": "object", "properties": {}},
@@ -161,6 +174,13 @@ def _dispatch(name: str, args: dict) -> str:
             return json.dumps(search_by_tag(args["tag"]), ensure_ascii=False, indent=2)
         if name == "wiki_agents":
             return json.dumps(discover(), ensure_ascii=False, indent=2)
+        if name == "wiki_semantic_search":
+            hits = semantic_search(
+                args.get("query", ""),
+                args.get("limit", 10),
+                args.get("mode"),
+            )
+            return json.dumps(hits, ensure_ascii=False, indent=2)
         if name == "wiki_index":
             return update_index()
         return f"[ERROR] 未知工具: {name}"

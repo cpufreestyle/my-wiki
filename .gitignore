@@ -126,6 +126,9 @@ cython_debug/
 # === MyWiki shared-wiki runtime artifacts ===
 modules/shared-wiki/registry.json
 
+# RAG 检索缓存（派生产物，自动生成）
+wiki/.rag_index.json
+
 # Nested sub-project (independent git repo)
 stock-dashboard/
 

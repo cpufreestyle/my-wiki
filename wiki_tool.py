@@ -96,22 +96,35 @@ def create_daily_note():
 
 
 def search_wiki(query: str):
-    """搜索 wiki（简单文本匹配）"""
-    results = []
-    for md_file in WIKI_ROOT.rglob("*.md"):
-        if "README" in md_file.name:
-            continue
-        text = md_file.read_text(encoding="utf-8")
-        if query.lower() in text.lower():
-            results.append(md_file)
-    
-    if results:
-        print(f"[SEARCH] 找到 {len(results)} 个匹配:\n")
-        for r in results:
-            rel = r.relative_to(WIKI_ROOT)
-            print(f"  - [[{rel}|{r.stem.replace('_', ' ')}]]")
-    else:
-        print(f"[NOT FOUND] 未找到匹配: {query}")
+    """语义搜索 wiki（BM25 / 可选 Ollama embedding，失败时回退文本匹配）"""
+    try:
+        from rag import RAGEngine
+        eng = RAGEngine()
+        hits = eng.search(query, limit=10)
+        if not hits:
+            print(f"[NOT FOUND] 未找到语义相关: {query}")
+            return
+        print(f"[SEMANTIC SEARCH] 找到 {len(hits)} 个相关片段:\n")
+        for h in hits:
+            print(f"  - [[{h['rel']}|{h['title']}]]  (score={h['score']})")
+            print(f"    {h['snippet']}")
+    except Exception as e:
+        # 回退到原始子串匹配
+        print(f"[WARN] 语义检索不可用，使用文本匹配: {e}")
+        results = []
+        for md_file in WIKI_ROOT.rglob("*.md"):
+            if "README" in md_file.name:
+                continue
+            text = md_file.read_text(encoding="utf-8")
+            if query.lower() in text.lower():
+                results.append(md_file)
+        if results:
+            print(f"[SEARCH] 找到 {len(results)} 个匹配:\n")
+            for r in results:
+                rel = r.relative_to(WIKI_ROOT)
+                print(f"  - [[{rel}|{r.stem.replace('_', ' ')}]]")
+        else:
+            print(f"[NOT FOUND] 未找到匹配: {query}")
 
 
 def main():
@@ -124,7 +137,7 @@ Wiki 维护工具
 用法:
   python wiki_tool.py update          # 更新 INDEX.md
   python wiki_tool.py daily           # 创建今日笔记
-  python wiki_tool.py search <query> # 搜索 wiki
+  python wiki_tool.py search <query> # 语义搜索 wiki
         """)
     elif args[0] == "update":
         update_index()
