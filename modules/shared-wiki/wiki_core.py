@@ -98,7 +98,11 @@ def build_frontmatter(meta: dict) -> str:
         elif v is None:
             lines.append(f"{k}:")
         else:
-            lines.append(f"{k}: {v}")
+            s = str(v)
+            # 避免 YAML 把纯日期/数字字符串误解析为非字符串类型
+            if re.match(r"^\d{4}-\d{2}-\d{2}([ T].*)?$", s) or re.match(r"^-?\d+(\.\d+)?$", s):
+                s = f"'{s}'"
+            lines.append(f"{k}: {s}")
     lines.append("---")
     return "\n".join(lines) + "\n\n"
 
@@ -251,7 +255,8 @@ def query_links(topic: str, limit: int = 10):
     scored = []
     for n in list_notes(include_body=True):
         score = 0
-        if topic_l in n["title"].lower():
+        title = str(n["title"]).lower()
+        if topic_l in title:
             score += 5
         score += sum(3 for t in n["tags"] if topic_l in t.lower())
         score += n.get("body", "").lower().count(topic_l)
