@@ -298,7 +298,7 @@ def show_welcome_and_check(parent):
               bg=INPUT_BG, fg=INPUT_FG, font=(UI_FONT, 10), relief="flat", padx=20, pady=6).pack(side="left", padx=5)
 
     tk.Label(dlg, text="Tips: Obsidian & OpenClaw are optional.\n提示：Obsidian 和 OpenClaw 是可选的，MyWiki 可独立运行。",
-             bg=BG, fg="#666666", font=(UI_FONT, 8)).pack(pady=(10, 5))
+             bg=BG, fg=MUTED, font=(UI_FONT, 8)).pack(pady=(10, 5))
 
     # 不调用 wait_window: 主 root.mainloop() 会驱动本 Toplevel 的事件
 
@@ -361,18 +361,35 @@ REMINDER_DIR = os.path.join(WIKI_DIR, "reminders")
 REMINDER_FILE = os.path.join(REMINDER_DIR, "reminders.json")
 PENDING_FILE = os.path.join(REMINDER_DIR, "pending_notifications.json")
 
-# ==================== THEME（浅色主题：白底黑字，确保任何系统外观下都清晰） ====================
-BG = "#ffffff"          # 主背景：白
-BG2 = "#f0f0f0"         # 次级背景：浅灰
-FG = "#1a1a1a"          # 主文字：黑（在白底清晰）
-# 输入/编辑控件：白底黑字
-INPUT_BG = "#f3f3f3"
-INPUT_FG = "#1a1a1a"
-INPUT_INSERT = "#1a1a1a"
-ACCENT = "#569cd6"      # 强调蓝（蓝字/蓝底均清晰）
-ACCENT2 = "#0e8f6e"     # 次要青（深青在白底更清晰）
-BTN_BG = "#e8e8e8"      # 按钮背景：浅灰
-BTN_ACTIVE = "#dcdcdc"
+# ==================== THEME（统一设计系统：Apple 风浅/深色，与网页端 reminder_web.html / reminder_ui.py / daily_ui.py 共用 theme.py） ====================
+from theme import get_tokens, load_theme_pref, save_theme_pref
+
+MODE = load_theme_pref()  # 浅色 / 深色，与另外两个桌面端及网页端同步
+
+def apply_theme(mode):
+    """把 theme.py 的 token 映射到本程序的配色常量（支持浅/深色，与网页端一致）。"""
+    T = get_tokens(mode)
+    global BG, BG2, FG, INPUT_BG, INPUT_FG, INPUT_INSERT, ACCENT, ACCENT2, BTN_BG, BTN_ACTIVE, MUTED
+    global BORDER, ORANGE, GREEN, ORANGE_H, GREEN_H, ACCENT_H
+    BG = T["BG"]                # 页面背景：浅灰 / 深灰
+    BG2 = T["SURFACE"]          # 次级背景 / 卡片：白 / 深卡
+    FG = T["TEXT"]              # 主文字
+    INPUT_BG = T["SURFACE"]     # 输入框 / 主按钮：白卡 / 深卡
+    INPUT_FG = T["TEXT"]        # 输入文字
+    INPUT_INSERT = T["TEXT"]    # 光标
+    ACCENT = T["ACCENT"]        # Apple 蓝（深浅一致）
+    ACCENT2 = T["GREEN"]        # 成功 / 强调绿
+    BTN_BG = T["BG"]            # 次级按钮背景（浅灰 / 深灰）
+    BTN_ACTIVE = T["BTN_HOVER"] # 按钮 hover
+    MUTED = T["TEXT2"]          # 次要文字
+    BORDER = T["BORDER"]        # 卡片描边
+    ORANGE = T["ORANGE"]        # 自定义提醒（橙）
+    GREEN = T["GREEN"]          # 查看 / 成功（绿）
+    ORANGE_H = T["ORANGE_H"]    # 橙 hover
+    GREEN_H = T["GREEN_H"]      # 绿 hover
+    ACCENT_H = T["ACCENT_H"]    # 蓝 hover
+
+apply_theme(MODE)
 
 # ==================== FONTS (跨平台) ====================
 # Segoe UI / Consolas 是 Windows 字体，macOS 上不存在，会导致字体渲染异常、
@@ -637,12 +654,12 @@ class WikiApp:
                       background=[("selected", ACCENT)],
                       foreground=[("selected", "white")])
         else:
-            # Aqua 兜底（系统标签栏为浅色背景）：未选中用黑色字，确保清晰可读
+            # Aqua 兜底（系统标签栏为浅色背景）：未选中用主文字色，深浅模式都清晰
             style.configure("TNotebook.Tab", padding=[16, 8], font=(UI_FONT, 12),
-                            background=BG2, foreground="#1a1a1a")
+                            background=BG2, foreground=FG)
             style.map("TNotebook.Tab",
                       background=[("selected", ACCENT), ("!selected", BG2)],
-                      foreground=[("selected", "white"), ("!selected", "#1a1a1a")])
+                      foreground=[("selected", "white"), ("!selected", FG)])
 
         # 顶部工具条：语言切换按钮
         self._build_topbar()
@@ -657,7 +674,7 @@ class WikiApp:
 
         # Status bar（字号加大更清晰）
         self.status = tk.Label(root, text=t("ready"), font=(UI_FONT, 10),
-                               bg=BG, fg="#666666", anchor="w")
+                               bg=BG, fg=MUTED, anchor="w")
         self.status.pack(fill=tk.X, padx=10, pady=4)
 
         # Keyboard shortcuts
@@ -680,6 +697,12 @@ class WikiApp:
                   bg=INPUT_BG, fg=ACCENT, activebackground=BTN_ACTIVE,
                   relief=tk.FLAT, font=(UI_FONT, 10, "bold"),
                   cursor="hand2", padx=12, pady=2).pack(side=tk.RIGHT, padx=4)
+        # 主题切换（浅色/深色，与网页端及另外两个桌面端同步偏好）
+        theme_icon = "🌙" if MODE == "light" else "☀️"
+        tk.Button(bar, text=theme_icon, command=self.toggle_theme,
+                  bg=INPUT_BG, fg=ACCENT, activebackground=BTN_ACTIVE,
+                  relief=tk.FLAT, font=(UI_FONT, 10, "bold"),
+                  cursor="hand2", padx=10, pady=2).pack(side=tk.RIGHT, padx=2)
 
     def toggle_language(self):
         """中/英切换：切换 LANG 后重建整个界面"""
@@ -690,39 +713,97 @@ class WikiApp:
             child.destroy()
         self.__init__(self.root)
 
+    def toggle_theme(self):
+        """浅色/深色切换：写入偏好并整体重建界面（与 reminder/daily 桌面端及网页端同步）。"""
+        global MODE
+        MODE = "dark" if MODE == "light" else "light"
+        save_theme_pref(MODE)
+        apply_theme(MODE)
+        # 保留当前窗口尺寸
+        geo = self.root.geometry()
+        # 销毁所有子控件后重建
+        for child in list(self.root.winfo_children()):
+            child.destroy()
+        self.__init__(self.root)
+        self.root.geometry(geo)
+
     def _label(self, parent, text, **kw):
         font = kw.pop("font", (UI_FONT, kw.pop("size", 11)))
         return tk.Label(parent, text=text, bg=BG, fg=FG, font=font, **kw)
 
-    def _btn(self, parent, text, cmd, bg=INPUT_BG, fg=INPUT_FG, **kw):
+    def _btn(self, parent, text, cmd, bg=BTN_BG, fg=FG, **kw):
         return tk.Button(parent, text=text, command=cmd, bg=bg, fg=fg,
-                         activebackground="#e8e8e8", activeforeground=fg,
+                         activebackground=BTN_ACTIVE, activeforeground=fg,
                          relief=tk.FLAT, font=(UI_FONT, 10), cursor="hand2", **kw)
+
+    def _accent_btn(self, parent, text, cmd, **kw):
+        """主操作按钮（填充蓝，对应网页 .btn-primary）"""
+        return tk.Button(parent, text=text, command=cmd, bg=ACCENT, fg="white",
+                         activebackground=ACCENT_H, activeforeground="white",
+                         relief=tk.FLAT, font=(UI_FONT, 11, "bold"), cursor="hand2", **kw)
+
+    # ---------- 卡片式布局组件（与网页端 reminder_web.html / reminder_ui.py 一致） ----------
+    def _section(self, parent, text):
+        """小标题（对应网页 .section-title：次要灰、加粗、上下留白）"""
+        tk.Label(parent, text=text, bg=BG, fg=MUTED,
+                 font=(UI_FONT, 12, "bold")).pack(anchor="w", padx=12, pady=(16, 6))
+
+    def _card(self, parent, padx=10, pady=8, **pack_kw):
+        """白卡容器（SURFACE + 1px BORDER），内容放里面即呈卡片式。"""
+        c = tk.Frame(parent, bg=BG2, highlightbackground=BORDER, highlightthickness=1)
+        c.pack(padx=padx, pady=pady, fill=tk.BOTH, expand=True, **pack_kw)
+        return c
+
+    def _bind_click(self, widget, cb):
+        """把点击绑定到整个卡片（含所有子控件），并变成手型光标。"""
+        try:
+            widget.bind("<Button-1>", lambda e: cb())
+            widget.config(cursor="hand2")
+        except Exception:
+            pass
+        for child in widget.winfo_children():
+            self._bind_click(child, cb)
+
+    def _make_card(self, parent, title, hint=None, dot_color=None, on_click=None):
+        """生成一张可点卡片（对应网页 .preset-card）：圆点 + 标题 + 可选副文案。"""
+        card = tk.Frame(parent, bg=BG2, highlightbackground=BORDER, highlightthickness=1)
+        head = tk.Frame(card, bg=BG2)
+        head.pack(fill=tk.X, padx=14, pady=(12, 2))
+        if dot_color:
+            tk.Label(head, text="●", fg=dot_color, bg=BG2, font=(UI_FONT, 9)).pack(side=tk.LEFT, padx=(0, 8))
+        tk.Label(head, text=title, bg=BG2, fg=FG, font=(UI_FONT, 13, "bold")).pack(side=tk.LEFT)
+        if hint:
+            tk.Label(card, text=hint, bg=BG2, fg=MUTED, font=(UI_FONT, 11),
+                     anchor="w").pack(fill=tk.X, padx=(32, 14), pady=(0, 12))
+        if on_click:
+            self._bind_click(card, on_click)
+        return card
 
     # ==================== DAILY TAB ====================
     def build_daily_tab(self):
         tab = tk.Frame(self.nb, bg=BG)
         self.nb.add(tab, text=t("tab_diary"))
 
-        # Top bar
+        # 顶部：日期 + 模板/标签 按钮
         top = tk.Frame(tab, bg=BG)
-        top.pack(fill=tk.X, padx=10, pady=(10, 5))
+        top.pack(fill=tk.X, padx=10, pady=(6, 0))
         self._label(top, f"  {get_today()}", font=(UI_FONT, 13, "bold")).pack(side=tk.LEFT)
-        self._btn(top, t("template"), self.insert_template, padx=8).pack(side=tk.RIGHT, padx=2)
         self._btn(top, t("tags"), self.extract_and_show_tags, padx=8).pack(side=tk.RIGHT, padx=2)
+        self._btn(top, t("template"), self.insert_template, padx=8).pack(side=tk.RIGHT, padx=2)
 
-        # Text area
-        self.daily_text = scrolledtext.ScrolledText(tab, font=(MONO_FONT, 13),
-                                                     bg=INPUT_BG, fg=INPUT_FG, insertbackground=INPUT_INSERT,
-                                                     wrap=tk.WORD, relief=tk.FLAT,
-                                                     padx=8, pady=8, takefocus=1)
-        self.daily_text.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+        # 编辑区卡片（白卡 + 卡内浅底输入框，对应网页 .field input）
+        editor = self._card(tab)
+        self.daily_text = scrolledtext.ScrolledText(editor, font=(MONO_FONT, 13),
+                                                     bg=BG, fg=FG, insertbackground=INPUT_INSERT,
+                                                     wrap=tk.WORD, relief=tk.FLAT, borderwidth=0,
+                                                     highlightthickness=0, padx=10, pady=10, takefocus=1)
+        self.daily_text.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
         self.daily_text.insert("1.0", load_daily(get_today()))
 
-        # Bottom
+        # 底部：保存（主按钮）+ 标签显示
         bot = tk.Frame(tab, bg=BG)
-        bot.pack(fill=tk.X, padx=10, pady=(0, 8))
-        self._btn(bot, t("save"), self.save_daily, bg=INPUT_BG, fg=ACCENT, padx=16, pady=4).pack(side=tk.RIGHT)
+        bot.pack(fill=tk.X, padx=10, pady=(0, 10))
+        self._accent_btn(bot, t("save"), self.save_daily, padx=18, pady=6).pack(side=tk.RIGHT)
 
         self.tag_display = tk.Label(bot, text="", bg=BG, fg=ACCENT2, font=(UI_FONT, 10))
         self.tag_display.pack(side=tk.LEFT)
@@ -753,7 +834,7 @@ class WikiApp:
             self.status.config(text=t("extracted_tags", n=len(tags)), fg=ACCENT2)
         else:
             self.tag_display.config(text=t("no_tags"))
-            self.status.config(text=t("no_keywords"), fg="#666666")
+            self.status.config(text=t("no_keywords"), fg=MUTED)
         self._refocus(self.daily_text)
 
     # ==================== MOOD TAB ====================
@@ -761,39 +842,42 @@ class WikiApp:
         tab = tk.Frame(self.nb, bg=BG)
         self.nb.add(tab, text=t("tab_mood"))
 
-        # Input
-        top = tk.Frame(tab, bg=BG)
-        top.pack(fill=tk.X, padx=10, pady=(10, 5))
-        self._label(top, t("mood_q"), font=(UI_FONT, 13, "bold")).pack(anchor="w")
+        # 小标题
+        self._section(tab, t("mood_q"))
 
-        self.mood_input = scrolledtext.ScrolledText(tab, height=3, font=(UI_FONT, 12),
-                                                      bg=INPUT_BG, fg=INPUT_FG, insertbackground=INPUT_INSERT,
-                                                      wrap=tk.WORD, relief=tk.FLAT,
-                                                      padx=8, pady=6, takefocus=1)
-        self.mood_input.pack(fill=tk.X, padx=10, pady=5)
+        # 输入卡片
+        inp = self._card(tab, pady=6)
+        self.mood_input = scrolledtext.ScrolledText(inp, height=3, font=(UI_FONT, 12),
+                                                      bg=BG, fg=FG, insertbackground=INPUT_INSERT,
+                                                      wrap=tk.WORD, relief=tk.FLAT, borderwidth=0,
+                                                      highlightthickness=0, padx=10, pady=8, takefocus=1)
+        self.mood_input.pack(fill=tk.X, padx=8, pady=8)
 
-        # Quick mood buttons
-        quick = tk.Frame(tab, bg=BG)
-        quick.pack(fill=tk.X, padx=10, pady=2)
-        for mood, emoji in MOOD_EMOJI.items():
-            self._btn(quick, f"{emoji} {mood}", lambda m=mood: self.quick_mood(m),
-                      padx=10, pady=4).pack(side=tk.LEFT, padx=3)
+        # 快捷心情（卡片式，对应网页 preset-card 网格）
+        grid = tk.Frame(tab, bg=BG)
+        grid.pack(fill=tk.X, padx=10, pady=(4, 0))
+        grid.columnconfigure(0, weight=1)
+        grid.columnconfigure(1, weight=1)
+        for i, (mood, emoji) in enumerate(MOOD_EMOJI.items()):
+            card = self._make_card(grid, f"{emoji} {mood}", dot_color=ACCENT,
+                                   on_click=lambda m=mood: self.quick_mood(m))
+            card.grid(row=i // 2, column=i % 2, padx=5, pady=5, sticky="nsew")
 
-        # Analyze button
+        # 分析按钮（主按钮）
         btn_frame = tk.Frame(tab, bg=BG)
-        btn_frame.pack(fill=tk.X, padx=10, pady=5)
-        self._btn(btn_frame, t("auto_analyze"), self.analyze_mood_ui, bg=INPUT_BG, fg=ACCENT,
-                  padx=16, pady=4).pack(side=tk.LEFT)
-
+        btn_frame.pack(fill=tk.X, padx=10, pady=(10, 0))
+        self._accent_btn(btn_frame, t("auto_analyze"), self.analyze_mood_ui, padx=16, pady=6).pack(side=tk.LEFT)
         self.mood_result = tk.Label(btn_frame, text="", bg=BG, fg=ACCENT2, font=(UI_FONT, 12))
         self.mood_result.pack(side=tk.LEFT, padx=10)
 
-        # History
-        self._label(tab, t("today_records"), size=11).pack(anchor="w", padx=10, pady=(10, 2))
-        self.mood_history = scrolledtext.ScrolledText(tab, height=10, font=(MONO_FONT, 12),
-                                                        bg=INPUT_BG, fg=INPUT_FG, wrap=tk.WORD, relief=tk.FLAT,
-                                                        padx=8, pady=6, state=tk.DISABLED)
-        self.mood_history.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 8))
+        # 今日记录卡片
+        self._section(tab, t("today_records"))
+        hist = self._card(tab)
+        self.mood_history = scrolledtext.ScrolledText(hist, height=8, font=(MONO_FONT, 12),
+                                                        bg=BG, fg=FG, wrap=tk.WORD, relief=tk.FLAT,
+                                                        borderwidth=0, highlightthickness=0,
+                                                        padx=10, pady=8, state=tk.DISABLED)
+        self.mood_history.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
         self.refresh_mood_history()
 
     def quick_mood(self, mood):
@@ -840,49 +924,54 @@ class WikiApp:
         tab = tk.Frame(self.nb, bg=BG)
         self.nb.add(tab, text=t("tab_reminder"))
 
-        # Preset buttons
-        top = tk.Frame(tab, bg=BG)
-        top.pack(fill=tk.X, padx=10, pady=(10, 5))
-        self._label(top, t("quick_reminders"), font=(UI_FONT, 13, "bold")).pack(anchor="w", pady=(0, 5))
+        # 小标题
+        self._section(tab, t("quick_reminders"))
 
-        presets = tk.Frame(tab, bg=BG)
-        presets.pack(fill=tk.X, padx=10, pady=5)
+        # 预设卡片（2 列网格，对应网页 preset-grid）
+        grid = tk.Frame(tab, bg=BG)
+        grid.pack(fill=tk.X, padx=10, pady=(0, 4))
+        grid.columnconfigure(0, weight=1)
+        grid.columnconfigure(1, weight=1)
         preset_items = [
-            ("+1h", 1), ("+2h", 2), ("+3h", 3),
-            (t("tmr9"), "tmr9"), (t("tmr18"), "tmr18")
+            ("+1h", 1, "快速稍后提醒"),
+            ("+2h", 2, "午间 / 会议"),
+            ("+3h", 3, "下午安排"),
+            (t("tmr9"), "tmr9", "晨间待办"),
+            (t("tmr18"), "tmr18", "下班提醒"),
         ]
-        for label, val in preset_items:
-            self._btn(presets, label, lambda v=val: self.preset_reminder(v),
-                      padx=10, pady=6).pack(side=tk.LEFT, padx=3)
+        for i, (label, val, hint) in enumerate(preset_items):
+            card = self._make_card(grid, label, hint, dot_color=ACCENT,
+                                   on_click=lambda v=val: self.preset_reminder(v))
+            card.grid(row=i // 2, column=i % 2, padx=5, pady=5, sticky="nsew")
 
-        # Custom reminder
-        custom = tk.Frame(tab, bg=BG)
-        custom.pack(fill=tk.X, padx=10, pady=10)
-        self._label(custom, t("custom"), size=11).pack(side=tk.LEFT)
-        self.reminder_msg = tk.Entry(custom, font=(UI_FONT, 11), bg=INPUT_BG, fg=INPUT_FG,
-                                      insertbackground=INPUT_INSERT, relief=tk.FLAT, width=25)
-        self.reminder_msg.pack(side=tk.LEFT, padx=5)
-        self.reminder_time = tk.Entry(custom, font=(UI_FONT, 11), bg=INPUT_BG, fg=INPUT_FG,
-                                       insertbackground=INPUT_INSERT, relief=tk.FLAT, width=15)
+        # 自定义提醒卡片
+        ccard = self._card(tab, pady=6)
+        head = tk.Frame(ccard, bg=BG2)
+        head.pack(fill=tk.X, padx=12, pady=(10, 4))
+        tk.Label(head, text=t("custom"), bg=BG2, fg=FG, font=(UI_FONT, 11, "bold")).pack(side=tk.LEFT)
+        row = tk.Frame(ccard, bg=BG2)
+        row.pack(fill=tk.X, padx=12, pady=(0, 10))
+        self.reminder_msg = tk.Entry(row, font=(UI_FONT, 11), bg=BG, fg=FG,
+                                      insertbackground=INPUT_INSERT, relief=tk.FLAT, width=22)
+        self.reminder_msg.pack(side=tk.LEFT, padx=(0, 6))
+        self.reminder_time = tk.Entry(row, font=(UI_FONT, 11), bg=BG, fg=FG,
+                                       insertbackground=INPUT_INSERT, relief=tk.FLAT, width=12)
         self.reminder_time.insert(0, "HH:MM")
-        self.reminder_time.pack(side=tk.LEFT, padx=5)
-        self._btn(custom, t("add"), self.add_custom_reminder, bg=INPUT_BG, fg=ACCENT, padx=10).pack(side=tk.LEFT, padx=5)
+        self.reminder_time.pack(side=tk.LEFT, padx=(0, 6))
+        self._accent_btn(row, t("add"), self.add_custom_reminder, padx=12, pady=3).pack(side=tk.LEFT)
 
-        # Reminder list
-        self._label(tab, t("pending"), size=11).pack(anchor="w", padx=10, pady=(10, 2))
-        self.reminder_list = scrolledtext.ScrolledText(tab, height=8, font=(MONO_FONT, 12),
-                                                         bg=INPUT_BG, fg=INPUT_FG, wrap=tk.WORD, relief=tk.FLAT,
-                                                         padx=8, pady=6, state=tk.DISABLED)
-        self.reminder_list.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 5))
+        # 待提醒卡片列表
+        self._section(tab, t("pending"))
+        self._build_pending_cards(tab)
 
-        # Cancel button
+        # 取消提醒
         bot = tk.Frame(tab, bg=BG)
-        bot.pack(fill=tk.X, padx=10, pady=(0, 8))
+        bot.pack(fill=tk.X, padx=10, pady=(6, 10))
         self._label(bot, t("cancel_id"), size=10).pack(side=tk.LEFT)
-        self.cancel_id = tk.Entry(bot, font=(UI_FONT, 10), bg=INPUT_BG, fg=INPUT_FG,
-                                    insertbackground=INPUT_INSERT, relief=tk.FLAT, width=5)
+        self.cancel_id = tk.Entry(bot, font=(UI_FONT, 10), bg=BG, fg=FG,
+                                    insertbackground=INPUT_INSERT, relief=tk.FLAT, width=6)
         self.cancel_id.pack(side=tk.LEFT, padx=5)
-        self._btn(bot, t("cancel"), self.cancel_reminder_ui, padx=8).pack(side=tk.LEFT, padx=5)
+        self._btn(bot, t("cancel"), self.cancel_reminder_ui, padx=10).pack(side=tk.LEFT, padx=5)
 
         self.refresh_reminder_list()
 
@@ -929,18 +1018,35 @@ class WikiApp:
         except ValueError:
             self.status.config(text=t("enter_id"), fg="orange")
 
+    def _build_pending_cards(self, parent):
+        """可滚动的待提醒卡片列表容器（对应网页 .pending-list）"""
+        outer = self._card(parent, pady=0)
+        self.rem_canvas = tk.Canvas(outer, bg=BG2, highlightthickness=0)
+        self.rem_scroll = tk.Scrollbar(outer, command=self.rem_canvas.yview)
+        self.rem_inner = tk.Frame(self.rem_canvas, bg=BG2)
+        self.rem_canvas.create_window((0, 0), window=self.rem_inner, anchor="nw")
+        self.rem_canvas.configure(yscrollcommand=self.rem_scroll.set)
+        self.rem_canvas.pack(side="left", fill="both", expand=True)
+        self.rem_scroll.pack(side="right", fill="y")
+
     def refresh_reminder_list(self):
+        for w in list(self.rem_inner.winfo_children()):
+            w.destroy()
         reminders = load_reminders()
         pending = [r for r in reminders if r["status"] == "pending"]
-        self.reminder_list.config(state=tk.NORMAL)
-        self.reminder_list.delete("1.0", tk.END)
-        if pending:
-            for r in pending:
-                line = f"  #{r['id']}  [{r['remind_at']}]  {r['message']}\n"
-                self.reminder_list.insert(tk.END, line)
+        if not pending:
+            tk.Label(self.rem_inner, text=t("no_pending"), bg=BG2, fg=MUTED,
+                     font=(UI_FONT, 11)).pack(fill=tk.X, padx=14, pady=14)
         else:
-            self.reminder_list.insert("1.0", t("no_pending"))
-        self.reminder_list.config(state=tk.DISABLED)
+            for r in pending:
+                card = tk.Frame(self.rem_inner, bg=BG2, highlightbackground=BORDER, highlightthickness=1)
+                card.pack(fill=tk.X, padx=14, pady=6)
+                tk.Label(card, text="#{}  {}".format(r["id"], r["remind_at"]),
+                         font=(UI_FONT, 12, "bold"), bg=BG2, fg=ACCENT).pack(anchor="w", padx=14, pady=(10, 2))
+                tk.Label(card, text=r["message"], font=(UI_FONT, 13), bg=BG2, fg=FG,
+                         wraplength=320, justify="left").pack(anchor="w", padx=14, pady=(0, 10))
+        self.rem_inner.update_idletasks()
+        self.rem_canvas.configure(scrollregion=self.rem_canvas.bbox("all"))
 
     # ==================== SHARE TAB (Obsidian × All Agents) ====================
     def _shared_modules(self):
@@ -977,19 +1083,19 @@ class WikiApp:
                             showhandle=True, handlepad=10, handlesize=10)
         pw.pack(fill=tk.BOTH, expand=True, padx=10, pady=4)
 
-        # 状态区（内容框，可拖拽分隔条改变高度）
-        status = tk.Frame(pw, bg=BG2, relief=tk.FLAT)
+        # 状态区（内容框，可拖拽分隔条改变高度）— 白卡 + 卡内浅底
+        status = tk.Frame(pw, bg=BG2, highlightbackground=BORDER, highlightthickness=1)
         self.share_status = scrolledtext.ScrolledText(status, height=9, font=(MONO_FONT, 11),
-                                                      bg=INPUT_BG, fg=INPUT_FG, insertbackground=INPUT_INSERT,
-                                                      wrap=tk.WORD, relief=tk.FLAT,
+                                                      bg=BG, fg=FG, insertbackground=INPUT_INSERT,
+                                                      wrap=tk.WORD, relief=tk.FLAT, borderwidth=0,
+                                                      highlightthickness=0,
                                                       padx=8, pady=6, state=tk.DISABLED)
-        self.share_status.pack(fill=tk.BOTH, expand=True, padx=6, pady=6)
+        self.share_status.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
         pw.add(status, minsize=120, height=360)
 
         # ---- 操作按钮（放在下方，可拖拽分隔条调整上方内容框大小） ----
         acts = tk.Frame(pw, bg=BG)
-        self._btn(acts, t("start_server"), self.share_start_server,
-                  bg=INPUT_BG, fg=ACCENT, padx=12).pack(side=tk.LEFT, padx=3)
+        self._accent_btn(acts, t("start_server"), self.share_start_server, padx=12).pack(side=tk.LEFT, padx=3)
         self._btn(acts, t("open_obsidian"), self.share_open_obsidian,
                   bg=BTN_BG, fg=FG, padx=12).pack(side=tk.LEFT, padx=3)
         self._btn(acts, t("broadcast"), self.share_broadcast,
