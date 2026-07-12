@@ -252,6 +252,50 @@ Sunday 20:00 / 周日
 
 ---
 
+---
+
+## Step 7: Share Wiki with All Agents (MCP) / 让所有 Agent 共享 Wiki
+
+MyWiki can act as a shared knowledge hub: Obsidian and every AI Agent on your computer read/write the same wiki folder.
+
+### Option A: Use the GUI / 用主程序
+
+1. Launch `MyWiki.exe` (or `python wiki_app.py`)
+2. Open the **Share** tab
+3. Click **▶ Start MCP Server** — this launches the MCP server in the background
+4. Click **Refresh** to see all discovered Agents (OpenClaw, A2A nodes, Ollama, LM Studio, Claude, Cursor, Memo, Obsidian)
+5. Use **🔭 Open in Obsidian** and **📡 Broadcast Update** as needed
+
+### Option B: Configure MCP in your Agent host / 在 Agent 宿主配置 MCP
+
+Add to your MCP client config (Claude Desktop / Cursor / OpenClaw):
+
+```json
+{
+  "mcpServers": {
+    "mywiki": {
+      "command": "python",
+      "args": ["D:\\MyWiki\\modules\\shared-wiki\\mcp_server.py"]
+    }
+  }
+}
+```
+
+The Agent can then call `wiki_search`, `wiki_read`, `wiki_write`, `wiki_append`, `wiki_list`, `wiki_daily`, `wiki_tags`, `wiki_agents`, `wiki_index`.
+
+### Command Line / 命令行
+
+```powershell
+python wiki_tool.py serve                       # 启动 MCP Server
+python wiki_tool.py agents                      # 发现所有 Agent
+python wiki_tool.py obsidian                    # 发现 Obsidian Vault
+python wiki_tool.py broadcast wiki.updated      # 广播 Wiki 更新
+```
+
+See [modules/shared-wiki/README.md](modules/shared-wiki/README.md) for full details.
+
+---
+
 ## Useful Links / 有用链接
 
 - **Obsidian**: [obsidian.md](https://obsidian.md)

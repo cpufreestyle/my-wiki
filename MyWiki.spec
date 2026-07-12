@@ -1,12 +1,17 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+import os
+
+# 收集 shared-wiki 模块目录，打包时一并包含
+SHARED_DIR = os.path.join(os.path.dirname(os.path.abspath('wiki_app.py')), 'modules', 'shared-wiki')
 
 a = Analysis(
     ['wiki_app.py'],
     pathex=[],
     binaries=[],
-    datas=[],
-    hiddenimports=[],
+    datas=[(SHARED_DIR, 'modules/shared-wiki')],
+    hiddenimports=['wiki_core', 'agent_registry', 'obsidian_bridge', 'mcp_server',
+                   'yaml', 'watchdog', 'watchdog.observers', 'watchdog.events'],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

@@ -237,7 +237,9 @@ def show_welcome_and_check():
     return proceed.get()
 
 # ==================== PATHS ====================
-WIKI_DIR = r"D:\Users\michael\MyWiki"
+from pathlib import Path as _Path
+_SCRIPT_DIR = _Path(__file__).parent
+WIKI_DIR = str(_SCRIPT_DIR.parent.parent / "wiki")
 ICON_PATH = os.path.join(WIKI_DIR, "icon.ico")
 DAILY_DIR = os.path.join(WIKI_DIR, "daily")
 MOOD_DIR = os.path.join(WIKI_DIR, "mood")
@@ -444,6 +446,7 @@ class WikiApp:
         self.build_daily_tab()
         self.build_mood_tab()
         self.build_reminder_tab()
+        self.build_share_tab()
 
         # Status bar
         self.status = tk.Label(root, text="Ready", font=("Segoe UI", 9),
@@ -690,6 +693,149 @@ class WikiApp:
         else:
             self.reminder_list.insert("1.0", "  No pending reminders.")
         self.reminder_list.config(state=tk.DISABLED)
+
+    # ==================== SHARE TAB (Obsidian × All Agents) ====================
+    def _shared_modules(self):
+        """懒加载共享 Wiki 模块，返回 (wiki_core, agent_registry, obsidian_bridge) 或 None"""
+        try:
+            shared = os.path.join(_SCRIPT_DIR, "modules", "shared-wiki")
+            if shared not in sys.path:
+                sys.path.insert(0, shared)
+            import wiki_core as _wc
+            import agent_registry as _ar
+            import obsidian_bridge as _ob
+            return _wc, _ar, _ob
+        except Exception as e:
+            messagebox.showerror("Shared module error",
+                                 "无法加载共享 Wiki 模块 (modules/shared-wiki):\n{}".format(e))
+            return None
+
+    def build_share_tab(self):
+        tab = tk.Frame(self.nb, bg=BG)
+        self.nb.add(tab, text="  Share  ")
+
+        # ---- 顶部说明 ----
+        head = tk.Frame(tab, bg=BG)
+        head.pack(fill=tk.X, padx=10, pady=(10, 4))
+        self._label(head, "🌐 Shared Wiki — Obsidian × 所有 Agent",
+                    size=12, font=("Segoe UI", 12, "bold")).pack(side=tk.LEFT)
+        self._btn(head, "Refresh / 刷新", self.share_refresh,
+                  bg=BTN_BG, fg=FG, padx=10).pack(side=tk.RIGHT)
+
+        # ---- 状态区 ----
+        status = tk.Frame(tab, bg=BG2, relief=tk.FLAT)
+        status.pack(fill=tk.X, padx=10, pady=4)
+        self.share_status = scrolledtext.ScrolledText(status, height=9, font=("Consolas", 10),
+                                                      bg=BG2, fg=FG, insertbackground=FG,
+                                                      wrap=tk.WORD, relief=tk.FLAT, state=tk.DISABLED)
+        self.share_status.pack(fill=tk.BOTH, expand=True, padx=6, pady=6)
+
+        # ---- 操作按钮 ----
+        acts = tk.Frame(tab, bg=BG)
+        acts.pack(fill=tk.X, padx=10, pady=(4, 8))
+        self._btn(acts, "▶ Start MCP Server", self.share_start_server,
+                  bg=ACCENT, fg="white", padx=12).pack(side=tk.LEFT, padx=3)
+        self._btn(acts, "🔭 Open in Obsidian", self.share_open_obsidian,
+                  bg=BTN_BG, fg=FG, padx=12).pack(side=tk.LEFT, padx=3)
+        self._btn(acts, "📡 Broadcast Update", self.share_broadcast,
+                  bg=BTN_BG, fg=FG, padx=12).pack(side=tk.LEFT, padx=3)
+
+        # 初始填充
+        self.share_refresh()
+
+    def share_set_status(self, text):
+        self.share_status.config(state=tk.NORMAL)
+        self.share_status.delete("1.0", tk.END)
+        self.share_status.insert(tk.END, text)
+        self.share_status.config(state=tk.DISABLED)
+
+    def share_refresh(self):
+        """刷新 Agent 与 Obsidian 状态"""
+        mods = self._shared_modules()
+        if not mods:
+            return
+        _wc, _ar, _ob = mods
+        lines = []
+        # Obsidian
+        try:
+            vaults = _ob.discover_vaults()
+            wiki_v = _ob.detect_wiki_vault()
+            if wiki_v:
+                lines.append("📓 Obsidian Vault: {}  (已连接)".format(wiki_v["name"]))
+            else:
+                lines.append("📓 Obsidian: 未在本机以 Vault 打开当前 wiki")
+                lines.append("   → Obsidian → Open folder as vault → 选择本目录")
+            lines.append("   发现 {} 个本地 Vault".format(len(vaults)))
+        except Exception as e:
+            lines.append("📓 Obsidian: 检测失败 ({})".format(e))
+        lines.append("")
+        # Agents
+        try:
+            agents = _ar.discover()
+            lines.append("🤖 发现的 Agent ({} 个):".format(len(agents)))
+            for a in agents:
+                caps = ",".join(a.get("capabilities", [])[:3]) or "-"
+                lines.append("  • {}  [{}]  {}".format(a["name"], a["status"], caps))
+        except Exception as e:
+            lines.append("🤖 Agent 发现失败: {}".format(e))
+        lines.append("")
+        lines.append("Wiki root: {}".format(_wc.WIKI_ROOT))
+        lines.append("笔记数: {}".format(len(_wc.list_notes())))
+        self.share_set_status("\n".join(lines))
+
+    def share_start_server(self):
+        """后台启动 MCP Server（让所有 Agent 可接入共享 Wiki）"""
+        mods = self._shared_modules()
+        if not mods:
+            return
+        _wc, _ar, _ob = mods
+        server_py = os.path.join(_SCRIPT_DIR, "modules", "shared-wiki", "mcp_server.py")
+        if not os.path.exists(server_py):
+            messagebox.showerror("Error", "找不到 mcp_server.py")
+            return
+        try:
+            # 后台启动，不阻塞 GUI
+            proc = subprocess.Popen([sys.executable, server_py],
+                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            self._mcp_proc = proc
+            self.status.config(text="MCP Server 已启动 (pid={})".format(proc.pid))
+            messagebox.showinfo("MCP Server",
+                                "MyWiki MCP Server 已在后台启动。\n\n"
+                                "在你的 Agent 宿主 (Claude Desktop / Cursor / OpenClaw) 配置:\n"
+                                '  command: {}\n  args: ["{}"]'.format(sys.executable, server_py))
+        except Exception as e:
+            messagebox.showerror("启动失败", str(e))
+
+    def share_open_obsidian(self):
+        """在 Obsidian 中打开今日日记"""
+        mods = self._shared_modules()
+        if not mods:
+            return
+        _wc, _ar, _ob = mods
+        today = datetime.now().strftime("%Y-%m-%d")
+        try:
+            cmd = _ob.open_note("daily/{}".format(today))
+            self.status.config(text="已在 Obsidian 打开 {}".format(today))
+        except Exception as e:
+            messagebox.showerror("打开失败", str(e))
+
+    def share_broadcast(self):
+        """向所有 Agent 广播 Wiki 更新"""
+        mods = self._shared_modules()
+        if not mods:
+            return
+        _wc, _ar, _ob = mods
+        today = datetime.now().strftime("%Y-%m-%d")
+        try:
+            _ar.discover()
+            result = _ar.broadcast("wiki.updated", {"rel": "daily/{}.md".format(today)})
+            msg = "广播完成\n  已发送: {}\n  失败: {}\n  跳过: {}".format(
+                result["sent"], result["failed"], result["skipped"])
+            self.status.config(text="已广播 Wiki 更新")
+            messagebox.showinfo("Broadcast", msg)
+            self.share_refresh()
+        except Exception as e:
+            messagebox.showerror("广播失败", str(e))
 
 
 # ==================== MAIN ====================

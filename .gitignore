@@ -122,3 +122,9 @@ cython_debug/
 *node_modules/
 *local/
 ---
+
+# === MyWiki shared-wiki runtime artifacts ===
+modules/shared-wiki/registry.json
+
+# Nested sub-project (independent git repo)
+stock-dashboard/
