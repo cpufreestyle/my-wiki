@@ -31,18 +31,20 @@
 ### 为什么需要 LLM Wiki？
 
 **传统 RAG（检索增强生成）：**
+
 - ❌ 每次查询都重新检索和推理
 - ❌ 不保留历史推导结果
 - ❌ 重复计算，效率低
 
 **LLM Wiki（持久化知识库）：**
+
 - ✅ 增量构建持久化知识结构
 - ✅ 知识累积而非重复推导
 - ✅ 随着使用越来越智能
 
 ### 工作原理
 
-```
+```text
 ┌───────────────┐
 │   用户信息    │
 │ (对话/笔记)   │
@@ -128,6 +130,7 @@ pip install -r requirements.txt
 #### 步骤 1: 安装必需软件
 
 **1. 安装 Git**
+
 ```bash
 # 使用 Homebrew
 brew install git
@@ -137,6 +140,7 @@ brew install git
 ```
 
 **2. 安装 Python 3**
+
 ```bash
 # 使用 Homebrew
 brew install python@3.11
@@ -146,6 +150,7 @@ brew install python@3.11
 ```
 
 **3. 安装 Obsidian**
+
 ```bash
 # 使用 Homebrew
 brew install --cask obsidian
@@ -155,6 +160,7 @@ brew install --cask obsidian
 ```
 
 **4. 验证安装**
+
 ```bash
 git --version
 python3 --version
@@ -173,6 +179,7 @@ cd my-wiki
 ```
 
 **设置脚本会自动：**
+
 - ✅ 检测 Python 3 和 pip3
 - ✅ 安装 Python 依赖
 - ✅ 设置脚本权限
@@ -192,18 +199,21 @@ cd my-wiki
 
 ### Windows 安装
 
-#### 步骤 1: 安装必需软件
+#### Windows 步骤 1: 安装必需软件
 
 **1. 安装 Git**
-- 下载：https://git-scm.com/download/win
+
+- 下载：<https://git-scm.com/download/win>
 - 安装时选择 "Use Git from the command line and also from 3rd-party software"
 
 **2. 安装 Python 3**
-- 下载：https://www.python.org/downloads/windows/
+
+- 下载：<https://www.python.org/downloads/windows/>
 - **重要**：安装时勾选 "Add Python to PATH"
 
 **3. 安装 Obsidian**
-- 下载：https://obsidian.md/download
+
+- 下载：<https://obsidian.md/download>
 - 安装 `.exe` 文件
 
 #### 步骤 2: 克隆仓库并安装依赖
@@ -220,7 +230,7 @@ pip install -r requirements.txt
 python scripts/add_frontmatter.py
 ```
 
-#### 步骤 3: 在 Obsidian 中打开
+#### Windows: 在 Obsidian 中打开
 
 1. 打开 Obsidian
 2. 点击 **"Open folder as vault"**
@@ -280,7 +290,7 @@ graph TD
 
 #### 场景 1: 手动记录笔记
 
-```
+```text
 1. 打开 Obsidian
    ↓
 2. 按 Cmd+P → "Daily notes: Open today's note"
@@ -297,7 +307,7 @@ graph TD
 
 #### 场景 2: 通过 OpenClaw 自动记录
 
-```
+```text
 1. 与 OpenClaw 对话
    "今天的会议讨论了..."
    ↓
@@ -313,7 +323,7 @@ graph TD
 
 #### 场景 3: 自动抓取内容
 
-```
+```text
 每 2 小时 (Heartbeat):
    ↓
 1. 运行 auto_fetch.py
@@ -333,7 +343,7 @@ graph TD
 
 ## 📁 目录结构
 
-```
+```text
 my-wiki/
 ├── README.md                      # 本文件 (v2.4.0)
 ├── INDEX.md                       # 知识索引（自动生成）
@@ -352,8 +362,17 @@ my-wiki/
 │   ├── obsidian-sync/             # Obsidian 双 Vault 同步
 │   │   ├── README.md
 │   │   └── sync.py
-│   └── a2a-agent/                 # A2A Agent 网络文档
-│       └── README.md
+│   ├── a2a-agent/                 # A2A Agent 网络文档
+│   │   └── README.md
+│   ├── shared-wiki/               # 共享 Wiki 中枢（MCP Server + Agent 发现）🆕
+│   │   ├── README.md
+│   │   ├── wiki_core.py
+│   │   ├── mcp_server.py
+│   │   ├── agent_registry.py
+│   │   └── obsidian_bridge.py
+│   └── skills-loader/             # 技能加载器
+│       ├── README.md
+│       └── loader.py
 ├── .obsidian/                     # Obsidian 配置
 │   ├── app.json                   # 应用设置
 │   ├── templates/                 # 模板
@@ -390,7 +409,7 @@ my-wiki/
 
 ## 🔌 功能模块
 
-MyWiki v2.0 集成以下功能模块，位于 `modules/` 目录：
+MyWiki v2.4.0 集成以下功能模块，位于 `modules/` 目录：
 
 ### 模块列表
 
@@ -427,7 +446,7 @@ python wiki_tool.py broadcast wiki.updated daily/2026-07-12.md  # 广播更新
 
 ### 模块架构
 
-```
+```text
 modules/
 ├── video-analysis/
 │   ├── README.md          # 模块文档
@@ -446,7 +465,7 @@ modules/
 
 ## 🛠 集成工具
 
-### wiki_tool.py v2.0
+### wiki_tool.py v2.4.0
 
 统一的命令行入口，集成所有模块：
 
@@ -518,6 +537,7 @@ python wiki_tool.py broadcast <event> [rel]   # 广播 Wiki 更新
 - ✅ **详细指南**：查看 [LOCAL-MODELS.md](LOCAL-MODELS.md)
 
 **快速开始（Ollama）**：
+
 ```bash
 # 安装 Ollama
 brew install ollama
@@ -542,6 +562,7 @@ ollama pull llama3
 - ✅ **详细指南**：查看 [modules/shared-wiki/README.md](modules/shared-wiki/README.md)
 
 **让 Agent 接入共享 Wiki（MCP 配置）**：
+
 ```json
 {
   "mcpServers": {
@@ -562,6 +583,7 @@ ollama pull llama3
 - ✅ **全链路集成**：`wiki_tool.py search`、`wiki_core.semantic_search()`、MCP 工具 `wiki_semantic_search` 三处统一，所有接入的 Agent 都能用上 RAG
 
 **使用方式**：
+
 ```bash
 # 直接语义搜索
 python rag.py "如何配置本地模型 ollama"
@@ -589,6 +611,7 @@ MYWIKI_RAG_MODE=ollama python rag.py "你的问题" --rebuild
 - ✅ **一致体验**：`reminder_ui.py` / `daily_ui.py` 同步适配统一 token
 
 **换肤 / 切换主题**：
+
 ```bash
 # 改 theme.py 中的 LIGHT / DARK 字典即可整体调整配色
 # Web 端：打开 reminder_web.html，点击右上角 🌙/☀️ 切换深 / 浅色
@@ -649,6 +672,7 @@ git pull origin main
 **错误**：`Unable to find a vault for the URL obsidian://open?vault=xxx`
 
 **解决**：
+
 1. 检查 vault 名称是否正确
 2. 查看 `HOW-TO-FIND-VAULT-NAME.md`
 3. 使用 Quick Switcher（`Cmd+O`）而非 URI
@@ -660,6 +684,7 @@ git pull origin main
 **错误**：`ModuleNotFoundError: No module named 'beautifulsoup4'`
 
 **解决**：
+
 ```bash
 # 重新安装依赖
 pip install -r requirements.txt
@@ -675,6 +700,7 @@ pip install -r requirements.txt
 **错误**：`Authentication failed`
 
 **解决**：
+
 1. 使用 SSH 而非 HTTPS
 2. 配置 GitHub Personal Access Token
 3. 查看 [GitHub 文档](https://docs.github.com/en/authentication)
@@ -686,6 +712,7 @@ pip install -r requirements.txt
 **错误**：Obsidian 无法识别 tags
 
 **解决**：
+
 - 确保使用正确的 YAML 格式
 - tags 应该是数组：`tags: ['daily', 'test']`
 - 查看 `daily/2026-07-01.md` 作为示例
@@ -748,10 +775,10 @@ node --test "tests/**/*.test.mjs"
 
 ## 🔗 相关链接
 
-- **仓库**: https://github.com/cpufreestyle/my-wiki
-- **Release**: https://github.com/cpufreestyle/my-wiki/releases
-- **Obsidian 文档**: https://help.obsidian.md
-- **OpenClaw 文档**: https://docs.openclaw.ai
+- **仓库**: <https://github.com/cpufreestyle/my-wiki>
+- **Release**: <https://github.com/cpufreestyle/my-wiki/releases>
+- **Obsidian 文档**: <https://help.obsidian.md>
+- **OpenClaw 文档**: <https://docs.openclaw.ai>
 
 ---
 
