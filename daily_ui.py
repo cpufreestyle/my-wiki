@@ -136,8 +136,8 @@ def build():
     status = tk.Label(bottom_frame, text="就绪", font=(FONT, 11), bg=T["BG"], fg=T["TEXT2"])
     status.pack(side=tk.LEFT)
 
-    tk.Button(bottom_frame, text="💾 保存", command=save_note, bg=T["ACCENT"], fg="white",
-              relief="flat", bd=0, font=(FONT, 12, "bold"), activebackground=T["ACCENT_H"],
+    tk.Button(bottom_frame, text="💾 保存", command=save_note, bg=T["SURFACE"], fg=T["TEXT"], highlightbackground=T["ACCENT"], highlightthickness=2,
+              relief="flat", bd=0, font=(FONT, 12, "bold"), activebackground=T["BTN_HOVER"],
               cursor="hand2", padx=18, pady=6).pack(side=tk.RIGHT)
 
 

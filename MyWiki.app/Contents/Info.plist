@@ -20,5 +20,7 @@
 	<string>AppIcon.icns</string>
 	<key>LSMinimumSystemVersion</key>
     <string>10.15</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>MyWiki 需要访问麦克风以录制语音并识别心情。</string>
 </dict>
 </plist>

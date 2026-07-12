@@ -78,7 +78,7 @@ test("analyze_mood：中性文本 → 返回 平静 + 0.5", () => {
     const [mood, conf, reason] = s.analyze_mood("刚刚吃了一碗面");
     assert.equal(mood, "平静");
     assert.equal(conf, 0.5);
-    assert.equal(reason, "no obvious mood");
+    assert.equal(reason, "未检测到明显情绪词");
 });
 
 test("analyze_mood：多关键词提升置信度（≥0.5）", () => {

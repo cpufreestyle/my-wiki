@@ -4,14 +4,13 @@ cd "/Users/a1-6/AI Shared/repo/my-wiki"
 # 抑制 macOS 系统 Tk (8.5) 的弃用警告
 export TK_SILENCE_DEPRECATION=1
 
-# --- 查找带现代 Tk (>= 8.6) 的 Python ---
+# --- 查找最佳 Python ---
 # macOS 自带 /usr/bin/python3 使用 Tk 8.5 (Carbon)，在 macOS 上有严重 bug：
 #   - tk.Button 自定义背景色 + FLAT 样式点击无反应
 #   - ScrolledText 在 ttk.Notebook 内无法接收键盘输入
-# 优先使用 Tk 9.0+ 的 Python。
+# 优先使用项目 .venv（自带 Tk 9.0 + SpeechRecognition），然后是带现代 Tk 的 Python。
 
-_find_python_with_tk() {
-    # 按优先级尝试多个 Python 路径
+_find_best_python() {
     local candidates=(
         "/Users/a1-6/AI Shared/repo/my-wiki/.venv/bin/python"
         "/Users/a1-6/.local/bin/python3.12"
@@ -24,6 +23,29 @@ _find_python_with_tk() {
     )
     for py in "${candidates[@]}"; do
         if [ -x "$py" ]; then
+            # 检查 Tk >= 8.6（必须），SpeechRecognition（加分项）
+            if "$py" -c "
+import tkinter, sys
+r = tkinter.Tk()
+v = float(r.tk.call('info', 'patchlevel')[:3])
+r.destroy()
+if v < 8.6:
+    sys.exit(1)
+# 检查 speech_recognition 是否可用
+try:
+    import speech_recognition
+    sys.exit(0)  # 最佳：Tk 9.0 + SpeechRecognition
+except ImportError:
+    sys.exit(2)  # 次选：Tk 9.0 但无 SpeechRecognition
+" 2>/dev/null; then
+                echo "$py"
+                return 0
+            fi
+        fi
+    done
+    # 回退：只要 Tk >= 8.6 即可
+    for py in "${candidates[@]}"; do
+        if [ -x "$py" ]; then
             if "$py" -c "import tkinter,sys; r=tkinter.Tk(); v=float(r.tk.call('info','patchlevel')[:3]); r.destroy(); sys.exit(0 if v>=8.6 else 1)" 2>/dev/null; then
                 echo "$py"
                 return 0
@@ -34,7 +56,7 @@ _find_python_with_tk() {
     return 0
 }
 
-PYTHON=$(_find_python_with_tk)
+PYTHON=$(_find_best_python)
 
 # 关闭可能还在运行的旧实例，确保本次启动的是最新代码
 pkill -f "wiki_app.py" 2>/dev/null

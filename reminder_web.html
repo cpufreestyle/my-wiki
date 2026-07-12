@@ -323,6 +323,50 @@
             border-color: var(--accent);
             box-shadow: 0 0 0 3px rgba(10, 132, 255, 0.15);
         }
+
+        /* ---------- 语音输入按钮 ---------- */
+        .input-row {
+            display: flex;
+            gap: 8px;
+            align-items: stretch;
+        }
+        .input-row input {
+            flex: 1;
+        }
+        .voice-btn {
+            flex-shrink: 0;
+            border: 1px solid var(--border);
+            background: var(--surface);
+            color: var(--text);
+            border-radius: var(--radius-btn);
+            padding: 0 14px;
+            font-size: 14px;
+            font-family: inherit;
+            cursor: pointer;
+            white-space: nowrap;
+            transition: border-color 0.15s ease, transform 0.1s ease, background 0.2s ease;
+        }
+        .voice-btn:hover {
+            border-color: var(--accent);
+        }
+        .voice-btn:active {
+            transform: scale(0.96);
+        }
+        .voice-btn:focus-visible {
+            outline: 3px solid var(--accent);
+            outline-offset: 2px;
+        }
+        .voice-btn.recording {
+            background: var(--orange);
+            color: #fff;
+            border-color: var(--orange);
+        }
+        .voice-status {
+            font-size: 12px;
+            color: var(--text-secondary);
+            margin-top: 6px;
+            min-height: 16px;
+        }
         .modal-actions {
             display: flex;
             gap: 10px;
@@ -462,7 +506,11 @@
             <p class="sub" id="contentSub">请输入提醒内容</p>
             <div class="field">
                 <label for="reminderText">提醒内容</label>
-                <input type="text" id="reminderText" placeholder="例如：提交周报" autocomplete="off" />
+                <div class="input-row">
+                    <input type="text" id="reminderText" placeholder="例如：提交周报" autocomplete="off" />
+                    <button type="button" class="voice-btn" id="reminderVoiceBtn" aria-label="语音输入提醒内容">🎤 语音</button>
+                </div>
+                <p class="voice-status" id="reminderVoiceStatus" aria-live="polite"></p>
             </div>
             <div class="modal-actions">
                 <button class="btn btn-secondary" data-close>取消</button>
@@ -482,7 +530,11 @@
             </div>
             <div class="field">
                 <label for="customText">提醒内容</label>
-                <input type="text" id="customText" placeholder="例如：预约体检" autocomplete="off" />
+                <div class="input-row">
+                    <input type="text" id="customText" placeholder="例如：预约体检" autocomplete="off" />
+                    <button type="button" class="voice-btn" id="customVoiceBtn" aria-label="语音输入提醒内容">🎤 语音</button>
+                </div>
+                <p class="voice-status" id="customVoiceStatus" aria-live="polite"></p>
             </div>
             <div class="modal-actions">
                 <button class="btn btn-secondary" data-close>取消</button>
@@ -493,6 +545,7 @@
 
     <div class="toast" id="toast" role="status"></div>
 
+    <script src="voice-controller.js"></script>
     <script>
         // 屏蔽预览宿主 / 浏览器扩展注入脚本产生的跨域 "Script error." 噪音
         // （与本页逻辑无关，不影响功能；保留本页自身真实报错）
@@ -718,6 +771,36 @@
                 document.querySelectorAll(".modal.open").forEach((m) => m.classList.remove("open"));
             }
         });
+
+        // ---------- 语音输入（复用共享模块 voice-controller.js） ----------
+        // 提醒内容为单行输入，识别文字追加到已有文字之后（以空格分隔），
+        // 无需心情判断，故忽略声学结果。
+        function makeVoiceResult(inputId, statusId) {
+            return function (txt) {
+                const st = $(statusId);
+                if (txt) {
+                    const inp = $(inputId);
+                    const cur = (inp.value || "").trim();
+                    inp.value = cur ? cur + " " + txt : txt;
+                    if (st) st.textContent = "已识别：" + txt;
+                } else if (st) {
+                    st.textContent = "未识别到内容，请重试";
+                }
+            };
+        }
+
+        if (typeof VoiceController === "function") {
+            new VoiceController({
+                buttonId: "reminderVoiceBtn",
+                statusId: "reminderVoiceStatus",
+                onResult: makeVoiceResult("#reminderText", "#reminderVoiceStatus"),
+            });
+            new VoiceController({
+                buttonId: "customVoiceBtn",
+                statusId: "customVoiceStatus",
+                onResult: makeVoiceResult("#customText", "#customVoiceStatus"),
+            });
+        }
     </script>
 </body>
 </html>

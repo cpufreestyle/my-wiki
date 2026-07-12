@@ -32,9 +32,9 @@ DARK = {
     "ACCENT": "#0A84FF",      # 主强调（Apple 蓝，深浅一致）
     "ACCENT_H": "#409CFF",    # 主强调 hover（提亮）
     "ORANGE": "#FF9F0A",      # 自定义提醒（橙）
-    "ORANGE_H": "#E88E00",    # 自定义 hover
+    "ORANGE_H": "#FFB340",    # 自定义 hover（对齐网页深色）
     "GREEN": "#30D158",       # 查看/成功（深底提亮绿）
-    "GREEN_H": "#28B84E",     # 绿 hover
+    "GREEN_H": "#40D969",     # 绿 hover（对齐网页深色）
     "BORDER": "#3A3A3C",      # 描边/分隔线
     "BTN_HOVER": "#3A3A3C",   # 次级按钮 hover
 }

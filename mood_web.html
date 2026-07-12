@@ -328,6 +328,7 @@
 
     <div class="toast" id="toast" role="status"></div>
 
+    <script src="voice-controller.js"></script>
     <script>
         // 屏蔽预览宿主 / 浏览器扩展注入脚本产生的跨域 "Script error." 噪音
         window.addEventListener("error", (e) => {
@@ -378,11 +379,11 @@
 
         // ---------- 心情分析（与桌面版 wiki_app.py:analyze_mood 一致） ----------
         const MOOD_KEYWORDS = {
-            "开心": ["开心","高兴","快乐","喜悦","顺利","成功","完美","太好了","哈哈","精彩","满意","棒","赞"],
-            "平静": ["还行","普通","正常","一般","平静","还好","不错","可以","日常","无特别"],
-            "低落": ["难过","伤心","失望","沮丧","累","困","不舒服","难受","糟糕","完蛋","郁闷","疲惫","好累"],
-            "兴奋": ["激动","兴奋","期待","刺激","太棒了","厉害","惊艳","震撼","太好了"],
-            "焦虑": ["担心","焦虑","压力","烦","头疼","麻烦","纠结","犹豫","紧迫","焦虑"]
+            "开心": ["开心","高兴","快乐","喜悦","顺利","成功","完美","太好了","哈哈","精彩","满意","棒","赞","好玩","有趣","好吃","舒服","放松","享受","愉快","舒服","不错","挺好的","喜欢","爱","谢","感谢","棒","酷","帅","美","好吃","好玩","值得","收获"],
+            "平静": ["还行","普通","正常","一般","平静","还好","日常","无特别","没什么","老样子","照常","日常","平淡","安静","稳定","规律"],
+            "低落": ["难过","伤心","失望","沮丧","累","困","不舒服","难受","糟糕","完蛋","郁闷","疲惫","好累","无聊","烦闷","心痛","委屈","倒霉","不顺","挫折","失败","放弃","孤独","寂寞","想哭","哭","累死","不想"],
+            "兴奋": ["激动","兴奋","期待","刺激","太棒了","厉害","惊艳","震撼","太好了","wow","哇","牛","强","爽","燃","沸腾","开心死","高兴死","期待","迫不及待","终于"],
+            "焦虑": ["担心","焦虑","压力","烦","头疼","麻烦","纠结","犹豫","紧迫","焦虑","急","紧张","害怕","恐惧","慌","不安","心烦","烦躁","压力大","deadline","赶","来不及","怎么办"]
         };
         const NEGATION_WORDS = ["不","没","别","无","非","不太","不怎么"];
         const MOOD_EMOJI = {"开心":"😊","平静":"😐","低落":"😢","兴奋":"🔥","焦虑":"😰"};
@@ -407,7 +408,7 @@
             for (const m of Object.keys(moodScores)) {
                 if (moodScores[m] > bestScore) { bestScore = moodScores[m]; bestMood = m; }
             }
-            if (bestScore === 0) return ["平静", 0.5, "no obvious mood"];
+            if (bestScore === 0) return ["平静", 0.5, "未检测到明显情绪词"];
             const conf = Math.min(bestScore / 3.0, 1.0);
             return [bestMood, conf, matched[bestMood].join(", ")];
         }
@@ -465,21 +466,48 @@
             }
         }
 
-        function analyzeMoodUi() {
+        function analyzeMoodUi(acouResult) {
             const text = $("#moodInput").value.trim();
-            if (!text) {
+            if (!text && !acouResult) {
                 $("#moodResult").textContent = "请先输入内容！";
                 $("#moodInput").focus();
                 return;
             }
-            const [mood, conf, reason] = analyze_mood(text);
-            const rec = { time: nowTime(), mood, text: text.slice(0, 100), confidence: conf, reason };
+            // 文本分析
+            let textMood = "平静", textConf = 0, textReason = "";
+            if (text) [textMood, textConf, textReason] = analyze_mood(text);
+            // 声学分析
+            let acouMood = null, acouConf = 0, acouDetail = "";
+            if (acouResult) { acouMood = acouResult.mood; acouConf = acouResult.conf; acouDetail = acouResult.detail; }
+            // 融合
+            let bestMood, bestConf, reason;
+            if (acouMood && text) {
+                const scores = { "开心": 0, "平静": 0, "低落": 0, "兴奋": 0, "焦虑": 0 };
+                scores[textMood] += textConf * 0.6;
+                scores[acouMood] += acouConf * 0.4;
+                bestMood = Object.keys(scores).reduce((a, b) => scores[a] > scores[b] ? a : b);
+                bestConf = Math.min(scores[bestMood], 1);
+                const parts = [];
+                if (textReason && textReason !== "未检测到明显情绪词") parts.push(`文本: ${textReason}`);
+                if (acouDetail) parts.push(`声音: ${acouDetail}`);
+                reason = parts.join(" | ");
+            } else if (acouMood) {
+                bestMood = acouMood; bestConf = acouConf; reason = `声音分析: ${acouDetail}`;
+            } else {
+                bestMood = textMood; bestConf = textConf; reason = textReason;
+            }
+            const rec = { time: nowTime(), mood: bestMood, text: (text || `(语音: ${acouDetail}`.slice(0, 50)), confidence: bestConf, reason };
             saveMoodRecord(today, rec);
-            apiSaveMood(today, mood, text, conf, reason);
-            $("#moodResult").textContent = `${MOOD_EMOJI[mood] || ""} ${mood} (${Math.round(conf * 100)}%)`;
+            apiSaveMood(today, bestMood, text, bestConf, reason);
+            const emoji = MOOD_EMOJI[bestMood] || "";
+            const pct = Math.round(bestConf * 100);
+            let detail = "";
+            if (acouMood && textMood && acouMood !== textMood) detail = ` (文本→${textMood} 声音→${acouMood})`;
+            else if (reason && reason !== "未检测到明显情绪词") detail = `（${reason.slice(0, 30)}）`;
+            $("#moodResult").textContent = `${emoji} ${bestMood} (${pct}%)${detail}`;
             $("#moodInput").value = "";
             refreshHistory();
-            setStatus(`心情已保存：${mood} (${Math.round(conf * 100)}%)`);
+            setStatus(`心情已保存：${bestMood} (${pct}%)${text ? " — " + text.slice(0, 30) : ""}`);
         }
 
         function refreshHistory() {
@@ -496,63 +524,31 @@
             $("#history").textContent = lines.join("\n");
         }
 
-        // ---------- 语音输入（Web Speech API，浏览器能力，不支持时优雅降级） ----------
-        const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
-        let recognizer = null, recognizing = false;
+        // ---------- 语音输入（复用共享模块 voice-controller.js） ----------
+        // 麦克风一次性授权、声学分析、识别器生命周期均由共享模块管理；
+        // 此处仅保留页面特有逻辑（auto-save 开关 + 识别结果处理）。
         try { $("#autosave").checked = localStorage.getItem(LS_AUTOSAVE) === "1"; } catch {}
         $("#autosave").addEventListener("change", (e) => {
             try { localStorage.setItem(LS_AUTOSAVE, e.target.checked ? "1" : "0"); } catch {}
         });
 
-        function appendVoiceText(txt) {
-            const ta = $("#moodInput");
-            const cur = ta.value.trim();
-            ta.value = cur ? cur + "\n" + txt : txt;
-        }
-
-        function onVoiceResult(txt) {
-            appendVoiceText(txt);
-            $("#voiceStatus").textContent = "已识别语音";
-            setStatus("已识别语音");
-            if ($("#autosave").checked) analyzeMoodUi();
-        }
-
-        function startVoice() {
-            if (!SpeechRec) {
-                toast("当前浏览器不支持语音识别（请用 Chrome 访问）");
-                return;
+        function onVoiceResult(txt, acou) {
+            if (txt) {
+                $("#voiceStatus").textContent = "已识别：" + txt;
+                setStatus("已识别语音：" + txt);
+            } else if (acou) {
+                $("#voiceStatus").textContent = "声音→" + acou.mood + " (" + acou.detail.slice(0, 20) + ")";
+                setStatus("声音分析：" + acou.mood);
             }
-            recognizer = new SpeechRec();
-            recognizer.lang = "zh-CN";
-            recognizer.interimResults = false;
-            recognizer.maxAlternatives = 1;
-            recognizer.onresult = (ev) => {
-                const txt = ev.results[0][0].transcript;
-                onVoiceResult(txt);
-            };
-            recognizer.onerror = (ev) => {
-                $("#voiceStatus").textContent = "识别失败：" + (ev.error || "?");
-                stopVoiceUI();
-            };
-            recognizer.onend = stopVoiceUI;
-            try { recognizer.start(); recognizing = true; setVoiceUI(true); }
-            catch { toast("无法启动麦克风"); }
+            // 自动保存：把识别结果交给心情分析（识别文字已追加到 #moodInput）
+            if ($("#autosave").checked) analyzeMoodUi(acou);
         }
 
-        function stopVoiceUI() {
-            recognizing = false;
-            setVoiceUI(false);
-        }
-        function setVoiceUI(on) {
-            const btn = $("#voiceBtn");
-            btn.classList.toggle("recording", on);
-            btn.textContent = on ? "⏹ 停止" : "🎤 语音";
-            $("#voiceStatus").textContent = on ? "正在聆听…" : "";
-        }
-
-        $("#voiceBtn").addEventListener("click", () => {
-            if (recognizing) { if (recognizer) recognizer.stop(); return; }
-            startVoice();
+        const voice = new VoiceController({
+            buttonId: "voiceBtn",
+            statusId: "voiceStatus",
+            targetInputId: "moodInput",
+            onResult: onVoiceResult,
         });
 
         // ---------- 初始化 ----------

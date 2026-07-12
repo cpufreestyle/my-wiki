@@ -4,12 +4,15 @@ import os
 
 # 收集 shared-wiki 模块目录，打包时一并包含
 SHARED_DIR = os.path.join(os.path.dirname(os.path.abspath('wiki_app.py')), 'modules', 'shared-wiki')
+BASE_DIR = os.path.dirname(os.path.abspath('wiki_app.py'))
 
 a = Analysis(
     ['wiki_app.py'],
     pathex=[],
     binaries=[],
-    datas=[(SHARED_DIR, 'modules/shared-wiki')],
+    datas=[(SHARED_DIR, 'modules/shared-wiki'),
+           (os.path.join(BASE_DIR, 'icon.ico'), '.'),
+           (os.path.join(BASE_DIR, 'assets', 'AppIcon.icns'), 'assets')],
     hiddenimports=['wiki_core', 'agent_registry', 'obsidian_bridge', 'mcp_server',
                    'yaml', 'watchdog', 'watchdog.observers', 'watchdog.events'],
     hookspath=[],
@@ -28,6 +31,7 @@ exe = EXE(
     a.datas,
     [],
     name='MyWiki',
+    icon='assets/AppIcon.icns',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

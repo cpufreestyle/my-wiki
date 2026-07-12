@@ -95,11 +95,11 @@ class ReminderUI:
         # 操作按钮
         actions = tk.Frame(self.root, bg=T["BG"])
         actions.pack(padx=20, pady=(14, 0), fill="x")
-        tk.Button(actions, text="➕ 自定义提醒", bg=T["ORANGE"], fg="white", relief="flat", bd=0,
-                  font=(FONT, 13, "bold"), activebackground=T["ORANGE_H"], cursor="hand2", height=2,
+        tk.Button(actions, text="➕ 自定义提醒", bg=T["SURFACE"], fg=T["TEXT"], highlightbackground=T["ORANGE"], highlightthickness=2, relief="flat", bd=0,
+                  font=(FONT, 13, "bold"), activebackground=T["BTN_HOVER"], cursor="hand2", height=2,
                   command=self.custom_reminder).pack(side=tk.LEFT, fill="x", expand=True, padx=(0, 6))
-        tk.Button(actions, text="📋 待发送", bg=T["GREEN"], fg="white", relief="flat", bd=0,
-                  font=(FONT, 13, "bold"), activebackground=T["GREEN_H"], cursor="hand2", height=2,
+        tk.Button(actions, text="📋 待发送", bg=T["SURFACE"], fg=T["TEXT"], highlightbackground=T["GREEN"], highlightthickness=2, relief="flat", bd=0,
+                  font=(FONT, 13, "bold"), activebackground=T["BTN_HOVER"], cursor="hand2", height=2,
                   command=self.view_pending).pack(side=tk.LEFT, fill="x", expand=True, padx=(6, 0))
 
         self.status = tk.Label(self.root, text="点击按钮设置提醒", font=(FONT, 11), bg=T["BG"], fg=T["TEXT2"])
@@ -222,8 +222,8 @@ class ReminderUI:
         btns.pack(padx=20, pady=(16, 18), fill="x")
         tk.Button(btns, text="取消", bg=T["SURFACE"], fg=T["TEXT"], relief="flat", bd=1,
                   font=(FONT, 13, "bold"), activebackground=T["BTN_HOVER"], command=on_cancel).pack(side=tk.LEFT, fill="x", expand=True, padx=(0, 6))
-        tk.Button(btns, text="确定", bg=T["ACCENT"], fg="white", relief="flat", bd=0,
-                  font=(FONT, 13, "bold"), activebackground=T["ACCENT_H"], command=on_ok).pack(side=tk.LEFT, fill="x", expand=True, padx=(6, 0))
+        tk.Button(btns, text="确定", bg=T["SURFACE"], fg=T["TEXT"], highlightbackground=T["ACCENT"], highlightthickness=2, relief="flat", bd=0,
+                  font=(FONT, 13, "bold"), activebackground=T["BTN_HOVER"], command=on_ok).pack(side=tk.LEFT, fill="x", expand=True, padx=(6, 0))
 
     def toast(self, msg):
         t = tk.Toplevel(self.root)

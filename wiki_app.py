@@ -118,7 +118,7 @@ def install_obsidian(parent_window):
     dlg.grab_set()
     
     tk.Label(dlg, text="Downloading Obsidian installer...\n正在下载 Obsidian 安装包...", 
-             bg=BG, fg=FG, font=(UI_FONT, 10)).pack(pady=15)
+             bg=BG, fg=FG, font=ui(10)).pack(pady=15)
     progress = ttk.Progressbar(dlg, mode="indeterminate")
     progress.pack(fill="x", padx=30, pady=5)
     progress.start()
@@ -159,7 +159,7 @@ def install_openclaw(parent_window):
     dlg.grab_set()
     
     tk.Label(dlg, text="Installing OpenClaw globally...\n正在全局安装 OpenClaw...", 
-             bg=BG, fg=FG, font=(UI_FONT, 10)).pack(pady=15)
+             bg=BG, fg=FG, font=ui(10)).pack(pady=15)
     progress = ttk.Progressbar(dlg, mode="indeterminate")
     progress.pack(fill="x", padx=30, pady=5)
     progress.start()
@@ -204,7 +204,7 @@ def show_welcome_and_check(parent):
 
     dlg = tk.Toplevel(parent)
     dlg.title("MyWiki - First Run Setup / 首次运行设置")
-    dlg.geometry("520x420")
+    dlg.geometry("600x540")
     dlg.configure(bg=BG)
     # 允许鼠标拖拽调整大小
     dlg.resizable(True, True)
@@ -224,9 +224,9 @@ def show_welcome_and_check(parent):
             pass
 
     # Title
-    tk.Label(dlg, text="📝 MyWiki", bg=BG, fg=ACCENT, font=(UI_FONT, 20, "bold")).pack(pady=(25, 5))
+    tk.Label(dlg, text="📝 MyWiki", bg=BG, fg=ACCENT, font=ui(20, bold=True)).pack(pady=(25, 5))
     tk.Label(dlg, text="Personal Knowledge & Diary Manager\n个人知识库与日记管理工具",
-             bg=BG, fg=FG, font=(UI_FONT, 10)).pack()
+             bg=BG, fg=FG, font=ui(10)).pack()
 
     tk.Frame(dlg, height=2, bg=ACCENT).pack(fill="x", padx=40, pady=15)
 
@@ -237,18 +237,87 @@ def show_welcome_and_check(parent):
     status_frame = tk.Frame(dlg, bg=BG)
     status_frame.pack(pady=5)
 
-    tk.Label(status_frame, text="System Check / 系统检测", bg=BG, fg=FG, font=(UI_FONT, 11, "bold")).pack(anchor="w", padx=30)
+    tk.Label(status_frame, text="System Check / 系统检测", bg=BG, fg=FG, font=ui(11, bold=True)).pack(anchor="w", padx=30)
 
     def make_status(p, label, ok):
         f = tk.Frame(p, bg=BG)
         f.pack(fill="x", padx=30, pady=4)
         emoji = "✅" if ok else "❌"
         color = "#4ec9b0" if ok else "#f48771"
-        tk.Label(f, text="{} {}".format(emoji, label), bg=BG, fg=color, font=(UI_FONT, 10), anchor="w").pack(side="left")
+        tk.Label(f, text="{} {}".format(emoji, label), bg=BG, fg=color, font=ui(10), anchor="w").pack(side="left")
         return f
 
     make_status(status_frame, "Obsidian (知识库)", obsidian_ok)
     make_status(status_frame, "OpenClaw (AI 助手)", openclaw_ok)
+
+    # 语音识别就绪检测（ffmpeg 录音 + SpeechRecognition 识别）
+    v_ffmpeg, v_sr = voice_mood.deps_status()
+    voice_ok = v_ffmpeg and v_sr
+
+    # 语音状态行（保存 label 引用，安装完成后刷新为已就绪）
+    voice_row = tk.Frame(status_frame, bg=BG)
+    voice_row.pack(fill="x", padx=30, pady=4)
+    voice_lbl = tk.Label(
+        voice_row,
+        text="✅ 语音识别 (麦克风记录心情)" if voice_ok
+             else "❌ 语音识别 (缺依赖，可一键安装)",
+        bg=BG, fg="#4ec9b0" if voice_ok else "#f48771",
+        font=ui(10), anchor="w")
+    voice_lbl.pack(side="left")
+
+    # 一键安装语音依赖（后台 pip 安装，按钮显示进度 / 可重试）
+    _voice_btn = {"ref": None}
+
+    # 后台线程安装，主线程轮询 after 取结果（避免跨线程直接调用 after）
+    _voice_result = {}
+
+    def on_install_voice():
+        btn = _voice_btn["ref"]
+        if btn is not None:
+            btn.set_enabled(False)
+            btn.config(text="安装中…")
+        voice_lbl.config(text="❌ 语音识别 (安装中…)")
+        _voice_result.clear()
+
+        def run():
+            try:
+                _voice_result["v"] = voice_mood.auto_install_deps()
+            except Exception as e:
+                _voice_result["v"] = (False, False, ["安装异常：{}".format(e)])
+
+        threading.Thread(target=run, daemon=True).start()
+        parent.after(150, _poll_voice_install)
+
+    def _poll_voice_install():
+        r = _voice_result.get("v")
+        if r is None:
+            parent.after(150, _poll_voice_install)
+            return
+        _finish_voice(*r)
+
+    def _finish_voice(f_ok, s_ok, notes):
+        ok = f_ok and s_ok
+        btn = _voice_btn["ref"]
+        if ok:
+            voice_lbl.config(text="✅ 语音识别 (麦克风记录心情)", fg="#4ec9b0")
+            if btn is not None:
+                btn.destroy()
+            messagebox.showinfo("安装完成 / Done",
+                                "语音依赖已安装，可前往「心情」页点击 🎤 使用。\n"
+                                "Voice deps installed. Go to the Mood tab and tap 🎤.")
+        else:
+            if btn is not None:
+                btn.set_enabled(True)
+                btn.config(text="重试安装语音 / Retry")
+            detail = "语音依赖安装失败，请手动安装：\n" \
+                     "Voice deps install failed, manual install:"
+            if not f_ok:
+                detail += "\n" + t("voice_need_ffmpeg")
+            if not s_ok:
+                detail += "\n" + t("voice_need_sr").format(py=sys.executable)
+            if notes:
+                detail += "\n\n" + "\n".join(notes)
+            messagebox.showerror("语音依赖安装失败 / Failed", detail)
 
     tk.Frame(dlg, height=2, bg=ACCENT).pack(fill="x", padx=40, pady=10)
 
@@ -279,26 +348,38 @@ def show_welcome_and_check(parent):
         parent.destroy()
 
     if not obsidian_ok:
-        tk.Button(btn_frame, text="Install Obsidian / 安装 Obsidian",
-                  command=on_install_obsidian,
-                  bg=INPUT_BG, fg=ACCENT, font=(UI_FONT, 10), relief="flat", padx=15, pady=5).pack(pady=3)
+        _make_clickable_label(btn_frame, "Install Obsidian / 安装 Obsidian",
+                              on_install_obsidian,
+                              bg=INPUT_BG, fg=ACCENT, hover_bg=BTN_ACTIVE,
+                              font=ui(10), padx=15, pady=5).pack(pady=3)
 
     if not openclaw_ok:
-        tk.Button(btn_frame, text="Install OpenClaw / 安装 OpenClaw",
-                  command=on_install_openclaw,
-                  bg=INPUT_BG, fg=ACCENT, font=(UI_FONT, 10), relief="flat", padx=15, pady=5).pack(pady=3)
+        _make_clickable_label(btn_frame, "Install OpenClaw / 安装 OpenClaw",
+                              on_install_openclaw,
+                              bg=INPUT_BG, fg=ACCENT, hover_bg=BTN_ACTIVE,
+                              font=ui(10), padx=15, pady=5).pack(pady=3)
+
+    if not voice_ok:
+        vb = _make_clickable_label(btn_frame, "Install Voice / 安装语音依赖",
+                                   on_install_voice,
+                                   bg=INPUT_BG, fg=ACCENT, hover_bg=BTN_ACTIVE,
+                                   font=ui(10), padx=15, pady=5)
+        vb.pack(pady=3)
+        _voice_btn["ref"] = vb
 
     btn_row = tk.Frame(btn_frame, bg=BG)
     btn_row.pack(pady=(10, 0))
 
     label = "Continue / 继续" if (obsidian_ok and openclaw_ok) else "Skip & Continue / 跳过并继续"
-    tk.Button(btn_row, text=label, command=on_proceed,
-              bg=INPUT_BG, fg=ACCENT, font=(UI_FONT, 10, "bold"), relief="flat", padx=20, pady=6).pack(side="left", padx=5)
-    tk.Button(btn_row, text="Exit / 退出", command=on_exit,
-              bg=INPUT_BG, fg=INPUT_FG, font=(UI_FONT, 10), relief="flat", padx=20, pady=6).pack(side="left", padx=5)
+    _make_clickable_label(btn_row, label, on_proceed,
+                          bg=INPUT_BG, fg=ACCENT, hover_bg=BTN_ACTIVE,
+                          font=ui(10, bold=True), padx=20, pady=6).pack(side=tk.LEFT, padx=5)
+    _make_clickable_label(btn_row, "Exit / 退出", on_exit,
+                          bg=INPUT_BG, fg=INPUT_FG, hover_bg=BTN_ACTIVE,
+                          font=ui(10), padx=20, pady=6).pack(side=tk.LEFT, padx=5)
 
     tk.Label(dlg, text="Tips: Obsidian & OpenClaw are optional.\n提示：Obsidian 和 OpenClaw 是可选的，MyWiki 可独立运行。",
-             bg=BG, fg=MUTED, font=(UI_FONT, 8)).pack(pady=(10, 5))
+             bg=BG, fg=MUTED, font=ui(8)).pack(pady=(10, 5))
 
     # 不调用 wait_window: 主 root.mainloop() 会驱动本 Toplevel 的事件
 
@@ -354,7 +435,22 @@ def _walk_focus(w):
 from pathlib import Path as _Path
 _SCRIPT_DIR = _Path(__file__).parent
 WIKI_DIR = str(_SCRIPT_DIR.parent.parent / "wiki")
-ICON_PATH = os.path.join(WIKI_DIR, "icon.ico")
+# 图标解析：直接 `python wiki_app.py` 时脚本目录即仓库根，真实图标位于
+# 仓库根/icon.ico 与 assets/AppIcon.icns（WIKI_DIR 指向仓库外，旧路径取不到图标）。
+# 按平台优先选 .icns（macOS Tk 支持）/ .ico（Windows/Linux），确保窗口图标真正生效。
+def _resolve_app_icon():
+    cands = []
+    if sys.platform == "darwin":
+        cands.append(os.path.join(_SCRIPT_DIR, "assets", "AppIcon.icns"))
+    cands.append(os.path.join(_SCRIPT_DIR, "icon.ico"))
+    cands.append(os.path.join(_SCRIPT_DIR, "wiki", "icon.ico"))
+    cands.append(os.path.join(_SCRIPT_DIR, "assets", "AppIcon.icns"))
+    for c in cands:
+        if os.path.exists(c):
+            return c
+    return ""
+
+ICON_PATH = _resolve_app_icon()
 DAILY_DIR = os.path.join(WIKI_DIR, "daily")
 MOOD_DIR = os.path.join(WIKI_DIR, "mood")
 REMINDER_DIR = os.path.join(WIKI_DIR, "reminders")
@@ -363,6 +459,10 @@ PENDING_FILE = os.path.join(REMINDER_DIR, "pending_notifications.json")
 
 # ==================== THEME（统一设计系统：Apple 风浅/深色，与网页端 reminder_web.html / reminder_ui.py / daily_ui.py 共用 theme.py） ====================
 from theme import get_tokens, load_theme_pref, save_theme_pref
+
+# 语音识别心情（ffmpeg 录音 + SpeechRecognition 在线识别，无需 pyaudio）
+import threading
+import voice_mood
 
 MODE = load_theme_pref()  # 浅色 / 深色，与另外两个桌面端及网页端同步
 
@@ -404,6 +504,69 @@ else:                                    # Linux 等
     UI_FONT = "Noto Sans CJK SC"
     MONO_FONT = "DejaVu Sans Mono"
 
+# ==================== 字号缩放（全屏使用时整体放大） ====================
+# 以全屏为基础调大文字与图标（emoji 随字号放大）。改这里即可整体微调。
+FONT_SCALE = 1.2
+
+
+def ui(size, bold=False):
+    """返回按 FONT_SCALE 缩放后的 UI 字体元组。"""
+    sz = int(round(size * FONT_SCALE))
+    return (UI_FONT, sz, "bold") if bold else (UI_FONT, sz)
+
+
+def mono(size):
+    """返回按 FONT_SCALE 缩放后的等宽字体元组。"""
+    return (MONO_FONT, int(round(size * FONT_SCALE)))
+
+
+def _make_clickable_label(parent, text, command, bg, fg, hover_bg=None,
+                          font=None, padx=15, pady=5, cursor="hand2"):
+    """可点击按钮（用 tk.Label 实现）。
+
+    macOS 原生 tk.Button 在深色系统外观下会忽略 bg/fg，导致按钮底色/文字
+    被系统接管、在深色模式下几乎看不清。tk.Label 的 bg/fg 永远生效，
+    因此用它做按钮可保证配色正确。提供 set_enabled / invoke 以兼容
+    原 tk.Button 的部分用法（state、invoke）。
+    """
+    if font is None:
+        font = ui(10)
+    lbl = tk.Label(parent, text=text, bg=bg, fg=fg, font=font,
+                   padx=padx, pady=pady, cursor=cursor)
+    _cmd = {"enabled": True, "command": command}
+
+    def _do_click(_=None):
+        if _cmd["enabled"]:
+            _cmd["command"]()
+
+    def _on_enter(_):
+        if hover_bg and _cmd["enabled"]:
+            lbl.config(bg=hover_bg)
+
+    def _on_leave(_):
+        if hover_bg:
+            lbl.config(bg=bg)
+
+    lbl.bind("<Button-1>", _do_click)
+    lbl.bind("<Enter>", _on_enter)
+    lbl.bind("<Leave>", _on_leave)
+
+    def set_enabled(enabled):
+        _cmd["enabled"] = bool(enabled)
+        if enabled:
+            lbl.config(cursor=cursor)
+            lbl.bind("<Button-1>", _do_click)
+        else:
+            lbl.config(cursor="")
+            try:
+                lbl.unbind("<Button-1>")
+            except Exception:
+                pass
+
+    lbl.set_enabled = set_enabled
+    lbl.invoke = lambda: _do_click()
+    return lbl
+
 # ==================== I18N 语言字典 ====================
 LANG = "zh"  # 默认中文；可切换为 "en"
 I18N = {
@@ -418,6 +581,26 @@ I18N = {
         "mood_q": "  今天感觉如何？", "auto_analyze": "  自动分析  ",
         "today_records": "  今日记录", "no_records": "  今日暂无记录。",
         "type_first": "请先输入内容！", "mood_saved": "心情已保存：{m}",
+        "voice": "🎤 语音", "voice_stop": "⏹ 停止",
+        "voice_autosave": "识别后自动保存", "voice_filled": "已填入，请检查后保存",
+        "voice_missing_ffmpeg": "ffmpeg（录音）", "voice_missing_sr": "SpeechRecognition（识别）",
+        "voice_confirm_install": "缺少语音依赖：{n}\n\n是否自动安装？（需要联网，使用 pip）",
+        "voice_installing": "正在安装语音依赖…", "voice_install_ok": "语音依赖已就绪",
+        "voice_install_fail": "语音依赖安装失败，请手动安装：",
+        "voice_recording": "正在聆听…（最多 {n} 秒）",
+        "voice_recognizing": "识别中…", "voice_done": "已识别语音",
+        "voice_cancel": "已取消", "voice_empty": "没听清，请再说一次。",
+        "voice_netfail": "识别服务不可用（需联网）",
+        "voice_need_ffmpeg": "语音功能需要 ffmpeg（用于录音）\n\n请先安装：\n  brew install ffmpeg\n\n安装后重试。",
+        "voice_need_sr": "语音识别需要 Python 包 SpeechRecognition\n\n请安装：\n  {py} -m pip install SpeechRecognition\n\n识别使用 Google 在线接口，需要联网。",
+        "mic_perm_btn": "🔧",
+        "mic_perm_title": "麦克风权限",
+        "mic_perm_help": "若录音失败或提示「麦克风权限被拒绝」：\n\n1) 打开「系统设置 › 隐私与安全性 › 麦克风」，给运行本程序的终端/应用（Terminal、iTerm 或 MyWiki.app）开启权限；\n2) 或点击下方「一键重置」清空授权，重启后重新弹窗允许；\n3) 完全退出 MyWiki 后重新打开再试。",
+        "mic_perm_reset": "🔄 一键重置麦克风权限",
+        "mic_perm_reset_ok": "已重置麦克风授权。请完全退出 MyWiki 并重新打开，首次录音会重新请求权限，请点「允许」。",
+        "mic_perm_reset_fail": "重置失败（可能无需重置，或需手动操作）。请手动到「系统设置 › 隐私与安全性 › 麦克风」开启权限。",
+        "mic_perm_only_mac": "一键重置仅支持 macOS。请手动到「系统设置 › 隐私与安全性 › 麦克风」开启权限。",
+        "close": "关闭",
         "quick_reminders": "  快捷提醒", "custom": "自定义：",
         "add": "添加", "pending": "  待提醒", "cancel_id": "取消编号：",
         "cancel": "取消", "no_pending": "  暂无待提醒。",
@@ -440,6 +623,26 @@ I18N = {
         "mood_q": "  How are you feeling?", "auto_analyze": "  Auto Analyze  ",
         "today_records": "  Today's Records", "no_records": "  No records today yet.",
         "type_first": "Type something first!", "mood_saved": "Mood saved: {m}",
+        "voice": "🎤 Voice", "voice_stop": "⏹ Stop",
+        "voice_autosave": "Auto-save after recognition", "voice_filled": "Filled in — review then save",
+        "voice_missing_ffmpeg": "ffmpeg (recording)", "voice_missing_sr": "SpeechRecognition (recognition)",
+        "voice_confirm_install": "Missing voice deps: {n}\n\nAuto-install now? (needs internet, uses pip)",
+        "voice_installing": "Installing voice deps…", "voice_install_ok": "Voice deps ready",
+        "voice_install_fail": "Voice deps install failed. Manual install:",
+        "voice_recording": "Listening… (max {n}s)",
+        "voice_recognizing": "Recognizing…", "voice_done": "Voice recognized",
+        "voice_cancel": "Cancelled", "voice_empty": "Couldn't hear that, try again.",
+        "voice_netfail": "Recognition service unavailable (needs internet)",
+        "voice_need_ffmpeg": "Voice needs ffmpeg (for recording)\n\nInstall it:\n  brew install ffmpeg\n\nThen retry.",
+        "voice_need_sr": "Voice recognition needs the SpeechRecognition package\n\nInstall:\n  {py} -m pip install SpeechRecognition\n\nUses Google's online API (needs internet).",
+        "mic_perm_btn": "🔧",
+        "mic_perm_title": "Microphone Permission",
+        "mic_perm_help": "If recording fails or you see 'microphone permission denied':\n\n1) Open System Settings › Privacy & Security › Microphone and enable the app running MyWiki (Terminal, iTerm or MyWiki.app);\n2) Or click 'Reset' below to clear authorization, then restart and re-allow;\n3) Fully quit MyWiki and reopen before retrying.",
+        "mic_perm_reset": "🔄 Reset Microphone Permission",
+        "mic_perm_reset_ok": "Microphone authorization reset. Fully quit MyWiki, reopen it, and allow access when prompted on first recording.",
+        "mic_perm_reset_fail": "Reset failed (maybe not needed, or do it manually). Please enable microphone in System Settings › Privacy & Security › Microphone.",
+        "mic_perm_only_mac": "One-click reset is macOS only. Please enable microphone manually in System Settings › Privacy & Security › Microphone.",
+        "close": "Close",
         "quick_reminders": "  Quick Reminders", "custom": "Custom:",
         "add": "Add", "pending": "  Pending", "cancel_id": "Cancel ID:",
         "cancel": "Cancel", "no_pending": "  No pending reminders.",
@@ -460,11 +663,11 @@ def t(key, **kw):
 
 # ==================== MOOD KEYWORDS ====================
 MOOD_KEYWORDS = {
-    "开心": ["开心", "高兴", "快乐", "喜悦", "顺利", "成功", "完美", "太好了", "哈哈", "精彩", "满意", "棒", "赞"],
-    "平静": ["还行", "普通", "正常", "一般", "平静", "还好", "不错", "可以", "日常", "无特别"],
-    "低落": ["难过", "伤心", "失望", "沮丧", "累", "困", "不舒服", "难受", "糟糕", "完蛋", "郁闷", "疲惫", "好累"],
-    "兴奋": ["激动", "兴奋", "期待", "刺激", "太棒了", "厉害", "惊艳", "震撼", "太好了"],
-    "焦虑": ["担心", "焦虑", "压力", "烦", "头疼", "麻烦", "纠结", "犹豫", "紧迫", "焦虑"]
+    "开心": ["开心", "高兴", "快乐", "喜悦", "顺利", "成功", "完美", "太好了", "哈哈", "精彩", "满意", "棒", "赞", "好玩", "有趣", "好吃", "舒服", "放松", "享受", "愉快", "不错", "挺好的", "喜欢", "爱", "谢", "感谢", "酷", "帅", "美", "值得", "收获"],
+    "平静": ["还行", "普通", "正常", "一般", "平静", "还好", "日常", "无特别", "没什么", "老样子", "照常", "平淡", "安静", "稳定", "规律"],
+    "低落": ["难过", "伤心", "失望", "沮丧", "累", "困", "不舒服", "难受", "糟糕", "完蛋", "郁闷", "疲惫", "好累", "无聊", "烦闷", "心痛", "委屈", "倒霉", "不顺", "挫折", "失败", "放弃", "孤独", "寂寞", "想哭", "哭", "累死", "不想"],
+    "兴奋": ["激动", "兴奋", "期待", "刺激", "太棒了", "厉害", "惊艳", "震撼", "太好了", "哇", "牛", "强", "爽", "燃", "沸腾", "迫不及待", "终于"],
+    "焦虑": ["担心", "焦虑", "压力", "烦", "头疼", "麻烦", "纠结", "犹豫", "紧迫", "急", "紧张", "害怕", "恐惧", "慌", "不安", "心烦", "烦躁", "压力大", "赶", "来不及", "怎么办"]
 }
 NEGATION_WORDS = ["不", "没", "别", "无", "非", "不太", "不怎么"]
 MOOD_EMOJI = {"开心": "😊", "平静": "😐", "低落": "😢", "兴奋": "🔥", "焦虑": "😰"}
@@ -530,7 +733,7 @@ def analyze_mood(text):
                     matched[mood].append(kw)
     best = max(mood_scores.items(), key=lambda x: x[1])
     if best[1] == 0:
-        return "平静", 0.5, "no obvious mood"
+        return "平静", 0.3, "未检测到明显情绪词"
     conf = min(best[1] / 3.0, 1.0)
     return best[0], conf, ", ".join(matched[best[0]])
 
@@ -627,9 +830,23 @@ class WikiApp:
     def __init__(self, root):
         self.root = root
         self.root.title(t("app_title"))
-        # 加大窗口，避免控件被挤压、文字被截断看不清
-        self.root.geometry("760x620")
-        self.root.minsize(680, 560)
+        # 默认以全屏（最大化）为基准，方便看清放大后的文字与图标。
+        # 优先用原生最大化；若当前 Tk 构建不支持则回退为手动全屏几何。
+        try:
+            if sys.platform == "darwin":
+                self.root.attributes("-zoomed", True)   # macOS 最大化
+            else:
+                self.root.state("zoomed")               # Windows / Linux 最大化
+        except Exception:
+            try:
+                sw = self.root.winfo_screenwidth()
+                sh = self.root.winfo_screenheight()
+                top_inset = 28 if sys.platform == "darwin" else 0
+                self.root.geometry("{}x{}+0+0".format(sw, sh - top_inset))
+            except Exception:
+                self.root.geometry("1100x720")
+        # 保留一个合理的最小尺寸，缩小时也不至于挤压
+        self.root.minsize(760, 620)
         # 允许鼠标拖拽调整主窗口大小
         self.root.resizable(True, True)
         self.root.configure(bg=BG)
@@ -648,14 +865,14 @@ class WikiApp:
         if style.theme_use() == "clam":
             # clam 主题下标签栏背景完全可控：深底 + 浅字，不受系统深浅模式影响
             style.configure("TNotebook", background=BG, borderwidth=0)
-            style.configure("TNotebook.Tab", padding=[16, 8], font=(UI_FONT, 12),
+            style.configure("TNotebook.Tab", padding=[16, 8], font=ui(12),
                             background=BG2, foreground=FG, borderwidth=1)
             style.map("TNotebook.Tab",
                       background=[("selected", ACCENT)],
                       foreground=[("selected", "white")])
         else:
             # Aqua 兜底（系统标签栏为浅色背景）：未选中用主文字色，深浅模式都清晰
-            style.configure("TNotebook.Tab", padding=[16, 8], font=(UI_FONT, 12),
+            style.configure("TNotebook.Tab", padding=[16, 8], font=ui(12),
                             background=BG2, foreground=FG)
             style.map("TNotebook.Tab",
                       background=[("selected", ACCENT), ("!selected", BG2)],
@@ -673,7 +890,7 @@ class WikiApp:
         self.build_share_tab()
 
         # Status bar（字号加大更清晰）
-        self.status = tk.Label(root, text=t("ready"), font=(UI_FONT, 10),
+        self.status = tk.Label(root, text=t("ready"), font=ui(10),
                                bg=BG, fg=MUTED, anchor="w")
         self.status.pack(fill=tk.X, padx=10, pady=4)
 
@@ -692,20 +909,21 @@ class WikiApp:
         bar = tk.Frame(self.root, bg=BG)
         bar.pack(fill=tk.X, padx=8, pady=(6, 0))
         tk.Label(bar, text="📝 " + t("app_title"), bg=BG, fg=ACCENT,
-                 font=(UI_FONT, 13, "bold")).pack(side=tk.LEFT, padx=4)
-        tk.Button(bar, text=t("lang_btn"), command=self.toggle_language,
-                  bg=INPUT_BG, fg=ACCENT, activebackground=BTN_ACTIVE,
-                  relief=tk.FLAT, font=(UI_FONT, 10, "bold"),
-                  cursor="hand2", padx=12, pady=2).pack(side=tk.RIGHT, padx=4)
+                 font=ui(13, bold=True)).pack(side=tk.LEFT, padx=4)
+        _make_clickable_label(bar, t("lang_btn"), self.toggle_language,
+                               bg=INPUT_BG, fg=ACCENT, hover_bg=BTN_ACTIVE,
+                               font=ui(10, bold=True),
+                               padx=12, pady=2).pack(side=tk.RIGHT, padx=4)
         # 主题切换（浅色/深色，与网页端及另外两个桌面端同步偏好）
         theme_icon = "🌙" if MODE == "light" else "☀️"
-        tk.Button(bar, text=theme_icon, command=self.toggle_theme,
-                  bg=INPUT_BG, fg=ACCENT, activebackground=BTN_ACTIVE,
-                  relief=tk.FLAT, font=(UI_FONT, 10, "bold"),
-                  cursor="hand2", padx=10, pady=2).pack(side=tk.RIGHT, padx=2)
+        _make_clickable_label(bar, theme_icon, self.toggle_theme,
+                              bg=INPUT_BG, fg=ACCENT, hover_bg=BTN_ACTIVE,
+                              font=ui(10, bold=True),
+                              padx=10, pady=2).pack(side=tk.RIGHT, padx=2)
 
     def toggle_language(self):
         """中/英切换：切换 LANG 后重建整个界面"""
+        self._stop_voice_if_running()
         global LANG
         LANG = "en" if LANG == "zh" else "zh"
         # 销毁所有子控件后重建
@@ -715,6 +933,7 @@ class WikiApp:
 
     def toggle_theme(self):
         """浅色/深色切换：写入偏好并整体重建界面（与 reminder/daily 桌面端及网页端同步）。"""
+        self._stop_voice_if_running()
         global MODE
         MODE = "dark" if MODE == "light" else "light"
         save_theme_pref(MODE)
@@ -728,25 +947,29 @@ class WikiApp:
         self.root.geometry(geo)
 
     def _label(self, parent, text, **kw):
-        font = kw.pop("font", (UI_FONT, kw.pop("size", 11)))
+        font = kw.pop("font", ui(kw.pop("size", 11)))
         return tk.Label(parent, text=text, bg=BG, fg=FG, font=font, **kw)
 
     def _btn(self, parent, text, cmd, bg=BTN_BG, fg=FG, **kw):
-        return tk.Button(parent, text=text, command=cmd, bg=bg, fg=fg,
-                         activebackground=BTN_ACTIVE, activeforeground=fg,
-                         relief=tk.FLAT, font=(UI_FONT, 10), cursor="hand2", **kw)
+        padx = kw.get("padx", 15)
+        pady = kw.get("pady", 5)
+        return _make_clickable_label(parent, text, cmd, bg=bg, fg=fg,
+                                     hover_bg=BTN_ACTIVE, font=ui(10),
+                                     padx=padx, pady=pady)
 
     def _accent_btn(self, parent, text, cmd, **kw):
         """主操作按钮（填充蓝，对应网页 .btn-primary）"""
-        return tk.Button(parent, text=text, command=cmd, bg=ACCENT, fg="white",
-                         activebackground=ACCENT_H, activeforeground="white",
-                         relief=tk.FLAT, font=(UI_FONT, 11, "bold"), cursor="hand2", **kw)
+        padx = kw.get("padx", 15)
+        pady = kw.get("pady", 5)
+        return _make_clickable_label(parent, text, cmd, bg=ACCENT, fg="white",
+                                     hover_bg=ACCENT_H, font=ui(11, bold=True),
+                                     padx=padx, pady=pady)
 
     # ---------- 卡片式布局组件（与网页端 reminder_web.html / reminder_ui.py 一致） ----------
     def _section(self, parent, text):
         """小标题（对应网页 .section-title：次要灰、加粗、上下留白）"""
         tk.Label(parent, text=text, bg=BG, fg=MUTED,
-                 font=(UI_FONT, 12, "bold")).pack(anchor="w", padx=12, pady=(16, 6))
+                 font=ui(12, bold=True)).pack(anchor="w", padx=12, pady=(16, 6))
 
     def _card(self, parent, padx=10, pady=8, **pack_kw):
         """白卡容器（SURFACE + 1px BORDER），内容放里面即呈卡片式。"""
@@ -770,10 +993,10 @@ class WikiApp:
         head = tk.Frame(card, bg=BG2)
         head.pack(fill=tk.X, padx=14, pady=(12, 2))
         if dot_color:
-            tk.Label(head, text="●", fg=dot_color, bg=BG2, font=(UI_FONT, 9)).pack(side=tk.LEFT, padx=(0, 8))
-        tk.Label(head, text=title, bg=BG2, fg=FG, font=(UI_FONT, 13, "bold")).pack(side=tk.LEFT)
+            tk.Label(head, text="●", fg=dot_color, bg=BG2, font=ui(9)).pack(side=tk.LEFT, padx=(0, 8))
+        tk.Label(head, text=title, bg=BG2, fg=FG, font=ui(13, bold=True)).pack(side=tk.LEFT)
         if hint:
-            tk.Label(card, text=hint, bg=BG2, fg=MUTED, font=(UI_FONT, 11),
+            tk.Label(card, text=hint, bg=BG2, fg=MUTED, font=ui(11),
                      anchor="w").pack(fill=tk.X, padx=(32, 14), pady=(0, 12))
         if on_click:
             self._bind_click(card, on_click)
@@ -787,13 +1010,13 @@ class WikiApp:
         # 顶部：日期 + 模板/标签 按钮
         top = tk.Frame(tab, bg=BG)
         top.pack(fill=tk.X, padx=10, pady=(6, 0))
-        self._label(top, f"  {get_today()}", font=(UI_FONT, 13, "bold")).pack(side=tk.LEFT)
+        self._label(top, f"  {get_today()}", font=ui(13, bold=True)).pack(side=tk.LEFT)
         self._btn(top, t("tags"), self.extract_and_show_tags, padx=8).pack(side=tk.RIGHT, padx=2)
         self._btn(top, t("template"), self.insert_template, padx=8).pack(side=tk.RIGHT, padx=2)
 
         # 编辑区卡片（白卡 + 卡内浅底输入框，对应网页 .field input）
         editor = self._card(tab)
-        self.daily_text = scrolledtext.ScrolledText(editor, font=(MONO_FONT, 13),
+        self.daily_text = scrolledtext.ScrolledText(editor, font=mono(13),
                                                      bg=BG, fg=FG, insertbackground=INPUT_INSERT,
                                                      wrap=tk.WORD, relief=tk.FLAT, borderwidth=0,
                                                      highlightthickness=0, padx=10, pady=10, takefocus=1)
@@ -805,7 +1028,7 @@ class WikiApp:
         bot.pack(fill=tk.X, padx=10, pady=(0, 10))
         self._accent_btn(bot, t("save"), self.save_daily, padx=18, pady=6).pack(side=tk.RIGHT)
 
-        self.tag_display = tk.Label(bot, text="", bg=BG, fg=ACCENT2, font=(UI_FONT, 10))
+        self.tag_display = tk.Label(bot, text="", bg=BG, fg=ACCENT2, font=ui(10))
         self.tag_display.pack(side=tk.LEFT)
 
     def _refocus(self, widget):
@@ -847,11 +1070,39 @@ class WikiApp:
 
         # 输入卡片
         inp = self._card(tab, pady=6)
-        self.mood_input = scrolledtext.ScrolledText(inp, height=3, font=(UI_FONT, 12),
+        self.mood_input = scrolledtext.ScrolledText(inp, height=3, font=ui(12),
                                                       bg=BG, fg=FG, insertbackground=INPUT_INSERT,
                                                       wrap=tk.WORD, relief=tk.FLAT, borderwidth=0,
                                                       highlightthickness=0, padx=10, pady=8, takefocus=1)
         self.mood_input.pack(fill=tk.X, padx=8, pady=8)
+
+        # 语音输入行（🎤 录音 → 识别填框 → 自动分析）
+        vrow = tk.Frame(inp, bg=BG2)
+        vrow.pack(fill=tk.X, padx=8, pady=(0, 8))
+        self.voice_btn = self._btn(vrow, t("voice"), self.on_voice_toggle, padx=14, pady=3)
+        self.voice_btn.pack(side=tk.LEFT)
+        # 麦克风权限帮助/一键重置入口
+        self._btn(vrow, t("mic_perm_btn"), lambda: self._show_mic_permission_dialog(),
+                  padx=8, pady=3, font=ui(11)).pack(side=tk.LEFT)
+        # 识别后自动保存开关（持久化到 config/voice_autosave.txt）
+        self.voice_autosave = tk.BooleanVar(value=voice_mood.load_autosave_pref())
+        tk.Checkbutton(vrow, text=t("voice_autosave"), variable=self.voice_autosave,
+                       command=lambda: voice_mood.save_autosave_pref(self.voice_autosave.get()),
+                       bg=BG2, fg=MUTED, activebackground=BG2, activeforeground=FG,
+                       selectcolor=BG2, font=ui(10),
+                       cursor="hand2", bd=0, highlightthickness=0).pack(side=tk.RIGHT)
+        self.voice_status = tk.Label(vrow, text="", bg=BG2, fg=MUTED, font=ui(10))
+        self.voice_status.pack(side=tk.LEFT, padx=10)
+
+        # 语音识别器（回调通过 root.after 抛回主线程）
+        ffmpeg_ok, sr_ok = voice_mood.deps_status()
+        self.voice_deps_ok = ffmpeg_ok and sr_ok
+        self.voice_recorder = voice_mood.VoiceRecorder(
+            on_status=lambda s, m: self.root.after(0, self.on_voice_status, s, m),
+            on_result=lambda txt, acou=None: self.root.after(0, self.on_voice_result, txt, acou),
+            on_error=lambda msg: self.root.after(0, self.on_voice_error, msg),
+            on_acoustics=lambda acou: self.root.after(0, self.on_voice_acoustics, acou),
+        )
 
         # 快捷心情（卡片式，对应网页 preset-card 网格）
         grid = tk.Frame(tab, bg=BG)
@@ -867,13 +1118,13 @@ class WikiApp:
         btn_frame = tk.Frame(tab, bg=BG)
         btn_frame.pack(fill=tk.X, padx=10, pady=(10, 0))
         self._accent_btn(btn_frame, t("auto_analyze"), self.analyze_mood_ui, padx=16, pady=6).pack(side=tk.LEFT)
-        self.mood_result = tk.Label(btn_frame, text="", bg=BG, fg=ACCENT2, font=(UI_FONT, 12))
+        self.mood_result = tk.Label(btn_frame, text="", bg=BG, fg=ACCENT2, font=ui(12))
         self.mood_result.pack(side=tk.LEFT, padx=10)
 
         # 今日记录卡片
         self._section(tab, t("today_records"))
         hist = self._card(tab)
-        self.mood_history = scrolledtext.ScrolledText(hist, height=8, font=(MONO_FONT, 12),
+        self.mood_history = scrolledtext.ScrolledText(hist, height=8, font=mono(12),
                                                         bg=BG, fg=FG, wrap=tk.WORD, relief=tk.FLAT,
                                                         borderwidth=0, highlightthickness=0,
                                                         padx=10, pady=8, state=tk.DISABLED)
@@ -891,20 +1142,264 @@ class WikiApp:
         self.status.config(text=t("mood_saved", m=mood), fg=ACCENT2)
         self._refocus(self.mood_input)
 
-    def analyze_mood_ui(self):
+    def analyze_mood_ui(self, acoustics=None):
+        """分析心情，可融合声学特征。"""
         text = self.mood_input.get("1.0", tk.END).strip()
-        if not text:
+        if not text and not acoustics:
             self.mood_result.config(text=t("type_first"))
             self._refocus(self.mood_input)
             return
-        mood, conf, reason = analyze_mood(text)
-        save_mood(get_today(), mood, text, conf, reason)
-        emoji = MOOD_EMOJI.get(mood, "")
-        self.mood_result.config(text=f"{emoji} {mood} ({conf:.0%})")
+
+        # 文本分析
+        text_mood, text_conf, text_reason = ("平静", 0, "")
+        if text:
+            text_mood, text_conf, text_reason = analyze_mood(text)
+
+        # 声学分析
+        acou_mood, acou_conf, acou_detail = (None, 0, "")
+        if acoustics:
+            acou_mood, acou_conf, acou_detail = voice_mood.acoustics_to_mood(acoustics)
+
+        # 融合：文本分析为主（权重 0.6），声学为辅（权重 0.4）
+        if acou_mood and text:
+            # 两者都有：加权融合
+            MOODS = list(MOOD_EMOJI.keys())
+            combined_scores = {m: 0 for m in MOODS}
+            combined_scores[text_mood] += text_conf * 0.6
+            combined_scores[acou_mood] += acou_conf * 0.4
+            best_mood = max(combined_scores, key=combined_scores.get)
+            best_conf = min(combined_scores[best_mood], 1.0)
+            reason_parts = []
+            if text_reason and text_reason != "未检测到明显情绪词":
+                reason_parts.append("文本: {}".format(text_reason))
+            if acou_detail:
+                reason_parts.append("声音: {}".format(acou_detail))
+            reason = " | ".join(reason_parts) if reason_parts else acou_detail or text_reason
+        elif acou_mood and not text:
+            # 只有声学分析（文字识别失败）
+            best_mood = acou_mood
+            best_conf = acou_conf
+            reason = "声音分析: {}".format(acou_detail)
+        else:
+            # 只有文本分析
+            best_mood = text_mood
+            best_conf = text_conf
+            reason = text_reason
+
+        save_text = text if text else "(语音: {})".format(acou_detail[:50])
+        save_mood(get_today(), best_mood, save_text, best_conf, reason)
+        emoji = MOOD_EMOJI.get(best_mood, "")
+        # 显示更丰富的结果
+        detail = ""
+        if acou_mood and text_mood and acou_mood != text_mood:
+            detail = " (文本→{} 声音→{})".format(text_mood, acou_mood)
+        self.mood_result.config(text=f"{emoji} {best_mood} ({best_conf:.0%}){detail}")
         self.mood_input.delete("1.0", tk.END)
         self.refresh_mood_history()
-        self.status.config(text=t("mood_saved", m=f"{mood} ({conf:.0%})"), fg=ACCENT2)
+        self.status.config(text=t("mood_saved", m=f"{best_mood} ({best_conf:.0%})"), fg=ACCENT2)
         self._refocus(self.mood_input)
+
+    # ---------- 语音识别心情 ----------
+    def _voice_lang(self):
+        return "zh-CN" if LANG == "zh" else "en-US"
+
+    def on_voice_toggle(self):
+        if not getattr(self, "voice_deps_ok", False):
+            ffmpeg_ok, sr_ok = voice_mood.deps_status()
+            if not (ffmpeg_ok and sr_ok):
+                need = []
+                if not ffmpeg_ok:
+                    need.append(t("voice_missing_ffmpeg"))
+                if not sr_ok:
+                    need.append(t("voice_missing_sr"))
+                if not messagebox.askyesno("语音依赖缺失",
+                                           t("voice_confirm_install").format(n="、".join(need))):
+                    return
+                self._start_voice_install()
+                return
+        if self.voice_recorder.running:
+            self.voice_recorder.stop()
+            # 立即更新 UI，不等后台回调（避免按钮卡在"停止"状态）
+            self.voice_btn.config(text=t("voice"))
+            self.voice_status.config(text=t("voice_cancel"))
+            self.status.config(text=t("voice_cancel"), fg=MUTED)
+            return
+        self.voice_btn.config(text=t("voice_stop"))
+        self.voice_status.config(text=t("voice_recording").format(n=voice_mood.MAX_SECONDS))
+        self.status.config(text=t("voice_recording").format(n=voice_mood.MAX_SECONDS), fg=MUTED)
+        self.voice_recorder.start(lang=self._voice_lang())
+
+    # ---------- 语音依赖自动安装 ----------
+    def _start_voice_install(self):
+        """在后台线程跑 pip 安装，按钮置灰并显示进度；主线程轮询取结果。"""
+        self.voice_btn.set_enabled(False)
+        self.voice_btn.config(text=t("voice_installing"))
+        self.voice_status.config(text=t("voice_installing"))
+        self.status.config(text=t("voice_installing"), fg=MUTED)
+        self._voice_install_result = None
+        threading.Thread(target=self._install_voice_deps, daemon=True).start()
+        # 主线程调度首次轮询（避免跨线程直接调用 after）
+        self.root.after(150, self._poll_voice_install)
+
+    def _install_voice_deps(self):
+        try:
+            self._voice_install_result = voice_mood.auto_install_deps()
+        except Exception as e:
+            self._voice_install_result = (False, False, ["安装异常：{}".format(e)])
+
+    def _poll_voice_install(self):
+        if self._voice_install_result is None:
+            self.root.after(150, self._poll_voice_install)
+            return
+        ffmpeg_ok, sr_ok, notes = self._voice_install_result
+        self._voice_install_result = None
+        self._on_voice_install_done(ffmpeg_ok, sr_ok, notes)
+
+    def _on_voice_install_done(self, ffmpeg_ok, sr_ok, notes):
+        self.voice_btn.set_enabled(True)
+        ok = ffmpeg_ok and sr_ok
+        self.voice_deps_ok = ok
+        if ok:
+            self.voice_status.config(text=t("voice_install_ok"))
+            self.status.config(text=t("voice_install_ok"), fg=ACCENT2)
+            self.on_voice_toggle()  # 依赖就绪，直接开始录音
+            return
+        detail = t("voice_install_fail")
+        if not ffmpeg_ok:
+            detail += "\n" + t("voice_need_ffmpeg")
+        if not sr_ok:
+            detail += "\n" + t("voice_need_sr").format(py=sys.executable)
+        if notes:
+            detail += "\n\n" + "\n".join(notes)
+        messagebox.showerror("语音依赖安装失败", detail)
+
+    def on_voice_result(self, text, acoustics=None):
+        # 填入心情输入框（只有有文字时才填）
+        if text:
+            try:
+                cur = self.mood_input.get("1.0", tk.END).strip()
+                if cur:
+                    self.mood_input.insert(tk.END, "\n" + text)
+                else:
+                    self.mood_input.insert("1.0", text)
+            except Exception:
+                pass
+        self.voice_btn.config(text=t("voice"))
+        # 显示识别到的文字或声学特征
+        if text:
+            display_text = text[:40] + ("…" if len(text) > 40 else "")
+        else:
+            # 文字识别失败，显示声音特征摘要
+            acou_mood, acou_conf, acou_detail = voice_mood.acoustics_to_mood(acoustics)
+            display_text = "声音→{} ({})".format(acou_mood, acou_detail[:30])
+        # 识别后：开关开则自动分析保存；否则仅填入等用户检查再手动保存
+        if self.voice_autosave.get():
+            try:
+                self.voice_status.config(text="已识别：{}".format(display_text))
+            except Exception:
+                pass
+            self.status.config(text="已识别：{}".format(display_text), fg=ACCENT2)
+            self.analyze_mood_ui(acoustics=acoustics)
+        else:
+            try:
+                self.voice_status.config(text="已填入：{}".format(display_text))
+            except Exception:
+                pass
+            self.status.config(text="已填入，请检查后保存", fg=ACCENT2)
+            self._refocus(self.mood_input)
+
+    def on_voice_acoustics(self, features):
+        """声学分析结果回调，在识别前先显示声音特征。"""
+        try:
+            acou_mood, acou_conf, acou_detail = voice_mood.acoustics_to_mood(features)
+            emoji = MOOD_EMOJI.get(acou_mood, "")
+            self.voice_status.config(
+                text="声音特征: {} {} {}".format(emoji, acou_mood, acou_detail[:20] if acou_detail else ""))
+        except Exception:
+            pass
+
+    def on_voice_error(self, msg):
+        self.voice_btn.config(text=t("voice"))
+        try:
+            self.voice_status.config(text=msg)
+        except Exception:
+            pass
+        self.status.config(text=msg, fg="orange")
+        # 麦克风权限被拒：自动弹出帮助/重置对话框
+        low = (msg or "").lower()
+        if "麦克风权限被拒绝" in (msg or "") or "microphone" in low or "operation not permitted" in low:
+            self._show_mic_permission_dialog()
+
+    def on_voice_status(self, state, msg):
+        if state == "recording":
+            self.voice_btn.config(text=t("voice_stop"))
+        elif state in ("idle", "done"):
+            self.voice_btn.config(text=t("voice"))
+        try:
+            self.voice_status.config(text=msg)
+        except Exception:
+            pass
+
+    # ---------- 麦克风权限帮助 / 一键重置 ----------
+    def _show_mic_permission_dialog(self):
+        """弹出麦克风权限说明与「一键重置」对话框（macOS）。"""
+        dlg = tk.Toplevel(self.root)
+        dlg.title(t("mic_perm_title"))
+        dlg.transient(self.root)
+        dlg.grab_set()
+        dlg.resizable(False, False)
+        try:
+            dlg.configure(bg=BG)
+        except Exception:
+            pass
+
+        pad = {"padx": 16, "pady": 12}
+        tk.Label(dlg, text=t("mic_perm_help"), justify=tk.LEFT, wraplength=400,
+                 bg=BG, fg=FG, font=ui(11)).pack(anchor=tk.W, **pad)
+
+        btn_row = tk.Frame(dlg, bg=BG)
+        btn_row.pack(fill=tk.X, padx=16, pady=(0, 14))
+        self._accent_btn(btn_row, t("mic_perm_reset"),
+                         lambda: self._reset_mic_permission(dlg), padx=12, pady=5).pack(side=tk.LEFT)
+        self._btn(btn_row, t("close"), dlg.destroy, padx=12, pady=5).pack(side=tk.LEFT, padx=(8, 0))
+
+        # 居中显示
+        dlg.update_idletasks()
+        w, h = dlg.winfo_width(), dlg.winfo_height()
+        pw, ph = self.root.winfo_x(), self.root.winfo_y()
+        dlg.geometry("+{}+{}".format(pw + (self.root.winfo_width() - w) // 2,
+                                     ph + (self.root.winfo_height() - h) // 2))
+
+    def _reset_mic_permission(self, dlg):
+        """执行 tccutil reset Microphone（仅 macOS），随后提示重启。"""
+        import subprocess
+        if sys.platform != "darwin":
+            dlg.grab_release()
+            dlg.destroy()
+            messagebox.showinfo(t("mic_perm_title"), t("mic_perm_only_mac"))
+            return
+        try:
+            res = subprocess.run(["tccutil", "reset", "Microphone"],
+                                 capture_output=True, text=True, timeout=20)
+            ok = res.returncode == 0
+            detail = (res.stderr or res.stdout or "").strip()
+        except Exception as e:
+            ok, detail = False, str(e)
+        dlg.grab_release()
+        dlg.destroy()
+        if ok:
+            messagebox.showinfo(t("mic_perm_title"), t("mic_perm_reset_ok"))
+        else:
+            extra = "\n\n{}".format(detail[:300]) if detail else ""
+            messagebox.showerror(t("mic_perm_title"), t("mic_perm_reset_fail") + extra)
+
+    def _stop_voice_if_running(self):
+        rec = getattr(self, "voice_recorder", None)
+        if rec is not None and rec.running:
+            try:
+                rec.stop()
+            except Exception:
+                pass
 
     def refresh_mood_history(self):
         records = load_moods(get_today())
@@ -948,13 +1443,13 @@ class WikiApp:
         ccard = self._card(tab, pady=6)
         head = tk.Frame(ccard, bg=BG2)
         head.pack(fill=tk.X, padx=12, pady=(10, 4))
-        tk.Label(head, text=t("custom"), bg=BG2, fg=FG, font=(UI_FONT, 11, "bold")).pack(side=tk.LEFT)
+        tk.Label(head, text=t("custom"), bg=BG2, fg=FG, font=ui(11, bold=True)).pack(side=tk.LEFT)
         row = tk.Frame(ccard, bg=BG2)
         row.pack(fill=tk.X, padx=12, pady=(0, 10))
-        self.reminder_msg = tk.Entry(row, font=(UI_FONT, 11), bg=BG, fg=FG,
+        self.reminder_msg = tk.Entry(row, font=ui(11), bg=BG, fg=FG,
                                       insertbackground=INPUT_INSERT, relief=tk.FLAT, width=22)
         self.reminder_msg.pack(side=tk.LEFT, padx=(0, 6))
-        self.reminder_time = tk.Entry(row, font=(UI_FONT, 11), bg=BG, fg=FG,
+        self.reminder_time = tk.Entry(row, font=ui(11), bg=BG, fg=FG,
                                        insertbackground=INPUT_INSERT, relief=tk.FLAT, width=12)
         self.reminder_time.insert(0, "HH:MM")
         self.reminder_time.pack(side=tk.LEFT, padx=(0, 6))
@@ -968,7 +1463,7 @@ class WikiApp:
         bot = tk.Frame(tab, bg=BG)
         bot.pack(fill=tk.X, padx=10, pady=(6, 10))
         self._label(bot, t("cancel_id"), size=10).pack(side=tk.LEFT)
-        self.cancel_id = tk.Entry(bot, font=(UI_FONT, 10), bg=BG, fg=FG,
+        self.cancel_id = tk.Entry(bot, font=ui(10), bg=BG, fg=FG,
                                     insertbackground=INPUT_INSERT, relief=tk.FLAT, width=6)
         self.cancel_id.pack(side=tk.LEFT, padx=5)
         self._btn(bot, t("cancel"), self.cancel_reminder_ui, padx=10).pack(side=tk.LEFT, padx=5)
@@ -1036,14 +1531,14 @@ class WikiApp:
         pending = [r for r in reminders if r["status"] == "pending"]
         if not pending:
             tk.Label(self.rem_inner, text=t("no_pending"), bg=BG2, fg=MUTED,
-                     font=(UI_FONT, 11)).pack(fill=tk.X, padx=14, pady=14)
+                     font=ui(11)).pack(fill=tk.X, padx=14, pady=14)
         else:
             for r in pending:
                 card = tk.Frame(self.rem_inner, bg=BG2, highlightbackground=BORDER, highlightthickness=1)
                 card.pack(fill=tk.X, padx=14, pady=6)
                 tk.Label(card, text="#{}  {}".format(r["id"], r["remind_at"]),
-                         font=(UI_FONT, 12, "bold"), bg=BG2, fg=ACCENT).pack(anchor="w", padx=14, pady=(10, 2))
-                tk.Label(card, text=r["message"], font=(UI_FONT, 13), bg=BG2, fg=FG,
+                         font=ui(12, bold=True), bg=BG2, fg=ACCENT).pack(anchor="w", padx=14, pady=(10, 2))
+                tk.Label(card, text=r["message"], font=ui(13), bg=BG2, fg=FG,
                          wraplength=320, justify="left").pack(anchor="w", padx=14, pady=(0, 10))
         self.rem_inner.update_idletasks()
         self.rem_canvas.configure(scrollregion=self.rem_canvas.bbox("all"))
@@ -1072,7 +1567,7 @@ class WikiApp:
         head = tk.Frame(tab, bg=BG)
         head.pack(fill=tk.X, padx=10, pady=(10, 4))
         self._label(head, t("share_title"),
-                    font=(UI_FONT, 12, "bold")).pack(side=tk.LEFT)
+                    font=ui(12, bold=True)).pack(side=tk.LEFT)
         self._btn(head, t("refresh"), self.share_refresh,
                   bg=BTN_BG, fg=FG, padx=10).pack(side=tk.RIGHT)
 
@@ -1085,7 +1580,7 @@ class WikiApp:
 
         # 状态区（内容框，可拖拽分隔条改变高度）— 白卡 + 卡内浅底
         status = tk.Frame(pw, bg=BG2, highlightbackground=BORDER, highlightthickness=1)
-        self.share_status = scrolledtext.ScrolledText(status, height=9, font=(MONO_FONT, 11),
+        self.share_status = scrolledtext.ScrolledText(status, height=9, font=mono(11),
                                                       bg=BG, fg=FG, insertbackground=INPUT_INSERT,
                                                       wrap=tk.WORD, relief=tk.FLAT, borderwidth=0,
                                                       highlightthickness=0,

@@ -12,6 +12,7 @@ from html.parser import HTMLParser
 from pathlib import Path
 
 HTML_PATH = Path(__file__).resolve().parent.parent / "mood_web.html"
+VOICE_JS_PATH = Path(__file__).resolve().parent.parent / "voice-controller.js"
 
 
 class _Collector(HTMLParser):
@@ -37,13 +38,14 @@ def _load():
     parser.feed(text)
     m = re.search(r"<script>(.*?)</script>", text, re.DOTALL)
     script = m.group(1) if m else ""
-    return text, parser, script
+    voice_js = VOICE_JS_PATH.read_text(encoding="utf-8") if VOICE_JS_PATH.exists() else ""
+    return text, parser, script, voice_js
 
 
 class TestMoodWebStructure(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.text, cls.p, cls.script = _load()
+        cls.text, cls.p, cls.script, cls.voice_js = _load()
 
     def test_file_exists(self):
         self.assertTrue(HTML_PATH.exists(), f"缺少文件: {HTML_PATH}")
@@ -99,7 +101,12 @@ class TestMoodWebStructure(unittest.TestCase):
 
     def test_voice_graceful_degradation(self):
         # 不支持语音时给出友好提示而非直接报错
-        self.assertIn("不支持语音识别", self.script, "应处理浏览器不支持语音识别的情况")
+        # 该提示逻辑现已抽到共享模块 voice-controller.js
+        combined = self.script + "\n" + self.voice_js
+        self.assertIn("不支持语音识别", combined,
+                      "应处理浏览器不支持语音识别的情况（内联脚本或 voice-controller.js）")
+        # 内联脚本应通过 VoiceController 接入共享模块
+        self.assertIn("new VoiceController(", self.script, "应实例化共享语音控制器")
 
 
 if __name__ == "__main__":
