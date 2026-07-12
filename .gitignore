@@ -134,3 +134,6 @@ stock-dashboard/
 
 # Local Obsidian vault mapping (machine-specific, contains absolute paths)
 config/obsidian.json
+
+# AI 生成的图片（派生产物）
+generated-images/
