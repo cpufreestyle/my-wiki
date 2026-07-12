@@ -2,7 +2,7 @@
 
 > 基于 [Andrej Karpathy's LLM Wiki 理念](https://karpathy.github.io/2025/05/11/llm-wiki/) 构建的个人知识库系统
 
-[![Version](https://img.shields.io/badge/version-v2.4.0-blue)](https://github.com/cpufreestyle/my-wiki/releases/tag/v2.4.0)
+[![Version](https://img.shields.io/badge/version-v2.5.0-blue)](https://github.com/cpufreestyle/my-wiki/releases/tag/v2.5.0)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Obsidian](https://img.shields.io/badge/Obsidian-1.0+-purple)](https://obsidian.md)
 
@@ -409,7 +409,7 @@ my-wiki/
 
 ## 🔌 功能模块
 
-MyWiki v2.4.0 集成以下功能模块，位于 `modules/` 目录：
+MyWiki v2.5.0 集成以下功能模块，位于 `modules/` 目录：
 
 ### 模块列表
 
@@ -782,6 +782,6 @@ node --test "tests/**/*.test.mjs"
 
 ---
 
-**最后更新**: 2026-07-12（语义 RAG 检索 + UI 主题统一）
+**最后更新**: 2026-07-12（主窗口主题统一 + 测试与 CI 保障）
 
-**版本**: v2.4.0
+**版本**: v2.5.0
