@@ -1,256 +1,700 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Quick Reminder - 快速提醒</title>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MyWiki 快速提醒</title>
     <style>
+        :root {
+            --bg: #f5f5f7;
+            --surface: #ffffff;
+            --text: #1d1d1f;
+            --text-secondary: #86868b;
+            --accent: #0a84ff;
+            --accent-hover: #0070e0;
+            --orange: #ff9f0a;
+            --orange-hover: #e88e00;
+            --green: #34c759;
+            --green-hover: #2bb04e;
+            --border: #e5e5ea;
+            --radius-card: 14px;
+            --radius-btn: 10px;
+            --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.08);
+            --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.06);
+            --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display",
+                "PingFang SC", "Helvetica Neue", "Microsoft YaHei", sans-serif;
+        }
+
+        /* ---------- 深色模式 ---------- */
+        [data-theme="dark"] {
+            --bg: #1c1c1e;
+            --surface: #2c2c2e;
+            --text: #f5f5f7;
+            --text-secondary: #98989d;
+            --accent: #0a84ff;
+            --accent-hover: #409cff;
+            --orange: #ff9f0a;
+            --orange-hover: #ffb340;
+            --green: #30d158;
+            --green-hover: #40d969;
+            --border: #3a3a3c;
+            --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4);
+            --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.5);
+        }
+
         * {
             margin: 0;
             padding: 0;
             box-sizing: border-box;
         }
-        
+
         body {
-            font-family: "Microsoft YaHei", Arial, sans-serif;
-            background: #2b2b2b;
-            color: #ffffff;
-            padding: 20px;
-            max-width: 600px;
+            font-family: var(--font);
+            background: var(--bg);
+            color: var(--text);
+            -webkit-font-smoothing: antialiased;
+            line-height: 1.45;
+            transition: background 0.2s ease, color 0.2s ease;
+        }
+
+        .app {
+            max-width: 480px;
             margin: 0 auto;
+            padding: 32px 20px 48px;
         }
-        
-        h1 {
+
+        /* ---------- Header ---------- */
+        .app-header {
+            position: relative;
             text-align: center;
-            margin-bottom: 30px;
-            font-size: 24px;
+            margin-bottom: 28px;
         }
-        
-        .preset-buttons {
+        .app-header .icon {
+            width: 56px;
+            height: 56px;
+            margin: 0 auto 14px;
             display: grid;
-            grid-template-columns: 1fr;
-            gap: 10px;
-            margin-bottom: 20px;
+            place-items: center;
+            font-size: 28px;
+            background: var(--surface);
+            border-radius: 16px;
+            box-shadow: var(--shadow-sm);
         }
-        
-        .btn {
-            padding: 15px;
-            font-size: 16px;
+        .app-header h1 {
+            font-size: 22px;
+            font-weight: 600;
+            letter-spacing: -0.01em;
+        }
+        .app-header p {
+            margin-top: 4px;
+            font-size: 14px;
+            color: var(--text-secondary);
+        }
+
+        .theme-toggle {
+            position: absolute;
+            top: 0;
+            right: 0;
+            width: 38px;
+            height: 38px;
             border: none;
-            border-radius: 8px;
+            border-radius: 50%;
+            background: var(--surface);
+            color: var(--text);
+            font-size: 17px;
             cursor: pointer;
-            transition: all 0.3s;
-            background: #4a9eff;
-            color: white;
+            box-shadow: var(--shadow-sm);
+            display: grid;
+            place-items: center;
+            transition: transform 0.15s ease, background 0.2s ease;
         }
-        
-        .btn:hover {
-            background: #357abd;
+        .theme-toggle:hover {
+            transform: scale(1.08);
+        }
+        .theme-toggle:active {
+            transform: scale(0.94);
+        }
+        .theme-toggle:focus-visible {
+            outline: 3px solid var(--accent);
+            outline-offset: 2px;
+        }
+
+        /* ---------- Section title ---------- */
+        .section-title {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            margin: 22px 4px 12px;
+        }
+
+        /* ---------- Preset grid ---------- */
+        .preset-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+        .preset-card {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            text-align: left;
+            background: var(--surface);
+            border: none;
+            border-radius: var(--radius-card);
+            padding: 16px;
+            cursor: pointer;
+            box-shadow: var(--shadow-sm);
+            transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.2s ease;
+            color: var(--text);
+            font-family: inherit;
+        }
+        .preset-card:hover {
             transform: translateY(-2px);
+            box-shadow: var(--shadow-md);
         }
-        
+        .preset-card:active {
+            transform: scale(0.98);
+        }
+        .preset-card:focus-visible {
+            outline: 3px solid var(--accent);
+            outline-offset: 2px;
+        }
+        .preset-card .dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--accent);
+            flex-shrink: 0;
+        }
+        .preset-card .label {
+            font-size: 15px;
+            font-weight: 500;
+        }
+        .preset-card .hint {
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        /* ---------- Action buttons ---------- */
+        .actions {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            margin-top: 12px;
+        }
+        .btn {
+            border: none;
+            border-radius: var(--radius-btn);
+            padding: 14px;
+            font-size: 15px;
+            font-weight: 600;
+            font-family: inherit;
+            color: #fff;
+            cursor: pointer;
+            transition: background 0.15s ease, transform 0.1s ease;
+        }
+        .btn:active {
+            transform: scale(0.98);
+        }
+        .btn:focus-visible {
+            outline: 3px solid var(--accent);
+            outline-offset: 2px;
+        }
         .btn-custom {
-            background: #f0ad4e;
+            background: var(--orange);
         }
-        
         .btn-custom:hover {
-            background: #ec971f;
+            background: var(--orange-hover);
         }
-        
         .btn-view {
-            background: #5cb85c;
+            background: var(--green);
         }
-        
         .btn-view:hover {
-            background: #4cae4c;
+            background: var(--green-hover);
         }
-        
+
+        /* ---------- Pending list ---------- */
+        .pending-list {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .pending-item {
+            background: var(--surface);
+            border-radius: 12px;
+            padding: 14px 16px;
+            box-shadow: var(--shadow-sm);
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            transition: background 0.2s ease;
+        }
+        .pending-item .time {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--accent);
+        }
+        .pending-item .msg {
+            font-size: 14px;
+            color: var(--text);
+            word-break: break-word;
+        }
+        .empty-tip {
+            text-align: center;
+            font-size: 14px;
+            color: var(--text-secondary);
+            padding: 20px 0;
+        }
+
+        /* ---------- Modal ---------- */
         .modal {
             display: none;
             position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0,0,0,0.7);
+            inset: 0;
+            background: rgba(0, 0, 0, 0.4);
+            backdrop-filter: blur(4px);
+            -webkit-backdrop-filter: blur(4px);
             z-index: 1000;
+            padding: 20px;
         }
-        
-        .modal-content {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            background: #3b3b3b;
-            padding: 30px;
-            border-radius: 12px;
-            min-width: 300px;
-            max-width: 90%;
+        .modal.open {
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
-        
-        .modal-content h2 {
-            margin-bottom: 20px;
-        }
-        
-        .modal-content input,
-        .modal-content textarea {
+        .modal-card {
+            background: var(--surface);
+            border-radius: 18px;
+            padding: 24px;
             width: 100%;
-            padding: 10px;
-            margin-bottom: 15px;
-            border: 1px solid #555;
-            border-radius: 6px;
-            background: #2b2b2b;
-            color: white;
-            font-size: 14px;
+            max-width: 360px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
+            animation: pop 0.18s ease;
+            transition: background 0.2s ease;
         }
-        
-        .modal-buttons {
+        @keyframes pop {
+            from { transform: scale(0.96); opacity: 0; }
+            to { transform: scale(1); opacity: 1; }
+        }
+        .modal-card h2 {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+        .modal-card .sub {
+            font-size: 13px;
+            color: var(--text-secondary);
+            margin-bottom: 16px;
+        }
+        .field {
+            margin-bottom: 14px;
+        }
+        .field label {
+            display: block;
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--text-secondary);
+            margin-bottom: 6px;
+        }
+        .field input {
+            width: 100%;
+            border: 1px solid var(--border);
+            background: var(--bg);
+            border-radius: var(--radius-btn);
+            padding: 12px;
+            font-size: 15px;
+            font-family: inherit;
+            color: var(--text);
+        }
+        .field input:focus {
+            outline: none;
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px rgba(10, 132, 255, 0.15);
+        }
+        .modal-actions {
             display: flex;
             gap: 10px;
-            justify-content: flex-end;
+            margin-top: 6px;
         }
-        
-        .btn-cancel {
-            background: #555;
+        .modal-actions .btn {
+            flex: 1;
         }
-        
-        .btn-cancel:hover {
-            background: #666;
+        .btn-secondary {
+            background: var(--bg);
+            color: var(--text);
         }
-        
-        #status {
-            text-align: center;
-            margin-top: 20px;
-            color: #888;
+        .btn-secondary:hover {
+            filter: brightness(0.96);
+        }
+        .btn-primary {
+            background: var(--accent);
+        }
+        .btn-primary:hover {
+            background: var(--accent-hover);
+        }
+
+        /* ---------- Toast ---------- */
+        .toast {
+            position: fixed;
+            left: 50%;
+            bottom: 32px;
+            transform: translateX(-50%) translateY(20px);
+            background: rgba(29, 29, 31, 0.92);
+            color: #fff;
+            padding: 12px 20px;
+            border-radius: 12px;
             font-size: 14px;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.2s ease, transform 0.2s ease;
+            z-index: 2000;
+            max-width: 90%;
+            text-align: center;
+            white-space: pre-line;
+        }
+        .toast.show {
+            opacity: 1;
+            transform: translateX(-50%) translateY(0);
+        }
+
+        /* ---------- 响应式：窄屏单列 ---------- */
+        @media (max-width: 480px) {
+            .app {
+                padding: 28px 14px 40px;
+            }
+            .app-header h1 {
+                font-size: 20px;
+            }
+            .preset-grid {
+                grid-template-columns: 1fr;
+            }
+            .actions {
+                grid-template-columns: 1fr;
+            }
         }
     </style>
 </head>
 <body>
-    <h1>⏰ 快速提醒设置</h1>
-    
-    <div class="preset-buttons">
-        <button class="btn" onclick="setReminder('1小时后', 1)">1小时后</button>
-        <button class="btn" onclick="setReminder('2小时后', 2)">2小时后</button>
-        <button class="btn" onclick="setReminder('3小时后', 3)">3小时后</button>
-        <button class="btn" onclick="setReminder('明天9点', 'tomorrow_9')">明天9点</button>
-        <button class="btn" onclick="setReminder('明天18点', 'tomorrow_18')">明天18点</button>
-        <button class="btn" onclick="setReminder('下周9点', 'nextweek_9')">下周9点</button>
-    </div>
-    
-    <div class="preset-buttons">
-        <button class="btn btn-custom" onclick="customReminder()">➕ 自定义提醒</button>
-        <button class="btn btn-view" onclick="viewPending()">📋 查看待发送提醒</button>
-    </div>
-    
-    <div id="status">点击按钮设置提醒</div>
-    
-    <!-- 模态框：输入提醒内容 -->
-    <div id="modal" class="modal">
-        <div class="modal-content">
-            <h2 id="modal-title">设置提醒</h2>
-            <input type="text" id="reminder-text" placeholder="请输入提醒内容..." />
-            <div class="modal-buttons">
-                <button class="btn btn-cancel" onclick="closeModal()">取消</button>
-                <button class="btn" onclick="saveReminder()">确定</button>
+    <main class="app">
+        <header class="app-header">
+            <button class="theme-toggle" id="themeToggle" aria-label="切换深色模式" title="切换深色 / 浅色">🌙</button>
+            <div class="icon" aria-hidden="true">⏰</div>
+            <h1>快速提醒</h1>
+            <p>MyWiki · 一键设置常用提醒</p>
+        </header>
+
+        <h2 class="section-title">常用时间</h2>
+        <section class="preset-grid" aria-label="预设提醒时间">
+            <button class="preset-card" data-name="1小时后" data-hours="1">
+                <span class="dot"></span>
+                <span>
+                    <span class="label">1 小时后</span><br />
+                    <span class="hint">快速稍后提醒</span>
+                </span>
+            </button>
+            <button class="preset-card" data-name="2小时后" data-hours="2">
+                <span class="dot"></span>
+                <span>
+                    <span class="label">2 小时后</span><br />
+                    <span class="hint">午间 / 会议</span>
+                </span>
+            </button>
+            <button class="preset-card" data-name="3小时后" data-hours="3">
+                <span class="dot"></span>
+                <span>
+                    <span class="label">3 小时后</span><br />
+                    <span class="hint">下午安排</span>
+                </span>
+            </button>
+            <button class="preset-card" data-name="明天9点" data-key="tomorrow_9">
+                <span class="dot"></span>
+                <span>
+                    <span class="label">明天 9 点</span><br />
+                    <span class="hint">晨间待办</span>
+                </span>
+            </button>
+            <button class="preset-card" data-name="明天18点" data-key="tomorrow_18">
+                <span class="dot"></span>
+                <span>
+                    <span class="label">明天 18 点</span><br />
+                    <span class="hint">下班提醒</span>
+                </span>
+            </button>
+            <button class="preset-card" data-name="下周9点" data-key="nextweek_9">
+                <span class="dot"></span>
+                <span>
+                    <span class="label">下周 9 点</span><br />
+                    <span class="hint">周计划</span>
+                </span>
+            </button>
+        </section>
+
+        <div class="actions">
+            <button class="btn btn-custom" id="customBtn">➕ 自定义提醒</button>
+            <button class="btn btn-view" id="viewBtn">📋 待发送</button>
+        </div>
+
+        <section id="pendingSection" hidden aria-live="polite">
+            <h2 class="section-title">待发送提醒</h2>
+            <div class="pending-list" id="pendingList"></div>
+        </section>
+    </main>
+
+    <!-- 内容输入模态 -->
+    <div class="modal" id="contentModal" role="dialog" aria-modal="true" aria-labelledby="contentTitle">
+        <div class="modal-card">
+            <h2 id="contentTitle">设置提醒</h2>
+            <p class="sub" id="contentSub">请输入提醒内容</p>
+            <div class="field">
+                <label for="reminderText">提醒内容</label>
+                <input type="text" id="reminderText" placeholder="例如：提交周报" autocomplete="off" />
+            </div>
+            <div class="modal-actions">
+                <button class="btn btn-secondary" data-close>取消</button>
+                <button class="btn btn-primary" id="saveContentBtn">确定</button>
             </div>
         </div>
     </div>
-    
+
+    <!-- 自定义时间模态 -->
+    <div class="modal" id="customModal" role="dialog" aria-modal="true" aria-labelledby="customTitle">
+        <div class="modal-card">
+            <h2 id="customTitle">自定义提醒</h2>
+            <p class="sub">选择时间并填写内容</p>
+            <div class="field">
+                <label for="customTime">提醒时间</label>
+                <input type="datetime-local" id="customTime" />
+            </div>
+            <div class="field">
+                <label for="customText">提醒内容</label>
+                <input type="text" id="customText" placeholder="例如：预约体检" autocomplete="off" />
+            </div>
+            <div class="modal-actions">
+                <button class="btn btn-secondary" data-close>取消</button>
+                <button class="btn btn-primary" id="saveCustomBtn">确定</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="toast" id="toast" role="status"></div>
+
     <script>
-        let currentPreset = null;
+        // 屏蔽预览宿主 / 浏览器扩展注入脚本产生的跨域 "Script error." 噪音
+        // （与本页逻辑无关，不影响功能；保留本页自身真实报错）
+        window.addEventListener("error", (e) => {
+            if (!e || e.message === "Script error." || e.filename === "") {
+                e.preventDefault();
+                return true;
+            }
+        }, true);
+
+        const $ = (sel) => document.querySelector(sel);
+
+        // ---------- 主题（深色 / 浅色） ----------
+        const themeToggle = $("#themeToggle");
+        function applyTheme(t) {
+            document.documentElement.setAttribute("data-theme", t);
+            themeToggle.textContent = t === "dark" ? "☀️" : "🌙";
+            try { localStorage.setItem("mywiki-theme", t); } catch {}
+        }
+        (function initTheme() {
+            let t = "light";
+            try { t = localStorage.getItem("mywiki-theme") || "light"; } catch {}
+            applyTheme(t);
+        })();
+        themeToggle.addEventListener("click", () => {
+            const cur = document.documentElement.getAttribute("data-theme");
+            applyTheme(cur === "dark" ? "light" : "dark");
+        });
+
+        // 当前预设上下文
+        let currentName = null;
         let currentHours = null;
-        
-        function setReminder(name, hours) {
-            currentPreset = name;
-            currentHours = hours;
-            document.getElementById('modal-title').textContent = `设置提醒：${name}`;
-            document.getElementById('modal').style.display = 'block';
+        let currentKey = null;
+
+        // ---------- 工具 ----------
+        function toast(msg) {
+            const el = $("#toast");
+            el.textContent = msg;
+            el.classList.add("show");
+            clearTimeout(el._t);
+            el._t = setTimeout(() => el.classList.remove("show"), 2400);
         }
-        
-        function customReminder() {
-            alert('自定义提醒功能开发中...\n\n暂时请使用预设按钮');
-        }
-        
-        function viewPending() {
-            fetch('/api/reminders/pending')
-                .then(res => res.json())
-                .then(data => {
-                    if (data.length === 0) {
-                        alert('当前没有待发送的提醒');
-                    } else {
-                        let text = '待发送提醒：\n\n';
-                        data.slice(-10).forEach(r => {
-                            text += `[${r.id}] ${r.remind_at}\n`;
-                            text += `    ${r.message}\n\n`;
-                        });
-                        alert(text);
-                    }
-                })
-                .catch(err => {
-                    alert('查看失败：' + err.message);
-                });
-        }
-        
-        function closeModal() {
-            document.getElementById('modal').style.display = 'none';
-            document.getElementById('reminder-text').value = '';
-        }
-        
-        function saveReminder() {
-            const text = document.getElementById('reminder-text').value.trim();
-            if (!text) {
-                alert('请输入提醒内容！');
-                return;
-            }
-            
-            // 计算提醒时间
-            let remindAt = new Date();
-            if (typeof currentHours === 'number') {
-                remindAt.setHours(remindAt.getHours() + currentHours);
-            } else {
-                // 处理 'tomorrow_9' 等预设
-                remindAt = getPresetTime(currentHours);
-            }
-            
-            // 调用 API 保存提醒
-            fetch('/api/reminders', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({
-                    remind_at: remindAt.toISOString(),
-                    message: text
-                })
-            })
-            .then(res => res.json())
-            .then(data => {
-                alert(`✅ 提醒已设置！\n\n时间：${remindAt.toLocaleString('zh-CN')}\n内容：${text}`);
-                closeModal();
-                document.getElementById('status').textContent = `已设置：${currentPreset}`;
-            })
-            .catch(err => {
-                alert('设置失败：' + err.message);
-            });
-        }
-        
-        function getPresetTime(preset) {
-            let date = new Date();
-            switch(preset) {
-                case 'tomorrow_9':
+
+        function getPresetTime(key) {
+            const date = new Date();
+            switch (key) {
+                case "tomorrow_9":
                     date.setDate(date.getDate() + 1);
                     date.setHours(9, 0, 0, 0);
                     break;
-                case 'tomorrow_18':
+                case "tomorrow_18":
                     date.setDate(date.getDate() + 1);
                     date.setHours(18, 0, 0, 0);
                     break;
-                case 'nextweek_9':
-                    date.setDate(date.getDate() + (7 - date.getDay()));
+                case "nextweek_9":
+                    date.setDate(date.getDate() + (7 - date.getDay() || 7));
                     date.setHours(9, 0, 0, 0);
                     break;
             }
             return date;
         }
+
+        function computeRemindAt() {
+            if (typeof currentHours === "number") {
+                return new Date(Date.now() + currentHours * 3600 * 1000);
+            }
+            return getPresetTime(currentKey);
+        }
+
+        // ---------- 后端调用（带本地降级） ----------
+        const LS_KEY = "mywiki_reminders_demo";
+        function loadLocal() {
+            try { return JSON.parse(localStorage.getItem(LS_KEY)) || []; }
+            catch { return []; }
+        }
+        function saveLocal(list) {
+            localStorage.setItem(LS_KEY, JSON.stringify(list));
+        }
+
+        async function apiSave(remindAt, message) {
+            const payload = { remind_at: remindAt.toISOString(), message };
+            try {
+                const res = await fetch("/api/reminders", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(payload),
+                });
+                if (!res.ok) throw new Error("HTTP " + res.status);
+                return { ok: true, demo: false };
+            } catch {
+                const list = loadLocal();
+                list.push({ id: Date.now(), remind_at: payload.remind_at, message });
+                saveLocal(list);
+                return { ok: true, demo: true };
+            }
+        }
+
+        async function apiPending() {
+            try {
+                const res = await fetch("/api/reminders/pending");
+                if (!res.ok) throw new Error();
+                return { items: await res.json(), demo: false };
+            } catch {
+                return { items: loadLocal(), demo: true };
+            }
+        }
+
+        // ---------- 模态控制 ----------
+        function openModal(id) {
+            $(id).classList.add("open");
+        }
+        function closeModal(id) {
+            $(id).classList.remove("open");
+        }
+
+        // ---------- 预设提醒 ----------
+        document.querySelectorAll(".preset-card").forEach((btn) => {
+            btn.addEventListener("click", () => {
+                currentName = btn.dataset.name;
+                currentHours = btn.dataset.hours ? Number(btn.dataset.hours) : null;
+                currentKey = btn.dataset.key || null;
+                $("#contentTitle").textContent = "设置提醒：" + currentName;
+                $("#contentSub").textContent = "请输入提醒内容";
+                $("#reminderText").value = "";
+                openModal("#contentModal");
+                setTimeout(() => $("#reminderText").focus(), 50);
+            });
+        });
+
+        $("#saveContentBtn").addEventListener("click", async () => {
+            const text = $("#reminderText").value.trim();
+            if (!text) {
+                toast("请输入提醒内容");
+                return;
+            }
+            const remindAt = computeRemindAt();
+            const { demo } = await apiSave(remindAt, text);
+            closeModal("#contentModal");
+            toast(
+                (demo ? "✅ 已本地保存（演示）" : "✅ 提醒已设置") +
+                "\n" + currentName + " · " + remindAt.toLocaleString("zh-CN")
+            );
+        });
+
+        // ---------- 自定义提醒 ----------
+        $("#customBtn").addEventListener("click", () => {
+            const d = new Date(Date.now() + 3600 * 1000);
+            const pad = (n) => String(n).padStart(2, "0");
+            const local = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+            $("#customTime").value = local;
+            $("#customText").value = "";
+            openModal("#customModal");
+            setTimeout(() => $("#customText").focus(), 50);
+        });
+
+        $("#saveCustomBtn").addEventListener("click", async () => {
+            const timeVal = $("#customTime").value;
+            const text = $("#customText").value.trim();
+            if (!timeVal) {
+                toast("请选择提醒时间");
+                return;
+            }
+            if (!text) {
+                toast("请输入提醒内容");
+                return;
+            }
+            const remindAt = new Date(timeVal);
+            const { demo } = await apiSave(remindAt, text);
+            closeModal("#customModal");
+            toast(
+                (demo ? "✅ 已本地保存（演示）" : "✅ 自定义提醒已设置") +
+                "\n" + remindAt.toLocaleString("zh-CN")
+            );
+        });
+
+        // ---------- 查看待发送 ----------
+        $("#viewBtn").addEventListener("click", async () => {
+            const { items, demo } = await apiPending();
+            const section = $("#pendingSection");
+            const list = $("#pendingList");
+            list.innerHTML = "";
+            if (!items.length) {
+                list.innerHTML = '<p class="empty-tip">当前没有待发送的提醒</p>';
+            } else {
+                items.slice(-20).reverse().forEach((r) => {
+                    const item = document.createElement("div");
+                    item.className = "pending-item";
+                    const t = document.createElement("div");
+                    t.className = "time";
+                    t.textContent = new Date(r.remind_at).toLocaleString("zh-CN");
+                    const m = document.createElement("div");
+                    m.className = "msg";
+                    m.textContent = r.message;
+                    item.append(t, m);
+                    list.appendChild(item);
+                });
+            }
+            section.hidden = false;
+            section.scrollIntoView({ behavior: "smooth", block: "nearest" });
+            if (demo) toast("演示数据（未连接后端）");
+        });
+
+        // 关闭模态：点击遮罩或取消按钮
+        document.querySelectorAll(".modal").forEach((modal) => {
+            modal.addEventListener("click", (e) => {
+                if (e.target === modal || e.target.hasAttribute("data-close")) {
+                    modal.classList.remove("open");
+                }
+            });
+        });
+        document.addEventListener("keydown", (e) => {
+            if (e.key === "Escape") {
+                document.querySelectorAll(".modal.open").forEach((m) => m.classList.remove("open"));
+            }
+        });
     </script>
 </body>
 </html>
