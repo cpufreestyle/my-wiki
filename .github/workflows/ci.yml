@@ -1,0 +1,37 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: 测试 (reminder_web + RAG)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Python 单元测试（reminder_web 结构 / 选择器一致性）
+        run: python -m unittest discover -s tests -p "test_*.py" -v
+
+      - name: Node 单元测试（reminder_web 纯日期逻辑）
+        run: node --test "tests/**/*.test.mjs"
+
+      - name: RAG 引擎冒烟测试（BM25，零依赖）
+        run: python rag.py "本地模型 ollama 配置" --limit 3
+
+      - name: theme.py 导入检查
+        run: python -c "import theme; assert theme.LIGHT and theme.DARK; print('theme OK')"

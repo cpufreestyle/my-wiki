@@ -727,6 +727,25 @@ pip install -r requirements.txt
 
 ---
 
+## 🧪 测试 & CI
+
+仓库自带轻量测试（零第三方依赖），并配有 GitHub Actions 持续集成。
+
+```bash
+# 1) reminder_web.html 结构 / 选择器一致性（Python 标准库，防 null 引用类 bug）
+python -m unittest discover -s tests -p "test_*.py" -v
+
+# 2) reminder_web.html 纯日期逻辑（Node 内置 test runner，从 HTML 抽取函数运行）
+node --test "tests/**/*.test.mjs"
+```
+
+- `tests/test_reminder_web.py`：校验脚本中每个 `#id` / `.class` 选择器都能命中真实元素、
+  预设卡片 `data-key` 与 `getPresetTime` 分支一致、关键 a11y 属性（`aria-modal`/`role`）在位。
+- `tests/reminder_web.logic.test.mjs`：校验 `getPresetTime` / `computeRemindAt` 的时间计算正确。
+- `.github/workflows/ci.yml`：push / PR 到 `main` 时自动跑上述测试 + RAG/theme 冒烟检查。
+
+---
+
 ## 🔗 相关链接
 
 - **仓库**: https://github.com/cpufreestyle/my-wiki
