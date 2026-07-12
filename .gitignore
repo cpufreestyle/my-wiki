@@ -128,3 +128,6 @@ modules/shared-wiki/registry.json
 
 # Nested sub-project (independent git repo)
 stock-dashboard/
+
+# Local Obsidian vault mapping (machine-specific, contains absolute paths)
+config/obsidian.json

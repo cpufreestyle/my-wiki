@@ -110,6 +110,9 @@ def discover(auto_register: bool = True) -> list:
                 "capabilities": card.get("capabilities", []) if card else [],
                 "status": "online",
                 "discovered_via": "http",
+                # read_card=False 的端点（Ollama/LM-Studio 的 API）只是探测用，
+                # 不支持接收广播，标记为非广播目标，避免广播时误报「失败」。
+                "broadcastable": bool(read_card),
                 "last_seen": datetime.now().isoformat(timespec="seconds"),
             }
             discovered.append(agent)
@@ -223,6 +226,10 @@ def broadcast(event: str, payload: dict = None, only_capable: str = None) -> dic
             continue
         if only_capable and only_capable not in a.get("capabilities", []):
             skipped.append(a["name"])
+            continue
+        if a.get("broadcastable") is False:
+            # 仅用于探测的 API 端点（如 Ollama/LM-Studio），不接收广播
+            skipped.append(a["name"] + "(api)")
             continue
         url = a.get("url", "")
         if not url or url.startswith("vault://") or url.startswith("file://"):

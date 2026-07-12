@@ -3,10 +3,12 @@
 My Wiki - All-in-One Personal Knowledge Tool
 日记 | 心情 | 提醒 | 标签
 """
+import os
+# 抑制 macOS 系统 Tk (8.5) 的弃用警告（命令行里黄色感叹号）
+os.environ.setdefault("TK_SILENCE_DEPRECATION", "1")
 import tkinter as tk
 from tkinter import ttk, scrolledtext, messagebox
 import json
-import os
 import subprocess
 import sys
 import re
@@ -18,46 +20,80 @@ from collections import Counter
 
 # ==================== DEPENDENCY CHECK ====================
 def check_obsidian():
-    """Check if Obsidian is installed / 检测 Obsidian 是否安装"""
-    # Check common install paths
-    paths = [
-        r"C:\Users\{}\AppData\Local\Obsidian\Obsidian.exe".format(os.getenv("USERNAME")),
-        r"C:\Program Files\Obsidian\Obsidian.exe",
-        r"C:\Program Files (x86)\Obsidian\Obsidian.exe",
-    ]
-    for p in paths:
-        if os.path.exists(p):
-            return True, p
-    # Check registry
-    try:
-        import winreg
-        key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Obsidian")
-        path, _ = winreg.QueryValueEx(key, "InstallLocation")
-        winreg.CloseKey(key)
-        if path and os.path.exists(path):
-            return True, os.path.join(path, "Obsidian.exe")
-    except Exception:
-        pass
+    """检测 Obsidian 是否安装（跨平台）。"""
+    if sys.platform == "darwin":
+        if os.path.exists("/Applications/Obsidian.app"):
+            return True, "/Applications/Obsidian.app"
+        return False, None
+    if sys.platform == "win32":
+        paths = [
+            r"C:\Users\{}\AppData\Local\Obsidian\Obsidian.exe".format(os.getenv("USERNAME")),
+            r"C:\Program Files\Obsidian\Obsidian.exe",
+            r"C:\Program Files (x86)\Obsidian\Obsidian.exe",
+        ]
+        for p in paths:
+            if os.path.exists(p):
+                return True, p
+        try:
+            import winreg
+            key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Obsidian")
+            path, _ = winreg.QueryValueEx(key, "InstallLocation")
+            winreg.CloseKey(key)
+            if path and os.path.exists(path):
+                return True, os.path.join(path, "Obsidian.exe")
+        except Exception:
+            pass
     return False, None
 
 def check_openclaw():
-    """Check if OpenClaw is installed / 检测 OpenClaw 是否安装"""
-    # Check if openclaw CLI exists
+    """检测 OpenClaw 是否安装（跨平台）。
+
+    注意：双击 app 启动时进程的 PATH 往往不含终端 shell 的 PATH，
+    因此只靠 `openclaw` 命令可能找不到，需要枚举常见绝对路径。
+    """
+    candidates = []
+    if sys.platform == "darwin":
+        candidates = [
+            "/Applications/OpenClaw.app",
+            "/usr/local/bin/openclaw",
+            "/opt/homebrew/bin/openclaw",
+            os.path.expanduser("~/.local/bin/openclaw"),
+            os.path.expanduser("~/.npm-global/bin/openclaw"),
+            os.path.expanduser("~/.cargo/bin/openclaw"),
+            # QClaw 自带的 OpenClaw（macOS 上的实际安装位置）
+            os.path.expanduser("~/Library/Application Support/QClaw/openclaw"),
+            os.path.expanduser("~/Library/Application Support/QClaw/openclaw/node_modules/.bin/openclaw"),
+        ]
+    elif sys.platform == "win32":
+        candidates = [
+            r"C:\Users\{}\AppData\Local\Programs\openclaw\openclaw.exe".format(os.getenv("USERNAME")),
+            r"C:\Program Files\QClaw\openclaw.exe",
+            r"C:\Program Files (x86)\QClaw\openclaw.exe",
+        ]
+    # 动态获取 npm 全局 bin 目录（GUI 启动 PATH 受限时也能命中）
     try:
-        result = subprocess.run(["openclaw", "--version"], capture_output=True, text=True, timeout=5)
-        if result.returncode == 0:
-            return True, result.stdout.strip()
+        out = subprocess.run(["npm", "prefix", "-g"], capture_output=True, text=True, timeout=10)
+        if out.returncode == 0:
+            candidates.append(os.path.join(out.stdout.strip(), "bin", "openclaw"))
     except Exception:
         pass
-    # Check common install paths
-    paths = [
-        r"C:\Users\{}\AppData\Local\Programs\openclaw\openclaw.exe".format(os.getenv("USERNAME")),
-        r"C:\Program Files\QClaw\openclaw.exe",
-        r"C:\Program Files (x86)\QClaw\openclaw.exe",
-    ]
-    for p in paths:
-        if os.path.exists(p):
-            return True, p
+    # PATH 中查找（覆盖终端能直接运行的情况）
+    found = shutil.which("openclaw")
+    if found:
+        candidates.insert(0, found)
+    for c in candidates:
+        if c.endswith(".app"):
+            if os.path.exists(c):
+                return True, c
+            continue
+        if os.path.exists(c):
+            try:
+                r = subprocess.run([c, "--version"], capture_output=True, text=True, timeout=5)
+                if r.returncode == 0:
+                    return True, (r.stdout.strip() or c)
+            except Exception:
+                pass
+            return True, c
     return False, None
 
 def download_file(url, dest):
@@ -77,11 +113,12 @@ def install_obsidian(parent_window):
     dlg.title("Downloading Obsidian / 下载 Obsidian")
     dlg.geometry("400x120")
     dlg.configure(bg=BG)
+    dlg.resizable(True, True)
     dlg.transient(parent_window)
     dlg.grab_set()
     
     tk.Label(dlg, text="Downloading Obsidian installer...\n正在下载 Obsidian 安装包...", 
-             bg=BG, fg=FG, font=("Segoe UI", 10)).pack(pady=15)
+             bg=BG, fg=FG, font=(UI_FONT, 10)).pack(pady=15)
     progress = ttk.Progressbar(dlg, mode="indeterminate")
     progress.pack(fill="x", padx=30, pady=5)
     progress.start()
@@ -117,11 +154,12 @@ def install_openclaw(parent_window):
     dlg.title("Installing OpenClaw / 安装 OpenClaw")
     dlg.geometry("450x120")
     dlg.configure(bg=BG)
+    dlg.resizable(True, True)
     dlg.transient(parent_window)
     dlg.grab_set()
     
     tk.Label(dlg, text="Installing OpenClaw globally...\n正在全局安装 OpenClaw...", 
-             bg=BG, fg=FG, font=("Segoe UI", 10)).pack(pady=15)
+             bg=BG, fg=FG, font=(UI_FONT, 10)).pack(pady=15)
     progress = ttk.Progressbar(dlg, mode="indeterminate")
     progress.pack(fill="x", padx=30, pady=5)
     progress.start()
@@ -144,97 +182,173 @@ def install_openclaw(parent_window):
         messagebox.showerror("Error / 错误", "Failed to install OpenClaw:\n{}".format(e))
         return False
 
-def show_welcome_and_check():
-    """Show welcome window and check dependencies / 显示欢迎窗口并检查依赖"""
-    root = tk.Tk()
-    root.title("MyWiki - First Run Setup / 首次运行设置")
-    root.geometry("520x420")
-    root.configure(bg=BG)
-    root.resizable(False, False)
-    
+def show_welcome_and_check(parent):
+    """
+    在已有的主 Tk 根 (parent) 之上显示欢迎/首次运行窗口（Toplevel）。
+
+    关键:
+      - 整个进程**只有一个 Tk() 根实例**，欢迎框只是它的 Toplevel 子窗口。
+      - **不使用 grab_set()**：macOS 下模态 grab 会拦截主窗口的全部输入，
+        导致"主界面看不见输入框 / 无法点击文本框"。改为非模态窗口，
+        主界面始终在背后可见且可交互。
+      - 由主程序的 root.mainloop() 统一驱动事件。
+
+    按钮行为:
+      - 继续/跳过: 关闭 Toplevel
+      - 退出:      关闭整个程序 (parent.destroy())
+
+    设置环境变量 MYWIKI_SKIP_WELCOME=1 可完全跳过欢迎框。
+    """
+    if os.environ.get("MYWIKI_SKIP_WELCOME") == "1":
+        return
+
+    dlg = tk.Toplevel(parent)
+    dlg.title("MyWiki - First Run Setup / 首次运行设置")
+    dlg.geometry("520x420")
+    dlg.configure(bg=BG)
+    # 允许鼠标拖拽调整大小
+    dlg.resizable(True, True)
+    dlg.minsize(420, 360)
+
+    # 注意: 刻意**不**使用 grab_set() / -topmost，避免遮挡并锁死主窗口输入
+    try:
+        dlg.transient(parent)
+    except Exception:
+        pass
+
     # Icon
     if os.path.exists(ICON_PATH):
         try:
-            root.iconbitmap(ICON_PATH)
+            dlg.iconbitmap(ICON_PATH)
         except Exception:
             pass
-    
+
     # Title
-    tk.Label(root, text="📝 MyWiki", bg=BG, fg=ACCENT, font=("Segoe UI", 20, "bold")).pack(pady=(25, 5))
-    tk.Label(root, text="Personal Knowledge & Diary Manager\n个人知识库与日记管理工具", 
-             bg=BG, fg=FG, font=("Segoe UI", 10)).pack()
-    
-    tk.Frame(root, height=2, bg=ACCENT).pack(fill="x", padx=40, pady=15)
-    
+    tk.Label(dlg, text="📝 MyWiki", bg=BG, fg=ACCENT, font=(UI_FONT, 20, "bold")).pack(pady=(25, 5))
+    tk.Label(dlg, text="Personal Knowledge & Diary Manager\n个人知识库与日记管理工具",
+             bg=BG, fg=FG, font=(UI_FONT, 10)).pack()
+
+    tk.Frame(dlg, height=2, bg=ACCENT).pack(fill="x", padx=40, pady=15)
+
     # Check status
     obsidian_ok, obsidian_path = check_obsidian()
     openclaw_ok, openclaw_ver = check_openclaw()
-    
-    status_frame = tk.Frame(root, bg=BG)
+
+    status_frame = tk.Frame(dlg, bg=BG)
     status_frame.pack(pady=5)
-    
-    tk.Label(status_frame, text="System Check / 系统检测", bg=BG, fg=FG, font=("Segoe UI", 11, "bold")).pack(anchor="w", padx=30)
-    
-    def make_status(parent, label, ok):
-        f = tk.Frame(parent, bg=BG)
+
+    tk.Label(status_frame, text="System Check / 系统检测", bg=BG, fg=FG, font=(UI_FONT, 11, "bold")).pack(anchor="w", padx=30)
+
+    def make_status(p, label, ok):
+        f = tk.Frame(p, bg=BG)
         f.pack(fill="x", padx=30, pady=4)
         emoji = "✅" if ok else "❌"
         color = "#4ec9b0" if ok else "#f48771"
-        tk.Label(f, text="{} {}".format(emoji, label), bg=BG, fg=color, font=("Segoe UI", 10), anchor="w").pack(side="left")
+        tk.Label(f, text="{} {}".format(emoji, label), bg=BG, fg=color, font=(UI_FONT, 10), anchor="w").pack(side="left")
         return f
-    
+
     make_status(status_frame, "Obsidian (知识库)", obsidian_ok)
     make_status(status_frame, "OpenClaw (AI 助手)", openclaw_ok)
-    
-    tk.Frame(root, height=2, bg=ACCENT).pack(fill="x", padx=40, pady=10)
-    
-    btn_frame = tk.Frame(root, bg=BG)
+
+    tk.Frame(dlg, height=2, bg=ACCENT).pack(fill="x", padx=40, pady=10)
+
+    btn_frame = tk.Frame(dlg, bg=BG)
     btn_frame.pack(pady=10)
-    
-    proceed = tk.BooleanVar(value=False)
-    
+
     def on_install_obsidian():
-        if install_obsidian(root):
+        if install_obsidian(dlg):
             messagebox.showinfo("Done / 完成", "Obsidian installed. Please restart MyWiki.\nObsidian 已安装，请重启 MyWiki。")
-            root.quit()
-    
+            dlg.destroy()
+
     def on_install_openclaw():
-        if install_openclaw(root):
+        if install_openclaw(dlg):
             messagebox.showinfo("Done / 完成", "OpenClaw installed. Please restart MyWiki.\nOpenClaw 已安装，请重启 MyWiki。")
-            root.quit()
-    
+            dlg.destroy()
+
     def on_proceed():
-        proceed.set(True)
-        root.quit()
-    
+        # 欢迎框为非模态：直接关闭即可，主界面一直在背后可见可交互
+        dlg.destroy()
+        # macOS 下关闭 Toplevel 后主窗口不会自动拿回键盘焦点，
+        # 必须显式把焦点交给第一个输入框，否则文本框"输不进字"
+        try:
+            parent.after(10, lambda: _focus_first_input(parent))
+        except Exception:
+            pass
+
     def on_exit():
-        proceed.set(False)
-        root.quit()
-    
+        parent.destroy()
+
     if not obsidian_ok:
-        tk.Button(btn_frame, text="Install Obsidian / 安装 Obsidian", 
+        tk.Button(btn_frame, text="Install Obsidian / 安装 Obsidian",
                   command=on_install_obsidian,
-                  bg=ACCENT, fg="white", font=("Segoe UI", 10), relief="flat", padx=15, pady=5).pack(pady=3)
-    
+                  bg=INPUT_BG, fg=ACCENT, font=(UI_FONT, 10), relief="flat", padx=15, pady=5).pack(pady=3)
+
     if not openclaw_ok:
-        tk.Button(btn_frame, text="Install OpenClaw / 安装 OpenClaw", 
+        tk.Button(btn_frame, text="Install OpenClaw / 安装 OpenClaw",
                   command=on_install_openclaw,
-                  bg=ACCENT, fg="white", font=("Segoe UI", 10), relief="flat", padx=15, pady=5).pack(pady=3)
-    
+                  bg=INPUT_BG, fg=ACCENT, font=(UI_FONT, 10), relief="flat", padx=15, pady=5).pack(pady=3)
+
     btn_row = tk.Frame(btn_frame, bg=BG)
     btn_row.pack(pady=(10, 0))
-    
+
     label = "Continue / 继续" if (obsidian_ok and openclaw_ok) else "Skip & Continue / 跳过并继续"
     tk.Button(btn_row, text=label, command=on_proceed,
-              bg="#4ec9b0", fg="white", font=("Segoe UI", 10, "bold"), relief="flat", padx=20, pady=6).pack(side="left", padx=5)
+              bg=INPUT_BG, fg=ACCENT, font=(UI_FONT, 10, "bold"), relief="flat", padx=20, pady=6).pack(side="left", padx=5)
     tk.Button(btn_row, text="Exit / 退出", command=on_exit,
-              bg="#333333", fg=FG, font=("Segoe UI", 10), relief="flat", padx=20, pady=6).pack(side="left", padx=5)
-    
-    tk.Label(root, text="Tips: Obsidian & OpenClaw are optional.\n提示：Obsidian 和 OpenClaw 是可选的，MyWiki 可独立运行。", 
-             bg=BG, fg="#666666", font=("Segoe UI", 8)).pack(pady=(10, 5))
-    
-    root.mainloop()
-    return proceed.get()
+              bg=INPUT_BG, fg=INPUT_FG, font=(UI_FONT, 10), relief="flat", padx=20, pady=6).pack(side="left", padx=5)
+
+    tk.Label(dlg, text="Tips: Obsidian & OpenClaw are optional.\n提示：Obsidian 和 OpenClaw 是可选的，MyWiki 可独立运行。",
+             bg=BG, fg="#666666", font=(UI_FONT, 8)).pack(pady=(10, 5))
+
+    # 不调用 wait_window: 主 root.mainloop() 会驱动本 Toplevel 的事件
+
+def _focus_first_input(root):
+    """把焦点交给主窗口第一个可输入控件，确保键盘事件能被接收。"""
+    for child in root.winfo_children():
+        _walk_focus(child)
+
+
+def _walk_focus(w):
+    try:
+        cls = w.winfo_class()
+    except Exception:
+        return False
+    # ScrolledText 内部真正可输入的是它的 Text 子控件（ScrolledText 本身是 Frame）
+    if "ScrolledText" in type(w).__name__ or cls == "ScrolledText":
+        try:
+            kids = w.winfo_children()
+            text_child = None
+            for k in kids:
+                if k.winfo_class() == "Text":
+                    text_child = k
+                    break
+            target = text_child if text_child is not None else w
+            target.focus_set()
+            try:
+                target.see("1.0")
+            except Exception:
+                pass
+            return True
+        except Exception:
+            pass
+        return False
+    # 普通 Text / Entry 直接聚焦
+    if cls in ("Text", "Entry"):
+        try:
+            w.focus_set()
+            w.see("1.0")
+        except Exception:
+            pass
+        return True
+    # 递归子控件
+    try:
+        for c in w.winfo_children():
+            if _walk_focus(c):
+                return True
+    except Exception:
+        pass
+    return False
+
 
 # ==================== PATHS ====================
 from pathlib import Path as _Path
@@ -247,14 +361,85 @@ REMINDER_DIR = os.path.join(WIKI_DIR, "reminders")
 REMINDER_FILE = os.path.join(REMINDER_DIR, "reminders.json")
 PENDING_FILE = os.path.join(REMINDER_DIR, "pending_notifications.json")
 
-# ==================== THEME ====================
-BG = "#1e1e1e"
-BG2 = "#252526"
-FG = "#d4d4d4"
-ACCENT = "#569cd6"
-ACCENT2 = "#4ec9b0"
-BTN_BG = "#333333"
-BTN_ACTIVE = "#3c3c3c"
+# ==================== THEME（浅色主题：白底黑字，确保任何系统外观下都清晰） ====================
+BG = "#ffffff"          # 主背景：白
+BG2 = "#f0f0f0"         # 次级背景：浅灰
+FG = "#1a1a1a"          # 主文字：黑（在白底清晰）
+# 输入/编辑控件：白底黑字
+INPUT_BG = "#f3f3f3"
+INPUT_FG = "#1a1a1a"
+INPUT_INSERT = "#1a1a1a"
+ACCENT = "#569cd6"      # 强调蓝（蓝字/蓝底均清晰）
+ACCENT2 = "#0e8f6e"     # 次要青（深青在白底更清晰）
+BTN_BG = "#e8e8e8"      # 按钮背景：浅灰
+BTN_ACTIVE = "#dcdcdc"
+
+# ==================== FONTS (跨平台) ====================
+# Segoe UI / Consolas 是 Windows 字体，macOS 上不存在，会导致字体渲染异常、
+# 中文显示为方块、控件被挤压看不清。这里按平台选择系统自带字体。
+if sys.platform == "darwin":            # macOS
+    UI_FONT = "PingFang SC"             # 系统中文/英文通用无衬线字体
+    MONO_FONT = "Menlo"                 # 等宽字体
+elif sys.platform.startswith("win"):    # Windows
+    UI_FONT = "Microsoft YaHei UI"
+    MONO_FONT = "Consolas"
+else:                                    # Linux 等
+    UI_FONT = "Noto Sans CJK SC"
+    MONO_FONT = "DejaVu Sans Mono"
+
+# ==================== I18N 语言字典 ====================
+LANG = "zh"  # 默认中文；可切换为 "en"
+I18N = {
+    "zh": {
+        "app_title": "我的知识库",
+        "tab_diary": "  日记  ", "tab_mood": "  心情  ",
+        "tab_reminder": "  提醒  ", "tab_share": "  共享  ",
+        "ready": "就绪", "lang_btn": "EN",
+        "template": "模板", "tags": "标签", "save": "  保存  ",
+        "diary_saved": "日记已保存", "extracted_tags": "已提取 {n} 个标签",
+        "no_tags": "未找到标签", "no_keywords": "未发现关键词",
+        "mood_q": "  今天感觉如何？", "auto_analyze": "  自动分析  ",
+        "today_records": "  今日记录", "no_records": "  今日暂无记录。",
+        "type_first": "请先输入内容！", "mood_saved": "心情已保存：{m}",
+        "quick_reminders": "  快捷提醒", "custom": "自定义：",
+        "add": "添加", "pending": "  待提醒", "cancel_id": "取消编号：",
+        "cancel": "取消", "no_pending": "  暂无待提醒。",
+        "enter_msg": "请先输入提醒内容！", "bad_time": "时间格式错误（HH:MM）",
+        "enter_id": "请输入有效编号", "reminder_set": "提醒已设置：{t} - {m}",
+        "reminder_cancelled": "提醒 #{i} 已取消", "cannot_cancel": "无法取消 #{i}",
+        "tmr9": "明天9点", "tmr18": "明天18点",
+        "share_title": "🌐 共享知识库 — Obsidian × 所有 Agent",
+        "refresh": "刷新", "start_server": "▶ 启动 MCP 服务",
+        "open_obsidian": "🔭 在 Obsidian 打开", "broadcast": "🔔 通知 Agent",
+    },
+    "en": {
+        "app_title": "My Wiki",
+        "tab_diary": "  Diary  ", "tab_mood": "  Mood  ",
+        "tab_reminder": "  Reminder  ", "tab_share": "  Share  ",
+        "ready": "Ready", "lang_btn": "中",
+        "template": "Template", "tags": "Tags", "save": "  Save  ",
+        "diary_saved": "Diary saved", "extracted_tags": "Extracted {n} tags",
+        "no_tags": "No tags found", "no_keywords": "No keywords found",
+        "mood_q": "  How are you feeling?", "auto_analyze": "  Auto Analyze  ",
+        "today_records": "  Today's Records", "no_records": "  No records today yet.",
+        "type_first": "Type something first!", "mood_saved": "Mood saved: {m}",
+        "quick_reminders": "  Quick Reminders", "custom": "Custom:",
+        "add": "Add", "pending": "  Pending", "cancel_id": "Cancel ID:",
+        "cancel": "Cancel", "no_pending": "  No pending reminders.",
+        "enter_msg": "Enter a message first!", "bad_time": "Invalid time format (HH:MM)",
+        "enter_id": "Enter valid ID", "reminder_set": "Reminder set: {t} - {m}",
+        "reminder_cancelled": "Reminder #{i} cancelled", "cannot_cancel": "Cannot cancel #{i}",
+        "tmr9": "Tomorrow 9am", "tmr18": "Tomorrow 6pm",
+        "share_title": "🌐 Shared Wiki — Obsidian × All Agents",
+        "refresh": "Refresh", "start_server": "▶ Start MCP Server",
+        "open_obsidian": "🔭 Open in Obsidian", "broadcast": "🔔 Notify Agents",
+    },
+}
+
+def t(key, **kw):
+    """取当前语言文案，支持 {n}/{m}/{t}/{i} 占位符"""
+    s = I18N.get(LANG, I18N["zh"]).get(key, key)
+    return s.format(**kw) if kw else s
 
 # ==================== MOOD KEYWORDS ====================
 MOOD_KEYWORDS = {
@@ -424,107 +609,167 @@ def cancel_reminder(rid):
 class WikiApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("My Wiki")
-        self.root.geometry("700x550")
+        self.root.title(t("app_title"))
+        # 加大窗口，避免控件被挤压、文字被截断看不清
+        self.root.geometry("760x620")
+        self.root.minsize(680, 560)
+        # 允许鼠标拖拽调整主窗口大小
+        self.root.resizable(True, True)
         self.root.configure(bg=BG)
         if os.path.exists(ICON_PATH):
-            self.root.iconbitmap(ICON_PATH)
-        self.root.attributes("-topmost", True)
+            try:
+                self.root.iconbitmap(ICON_PATH)
+            except Exception:
+                pass
 
-        # Notebook (tabs)
+        # ttk 样式：使用跨平台字体，并给 Tab 更大 padding 防止文字贴边
         style = ttk.Style()
-        style.theme_use("default")
-        style.configure("TNotebook", background=BG, borderwidth=0)
-        style.configure("TNotebook.Tab", background=BTN_BG, foreground=FG,
-                        padding=[12, 6], font=("Segoe UI", 11))
-        style.map("TNotebook.Tab", background=[("selected", ACCENT)],
-                  foreground=[("selected", "white")])
+        try:
+            style.theme_use("clam")
+        except Exception:
+            pass
+        if style.theme_use() == "clam":
+            # clam 主题下标签栏背景完全可控：深底 + 浅字，不受系统深浅模式影响
+            style.configure("TNotebook", background=BG, borderwidth=0)
+            style.configure("TNotebook.Tab", padding=[16, 8], font=(UI_FONT, 12),
+                            background=BG2, foreground=FG, borderwidth=1)
+            style.map("TNotebook.Tab",
+                      background=[("selected", ACCENT)],
+                      foreground=[("selected", "white")])
+        else:
+            # Aqua 兜底（系统标签栏为浅色背景）：未选中用黑色字，确保清晰可读
+            style.configure("TNotebook.Tab", padding=[16, 8], font=(UI_FONT, 12),
+                            background=BG2, foreground="#1a1a1a")
+            style.map("TNotebook.Tab",
+                      background=[("selected", ACCENT), ("!selected", BG2)],
+                      foreground=[("selected", "white"), ("!selected", "#1a1a1a")])
 
-        self.nb = ttk.Notebook(root, style="TNotebook")
-        self.nb.pack(fill=tk.BOTH, expand=True, padx=8, pady=(8, 0))
+        # 顶部工具条：语言切换按钮
+        self._build_topbar()
+
+        self.nb = ttk.Notebook(root)
+        self.nb.pack(fill=tk.BOTH, expand=True, padx=8, pady=(4, 0))
 
         self.build_daily_tab()
         self.build_mood_tab()
         self.build_reminder_tab()
         self.build_share_tab()
 
-        # Status bar
-        self.status = tk.Label(root, text="Ready", font=("Segoe UI", 9),
-                               bg=BG, fg="gray", anchor="w")
+        # Status bar（字号加大更清晰）
+        self.status = tk.Label(root, text=t("ready"), font=(UI_FONT, 10),
+                               bg=BG, fg="#666666", anchor="w")
         self.status.pack(fill=tk.X, padx=10, pady=4)
 
         # Keyboard shortcuts
         root.bind("<Control-s>", lambda e: self.save_daily())
         root.bind("<Control-S>", lambda e: self.save_daily())
 
+        # 启动即把键盘焦点交给日记文本框（macOS 下 Tk 不会自动聚焦）
+        try:
+            self.daily_text.focus_set()
+        except Exception:
+            pass
+
+    def _build_topbar(self):
+        """顶部工具条，含中英文切换按钮"""
+        bar = tk.Frame(self.root, bg=BG)
+        bar.pack(fill=tk.X, padx=8, pady=(6, 0))
+        tk.Label(bar, text="📝 " + t("app_title"), bg=BG, fg=ACCENT,
+                 font=(UI_FONT, 13, "bold")).pack(side=tk.LEFT, padx=4)
+        tk.Button(bar, text=t("lang_btn"), command=self.toggle_language,
+                  bg=INPUT_BG, fg=ACCENT, activebackground=BTN_ACTIVE,
+                  relief=tk.FLAT, font=(UI_FONT, 10, "bold"),
+                  cursor="hand2", padx=12, pady=2).pack(side=tk.RIGHT, padx=4)
+
+    def toggle_language(self):
+        """中/英切换：切换 LANG 后重建整个界面"""
+        global LANG
+        LANG = "en" if LANG == "zh" else "zh"
+        # 销毁所有子控件后重建
+        for child in list(self.root.winfo_children()):
+            child.destroy()
+        self.__init__(self.root)
+
     def _label(self, parent, text, **kw):
-        font = kw.pop("font", ("Segoe UI", kw.pop("size", 11)))
+        font = kw.pop("font", (UI_FONT, kw.pop("size", 11)))
         return tk.Label(parent, text=text, bg=BG, fg=FG, font=font, **kw)
 
-    def _btn(self, parent, text, cmd, bg=BTN_BG, fg=FG, **kw):
+    def _btn(self, parent, text, cmd, bg=INPUT_BG, fg=INPUT_FG, **kw):
         return tk.Button(parent, text=text, command=cmd, bg=bg, fg=fg,
-                         activebackground=BTN_ACTIVE, activeforeground=fg,
-                         relief=tk.FLAT, font=("Segoe UI", 10), cursor="hand2", **kw)
+                         activebackground="#e8e8e8", activeforeground=fg,
+                         relief=tk.FLAT, font=(UI_FONT, 10), cursor="hand2", **kw)
 
     # ==================== DAILY TAB ====================
     def build_daily_tab(self):
         tab = tk.Frame(self.nb, bg=BG)
-        self.nb.add(tab, text="  Diary  ")
+        self.nb.add(tab, text=t("tab_diary"))
 
         # Top bar
         top = tk.Frame(tab, bg=BG)
         top.pack(fill=tk.X, padx=10, pady=(10, 5))
-        self._label(top, f"  {get_today()}", size=13, font=("Segoe UI", 13, "bold")).pack(side=tk.LEFT)
-        self._btn(top, "Template", self.insert_template, padx=8).pack(side=tk.RIGHT, padx=2)
-        self._btn(top, "Tags", self.extract_and_show_tags, padx=8).pack(side=tk.RIGHT, padx=2)
+        self._label(top, f"  {get_today()}", font=(UI_FONT, 13, "bold")).pack(side=tk.LEFT)
+        self._btn(top, t("template"), self.insert_template, padx=8).pack(side=tk.RIGHT, padx=2)
+        self._btn(top, t("tags"), self.extract_and_show_tags, padx=8).pack(side=tk.RIGHT, padx=2)
 
         # Text area
-        self.daily_text = scrolledtext.ScrolledText(tab, font=("Consolas", 12),
-                                                     bg=BG2, fg=FG, insertbackground=FG,
-                                                     wrap=tk.WORD, relief=tk.FLAT)
+        self.daily_text = scrolledtext.ScrolledText(tab, font=(MONO_FONT, 13),
+                                                     bg=INPUT_BG, fg=INPUT_FG, insertbackground=INPUT_INSERT,
+                                                     wrap=tk.WORD, relief=tk.FLAT,
+                                                     padx=8, pady=8, takefocus=1)
         self.daily_text.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
         self.daily_text.insert("1.0", load_daily(get_today()))
 
         # Bottom
         bot = tk.Frame(tab, bg=BG)
         bot.pack(fill=tk.X, padx=10, pady=(0, 8))
-        self._btn(bot, "  Save  ", self.save_daily, bg=ACCENT, fg="white", padx=16, pady=4).pack(side=tk.RIGHT)
+        self._btn(bot, t("save"), self.save_daily, bg=INPUT_BG, fg=ACCENT, padx=16, pady=4).pack(side=tk.RIGHT)
 
-        self.tag_display = tk.Label(bot, text="", bg=BG, fg=ACCENT2, font=("Segoe UI", 9))
+        self.tag_display = tk.Label(bot, text="", bg=BG, fg=ACCENT2, font=(UI_FONT, 10))
         self.tag_display.pack(side=tk.LEFT)
+
+    def _refocus(self, widget):
+        """macOS 下点击按钮后文本框会失焦，需要显式恢复键盘焦点。"""
+        try:
+            widget.focus_set()
+        except Exception:
+            pass
 
     def insert_template(self):
         template = "\n## Done\n- \n\n## Thoughts\n- \n\n## Tomorrow\n- \n"
         self.daily_text.insert(tk.END, template)
+        self._refocus(self.daily_text)
 
     def save_daily(self):
         content = self.daily_text.get("1.0", tk.END).strip()
         save_daily(get_today(), content)
-        self.status.config(text=f"Diary saved - {get_today()} {get_now()}", fg=ACCENT2)
+        self.status.config(text=f"{t('diary_saved')} - {get_today()} {get_now()}", fg=ACCENT2)
+        self._refocus(self.daily_text)
 
     def extract_and_show_tags(self):
         content = self.daily_text.get("1.0", tk.END)
         tags = extract_tags(content)
         if tags:
-            self.tag_display.config(text=f"Tags: {', '.join(tags)}")
-            self.status.config(text=f"Extracted {len(tags)} tags", fg=ACCENT2)
+            self.tag_display.config(text=f"{t('tags')}: {', '.join(tags)}")
+            self.status.config(text=t("extracted_tags", n=len(tags)), fg=ACCENT2)
         else:
-            self.tag_display.config(text="No tags found")
-            self.status.config(text="No keywords found", fg="gray")
+            self.tag_display.config(text=t("no_tags"))
+            self.status.config(text=t("no_keywords"), fg="#666666")
+        self._refocus(self.daily_text)
 
     # ==================== MOOD TAB ====================
     def build_mood_tab(self):
         tab = tk.Frame(self.nb, bg=BG)
-        self.nb.add(tab, text="  Mood  ")
+        self.nb.add(tab, text=t("tab_mood"))
 
         # Input
         top = tk.Frame(tab, bg=BG)
         top.pack(fill=tk.X, padx=10, pady=(10, 5))
-        self._label(top, "  How are you feeling?", size=13, font=("Segoe UI", 13, "bold")).pack(anchor="w")
+        self._label(top, t("mood_q"), font=(UI_FONT, 13, "bold")).pack(anchor="w")
 
-        self.mood_input = scrolledtext.ScrolledText(tab, height=3, font=("Segoe UI", 12),
-                                                      bg=BG2, fg=FG, insertbackground=FG,
-                                                      wrap=tk.WORD, relief=tk.FLAT)
+        self.mood_input = scrolledtext.ScrolledText(tab, height=3, font=(UI_FONT, 12),
+                                                      bg=INPUT_BG, fg=INPUT_FG, insertbackground=INPUT_INSERT,
+                                                      wrap=tk.WORD, relief=tk.FLAT,
+                                                      padx=8, pady=6, takefocus=1)
         self.mood_input.pack(fill=tk.X, padx=10, pady=5)
 
         # Quick mood buttons
@@ -537,17 +782,17 @@ class WikiApp:
         # Analyze button
         btn_frame = tk.Frame(tab, bg=BG)
         btn_frame.pack(fill=tk.X, padx=10, pady=5)
-        self._btn(btn_frame, "  Auto Analyze  ", self.analyze_mood_ui, bg=ACCENT, fg="white",
+        self._btn(btn_frame, t("auto_analyze"), self.analyze_mood_ui, bg=INPUT_BG, fg=ACCENT,
                   padx=16, pady=4).pack(side=tk.LEFT)
 
-        self.mood_result = tk.Label(btn_frame, text="", bg=BG, fg=ACCENT2, font=("Segoe UI", 12))
+        self.mood_result = tk.Label(btn_frame, text="", bg=BG, fg=ACCENT2, font=(UI_FONT, 12))
         self.mood_result.pack(side=tk.LEFT, padx=10)
 
         # History
-        self._label(tab, "  Today's Records", size=10).pack(anchor="w", padx=10, pady=(10, 2))
-        self.mood_history = scrolledtext.ScrolledText(tab, height=10, font=("Consolas", 11),
-                                                        bg=BG2, fg=FG, wrap=tk.WORD, relief=tk.FLAT,
-                                                        state=tk.DISABLED)
+        self._label(tab, t("today_records"), size=11).pack(anchor="w", padx=10, pady=(10, 2))
+        self.mood_history = scrolledtext.ScrolledText(tab, height=10, font=(MONO_FONT, 12),
+                                                        bg=INPUT_BG, fg=INPUT_FG, wrap=tk.WORD, relief=tk.FLAT,
+                                                        padx=8, pady=6, state=tk.DISABLED)
         self.mood_history.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 8))
         self.refresh_mood_history()
 
@@ -556,15 +801,17 @@ class WikiApp:
         if not text:
             text = f"(quick: {mood})"
         save_mood(get_today(), mood, text, 1.0, "manual")
-        self.mood_result.config(text=f"{MOOD_EMOJI.get(mood, '')} {mood} - Saved!")
+        self.mood_result.config(text=f"{MOOD_EMOJI.get(mood, '')} {mood} ✓")
         self.mood_input.delete("1.0", tk.END)
         self.refresh_mood_history()
-        self.status.config(text=f"Mood saved: {mood}", fg=ACCENT2)
+        self.status.config(text=t("mood_saved", m=mood), fg=ACCENT2)
+        self._refocus(self.mood_input)
 
     def analyze_mood_ui(self):
         text = self.mood_input.get("1.0", tk.END).strip()
         if not text:
-            self.mood_result.config(text="Type something first!")
+            self.mood_result.config(text=t("type_first"))
+            self._refocus(self.mood_input)
             return
         mood, conf, reason = analyze_mood(text)
         save_mood(get_today(), mood, text, conf, reason)
@@ -572,7 +819,8 @@ class WikiApp:
         self.mood_result.config(text=f"{emoji} {mood} ({conf:.0%})")
         self.mood_input.delete("1.0", tk.END)
         self.refresh_mood_history()
-        self.status.config(text=f"Mood: {mood} ({conf:.0%})", fg=ACCENT2)
+        self.status.config(text=t("mood_saved", m=f"{mood} ({conf:.0%})"), fg=ACCENT2)
+        self._refocus(self.mood_input)
 
     def refresh_mood_history(self):
         records = load_moods(get_today())
@@ -584,24 +832,24 @@ class WikiApp:
                 line = f"[{r.get('time', '?')}] {emoji} {r.get('mood', '?')} ({r.get('confidence', 0):.0%}) - {r.get('text', '')[:40]}\n"
                 self.mood_history.insert(tk.END, line)
         else:
-            self.mood_history.insert("1.0", "  No records today yet.")
+            self.mood_history.insert("1.0", t("no_records"))
         self.mood_history.config(state=tk.DISABLED)
 
     # ==================== REMINDER TAB ====================
     def build_reminder_tab(self):
         tab = tk.Frame(self.nb, bg=BG)
-        self.nb.add(tab, text="  Reminder  ")
+        self.nb.add(tab, text=t("tab_reminder"))
 
         # Preset buttons
         top = tk.Frame(tab, bg=BG)
         top.pack(fill=tk.X, padx=10, pady=(10, 5))
-        self._label(top, "  Quick Reminders", size=13, font=("Segoe UI", 13, "bold")).pack(anchor="w", pady=(0, 5))
+        self._label(top, t("quick_reminders"), font=(UI_FONT, 13, "bold")).pack(anchor="w", pady=(0, 5))
 
         presets = tk.Frame(tab, bg=BG)
         presets.pack(fill=tk.X, padx=10, pady=5)
         preset_items = [
             ("+1h", 1), ("+2h", 2), ("+3h", 3),
-            ("Tomorrow 9am", "tmr9"), ("Tomorrow 6pm", "tmr18")
+            (t("tmr9"), "tmr9"), (t("tmr18"), "tmr18")
         ]
         for label, val in preset_items:
             self._btn(presets, label, lambda v=val: self.preset_reminder(v),
@@ -610,31 +858,31 @@ class WikiApp:
         # Custom reminder
         custom = tk.Frame(tab, bg=BG)
         custom.pack(fill=tk.X, padx=10, pady=10)
-        self._label(custom, "Custom:", size=10).pack(side=tk.LEFT)
-        self.reminder_msg = tk.Entry(custom, font=("Segoe UI", 11), bg=BG2, fg=FG,
-                                      insertbackground=FG, relief=tk.FLAT, width=25)
+        self._label(custom, t("custom"), size=11).pack(side=tk.LEFT)
+        self.reminder_msg = tk.Entry(custom, font=(UI_FONT, 11), bg=INPUT_BG, fg=INPUT_FG,
+                                      insertbackground=INPUT_INSERT, relief=tk.FLAT, width=25)
         self.reminder_msg.pack(side=tk.LEFT, padx=5)
-        self.reminder_time = tk.Entry(custom, font=("Segoe UI", 11), bg=BG2, fg=FG,
-                                       insertbackground=FG, relief=tk.FLAT, width=15)
+        self.reminder_time = tk.Entry(custom, font=(UI_FONT, 11), bg=INPUT_BG, fg=INPUT_FG,
+                                       insertbackground=INPUT_INSERT, relief=tk.FLAT, width=15)
         self.reminder_time.insert(0, "HH:MM")
         self.reminder_time.pack(side=tk.LEFT, padx=5)
-        self._btn(custom, "Add", self.add_custom_reminder, bg=ACCENT, fg="white", padx=10).pack(side=tk.LEFT, padx=5)
+        self._btn(custom, t("add"), self.add_custom_reminder, bg=INPUT_BG, fg=ACCENT, padx=10).pack(side=tk.LEFT, padx=5)
 
         # Reminder list
-        self._label(tab, "  Pending", size=10).pack(anchor="w", padx=10, pady=(10, 2))
-        self.reminder_list = scrolledtext.ScrolledText(tab, height=8, font=("Consolas", 11),
-                                                         bg=BG2, fg=FG, wrap=tk.WORD, relief=tk.FLAT,
-                                                         state=tk.DISABLED)
+        self._label(tab, t("pending"), size=11).pack(anchor="w", padx=10, pady=(10, 2))
+        self.reminder_list = scrolledtext.ScrolledText(tab, height=8, font=(MONO_FONT, 12),
+                                                         bg=INPUT_BG, fg=INPUT_FG, wrap=tk.WORD, relief=tk.FLAT,
+                                                         padx=8, pady=6, state=tk.DISABLED)
         self.reminder_list.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 5))
 
         # Cancel button
         bot = tk.Frame(tab, bg=BG)
         bot.pack(fill=tk.X, padx=10, pady=(0, 8))
-        self._label(bot, "Cancel ID:", size=9).pack(side=tk.LEFT)
-        self.cancel_id = tk.Entry(bot, font=("Segoe UI", 10), bg=BG2, fg=FG,
-                                    insertbackground=FG, relief=tk.FLAT, width=5)
+        self._label(bot, t("cancel_id"), size=10).pack(side=tk.LEFT)
+        self.cancel_id = tk.Entry(bot, font=(UI_FONT, 10), bg=INPUT_BG, fg=INPUT_FG,
+                                    insertbackground=INPUT_INSERT, relief=tk.FLAT, width=5)
         self.cancel_id.pack(side=tk.LEFT, padx=5)
-        self._btn(bot, "Cancel", self.cancel_reminder_ui, padx=8).pack(side=tk.LEFT, padx=5)
+        self._btn(bot, t("cancel"), self.cancel_reminder_ui, padx=8).pack(side=tk.LEFT, padx=5)
 
         self.refresh_reminder_list()
 
@@ -650,14 +898,14 @@ class WikiApp:
         else:
             return
         r = add_reminder(target, msg)
-        self.status.config(text=f"Reminder set: {target.strftime('%H:%M')} - {msg}", fg=ACCENT2)
+        self.status.config(text=t("reminder_set", t=target.strftime('%H:%M'), m=msg), fg=ACCENT2)
         self.refresh_reminder_list()
 
     def add_custom_reminder(self):
         msg = self.reminder_msg.get().strip()
         time_str = self.reminder_time.get().strip()
         if not msg:
-            self.status.config(text="Enter a message first!", fg="orange")
+            self.status.config(text=t("enter_msg"), fg="orange")
             return
         try:
             h, m = map(int, time_str.split(":"))
@@ -665,21 +913,21 @@ class WikiApp:
             if target <= datetime.now():
                 target += timedelta(days=1)
             add_reminder(target, msg)
-            self.status.config(text=f"Reminder set: {target.strftime('%H:%M')} - {msg}", fg=ACCENT2)
+            self.status.config(text=t("reminder_set", t=target.strftime('%H:%M'), m=msg), fg=ACCENT2)
             self.refresh_reminder_list()
         except ValueError:
-            self.status.config(text="Invalid time format (HH:MM)", fg="orange")
+            self.status.config(text=t("bad_time"), fg="orange")
 
     def cancel_reminder_ui(self):
         try:
             rid = int(self.cancel_id.get().strip())
             if cancel_reminder(rid):
-                self.status.config(text=f"Reminder #{rid} cancelled", fg=ACCENT2)
+                self.status.config(text=t("reminder_cancelled", i=rid), fg=ACCENT2)
                 self.refresh_reminder_list()
             else:
-                self.status.config(text=f"Cannot cancel #{rid}", fg="orange")
+                self.status.config(text=t("cannot_cancel", i=rid), fg="orange")
         except ValueError:
-            self.status.config(text="Enter valid ID", fg="orange")
+            self.status.config(text=t("enter_id"), fg="orange")
 
     def refresh_reminder_list(self):
         reminders = load_reminders()
@@ -691,7 +939,7 @@ class WikiApp:
                 line = f"  #{r['id']}  [{r['remind_at']}]  {r['message']}\n"
                 self.reminder_list.insert(tk.END, line)
         else:
-            self.reminder_list.insert("1.0", "  No pending reminders.")
+            self.reminder_list.insert("1.0", t("no_pending"))
         self.reminder_list.config(state=tk.DISABLED)
 
     # ==================== SHARE TAB (Obsidian × All Agents) ====================
@@ -712,33 +960,41 @@ class WikiApp:
 
     def build_share_tab(self):
         tab = tk.Frame(self.nb, bg=BG)
-        self.nb.add(tab, text="  Share  ")
+        self.nb.add(tab, text=t("tab_share"))
 
         # ---- 顶部说明 ----
         head = tk.Frame(tab, bg=BG)
         head.pack(fill=tk.X, padx=10, pady=(10, 4))
-        self._label(head, "🌐 Shared Wiki — Obsidian × 所有 Agent",
-                    size=12, font=("Segoe UI", 12, "bold")).pack(side=tk.LEFT)
-        self._btn(head, "Refresh / 刷新", self.share_refresh,
+        self._label(head, t("share_title"),
+                    font=(UI_FONT, 12, "bold")).pack(side=tk.LEFT)
+        self._btn(head, t("refresh"), self.share_refresh,
                   bg=BTN_BG, fg=FG, padx=10).pack(side=tk.RIGHT)
 
-        # ---- 状态区 ----
-        status = tk.Frame(tab, bg=BG2, relief=tk.FLAT)
-        status.pack(fill=tk.X, padx=10, pady=4)
-        self.share_status = scrolledtext.ScrolledText(status, height=9, font=("Consolas", 10),
-                                                      bg=BG2, fg=FG, insertbackground=FG,
-                                                      wrap=tk.WORD, relief=tk.FLAT, state=tk.DISABLED)
-        self.share_status.pack(fill=tk.BOTH, expand=True, padx=6, pady=6)
+        # ---- 可拖拽分隔的上下两栏：上=内容框，下=操作按钮 ----
+        # 用 PanedWindow 提供可鼠标拖拽的分隔条，让内容框能手动调整大小
+        pw = tk.PanedWindow(tab, orient=tk.VERTICAL, bg=BG,
+                            sashwidth=6, sashrelief=tk.RAISED,
+                            showhandle=True, handlepad=10, handlesize=10)
+        pw.pack(fill=tk.BOTH, expand=True, padx=10, pady=4)
 
-        # ---- 操作按钮 ----
-        acts = tk.Frame(tab, bg=BG)
-        acts.pack(fill=tk.X, padx=10, pady=(4, 8))
-        self._btn(acts, "▶ Start MCP Server", self.share_start_server,
-                  bg=ACCENT, fg="white", padx=12).pack(side=tk.LEFT, padx=3)
-        self._btn(acts, "🔭 Open in Obsidian", self.share_open_obsidian,
+        # 状态区（内容框，可拖拽分隔条改变高度）
+        status = tk.Frame(pw, bg=BG2, relief=tk.FLAT)
+        self.share_status = scrolledtext.ScrolledText(status, height=9, font=(MONO_FONT, 11),
+                                                      bg=INPUT_BG, fg=INPUT_FG, insertbackground=INPUT_INSERT,
+                                                      wrap=tk.WORD, relief=tk.FLAT,
+                                                      padx=8, pady=6, state=tk.DISABLED)
+        self.share_status.pack(fill=tk.BOTH, expand=True, padx=6, pady=6)
+        pw.add(status, minsize=120, height=360)
+
+        # ---- 操作按钮（放在下方，可拖拽分隔条调整上方内容框大小） ----
+        acts = tk.Frame(pw, bg=BG)
+        self._btn(acts, t("start_server"), self.share_start_server,
+                  bg=INPUT_BG, fg=ACCENT, padx=12).pack(side=tk.LEFT, padx=3)
+        self._btn(acts, t("open_obsidian"), self.share_open_obsidian,
                   bg=BTN_BG, fg=FG, padx=12).pack(side=tk.LEFT, padx=3)
-        self._btn(acts, "📡 Broadcast Update", self.share_broadcast,
+        self._btn(acts, t("broadcast"), self.share_broadcast,
                   bg=BTN_BG, fg=FG, padx=12).pack(side=tk.LEFT, padx=3)
+        pw.add(acts, minsize=40)
 
         # 初始填充
         self.share_refresh()
@@ -763,8 +1019,12 @@ class WikiApp:
             if wiki_v:
                 lines.append("📓 Obsidian Vault: {}  (已连接)".format(wiki_v["name"]))
             else:
-                lines.append("📓 Obsidian: 未在本机以 Vault 打开当前 wiki")
-                lines.append("   → Obsidian → Open folder as vault → 选择本目录")
+                cfg_v = _ob.vault_name()
+                if cfg_v and cfg_v != "my-wiki":
+                    lines.append("📓 Obsidian Vault: {}  (按 config/obsidian.json)".format(cfg_v))
+                else:
+                    lines.append("📓 Obsidian: 未在本机以 Vault 打开当前 wiki")
+                    lines.append("   → 在 config/obsidian.json 配置 vault_name / vault_path")
             lines.append("   发现 {} 个本地 Vault".format(len(vaults)))
         except Exception as e:
             lines.append("📓 Obsidian: 检测失败 ({})".format(e))
@@ -793,10 +1053,23 @@ class WikiApp:
         if not os.path.exists(server_py):
             messagebox.showerror("Error", "找不到 mcp_server.py")
             return
+        # 启动前检测依赖：mcp 未安装会导致子进程静默退出
         try:
-            # 后台启动，不阻塞 GUI
+            import mcp  # noqa: F401
+        except ImportError:
+            messagebox.showerror(
+                "缺少依赖: mcp",
+                "当前 Python 环境未安装 mcp 包，MCP Server 无法启动。\n\n"
+                "请先安装依赖:\n"
+                "  {} -m pip install mcp\n\n"
+                "安装后再点此按钮启动。".format(sys.executable))
+            return
+        try:
+            # 后台启动，不阻塞 GUI（stderr 写入日志便于排错）
+            log_path = os.path.join(WIKI_DIR, "mcp_server.log")
+            log_f = open(log_path, "w")
             proc = subprocess.Popen([sys.executable, server_py],
-                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                                    stdout=log_f, stderr=subprocess.STDOUT)
             self._mcp_proc = proc
             self.status.config(text="MCP Server 已启动 (pid={})".format(proc.pid))
             messagebox.showinfo("MCP Server",
@@ -829,10 +1102,24 @@ class WikiApp:
         try:
             _ar.discover()
             result = _ar.broadcast("wiki.updated", {"rel": "daily/{}.md".format(today)})
-            msg = "广播完成\n  已发送: {}\n  失败: {}\n  跳过: {}".format(
-                result["sent"], result["failed"], result["skipped"])
-            self.status.config(text="已广播 Wiki 更新")
-            messagebox.showinfo("Broadcast", msg)
+            sent, failed, skipped = result["sent"], result["failed"], result["skipped"]
+            if sent or failed:
+                msg = ("通知完成\n\n已发布更新: daily/{}.md\n\n".format(today) +
+                       "✅ 已推送 ({}): {}\n".format(len(sent), ", ".join(sent) or "无") +
+                       "❌ 失败 ({}): {}\n".format(len(failed), ", ".join(failed) or "无") +
+                       "⏭ 跳过 ({}): {}\n".format(len(skipped), ", ".join(skipped) or "无") +
+                       "\n说明: 仅支持 webhook 的 Agent 会真正收到更新；"
+                       "模型服务(Ollama/LM-Studio)与文件同步型(Obsidian/OpenClaw 等)不参与通知。")
+            else:
+                msg = ("通知完成，但本次没有可接收的 Agent（不是错误）。\n\n"
+                       "已发布更新: daily/{}.md\n\n".format(today) +
+                       "当前跳过项:\n  · " + "\n  · ".join(skipped) + "\n\n" +
+                       "含义:\n"
+                       "  - Ollama-API / LM-Studio-API: 仅用于探测本地模型服务，不接收通知\n"
+                       "  - OpenClaw / Claude / Cursor / Memo / Obsidian: 通过共享文件同步，无需通知\n\n"
+                       "当你有 Agent 暴露 http://host:port/webhook 并登记后，才会真正推送过去。")
+            self.status.config(text="已通知 Agent")
+            messagebox.showinfo("通知 Agent", msg)
             self.share_refresh()
         except Exception as e:
             messagebox.showerror("广播失败", str(e))
@@ -840,12 +1127,16 @@ class WikiApp:
 
 # ==================== MAIN ====================
 if __name__ == "__main__":
-    # First run check / 首次运行检测
-    proceed = show_welcome_and_check()
-    if not proceed:
-        sys.exit(0)
-    
-    # Start main app / 启动主程序
+    # 整个进程只有一个 Tk() 根实例
     root = tk.Tk()
+
+    # 构建主界面（先绘制，确保输入框始终可见可交互）
     app = WikiApp(root)
+    root.update_idletasks()
+
+    # 在首个主循环刷新后显示非模态欢迎框（Toplevel，单根单 mainloop）
+    # 欢迎框不再 grab，主界面在其背后依然可点击、可输入
+    root.after(200, show_welcome_and_check, root)
+
+    # Start main loop / 启动主事件循环
     root.mainloop()

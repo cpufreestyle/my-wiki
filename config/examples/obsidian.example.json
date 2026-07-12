@@ -1,0 +1,5 @@
+{
+  "_comment": "MyWiki ⇄ Obsidian 桥接配置（本地、机器相关，建议勿提交到仓库）。二选一填写：",
+  "vault_name": "你的 vault 在 Obsidian 左下角显示的名字，例如 wiki",
+  "vault_path": "/绝对路径/到/Obsidian vault，例如 /Users/you/AI Shared/wiki"
+}

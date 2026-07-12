@@ -79,11 +79,18 @@ def parse_frontmatter(text: str):
                 except Exception:
                     meta = {}
             else:
-                # 极简 fallback 解析: key: value
+                # 极简 fallback 解析: 支持列表 [a, b] 与带引号字符串
                 for line in fm.splitlines():
                     if ":" in line:
                         k, v = line.split(":", 1)
-                        meta[k.strip()] = v.strip().strip("'\"[]")
+                        v = v.strip()
+                        if v.startswith("[") and v.endswith("]"):
+                            items = [i.strip().strip("'\"") for i in v[1:-1].split(",") if i.strip()]
+                            meta[k.strip()] = items
+                        elif v == "":
+                            meta[k.strip()] = None
+                        else:
+                            meta[k.strip()] = v.strip("'\"")
     return meta, body
 
 

@@ -48,6 +48,36 @@ def discover_vaults() -> list:
     return vaults
 
 
+def _obsidian_cfg_path() -> Path:
+    """config/obsidian.json：用户本地的 vault 映射配置。"""
+    return Path(__file__).parent.parent.parent / "config" / "obsidian.json"
+
+
+def _load_obsidian_cfg() -> dict:
+    p = _obsidian_cfg_path()
+    if not p.exists():
+        return {}
+    try:
+        return json.loads(p.read_text(encoding="utf-8")) or {}
+    except Exception:
+        return {}
+
+
+def _vault_for_path(target: str):
+    """在已发现 vault 中按路径匹配，返回 {"name", "path"} 或 None。"""
+    try:
+        tp = Path(target).resolve()
+    except Exception:
+        return None
+    for v in discover_vaults():
+        try:
+            if Path(v["path"]).resolve() == tp:
+                return v
+        except Exception:
+            continue
+    return None
+
+
 def detect_wiki_vault() -> dict:
     """
     判断当前 wiki 根目录是否已被 Obsidian 作为 vault 打开。
@@ -61,9 +91,41 @@ def detect_wiki_vault() -> dict:
 
 
 def vault_name() -> str:
-    """返回 wiki 对应的 vault 名称（供 URI 使用）。"""
+    """
+    返回 wiki 对应的 vault 名称（供 obsidian:// URI 使用）。
+
+    解析优先级：
+      1. 环境变量 OBSIDIAN_VAULT_NAME
+      2. config/obsidian.json 的 vault_name
+      3. config/obsidian.json 的 vault_path -> 反查 vault id/name
+      4. 自动检测：代码根目录是否就是某个已打开的 vault
+      5. fallback "my-wiki"（并打印警告，不再静默瞎猜）
+    """
+    import os
+    env = os.environ.get("OBSIDIAN_VAULT_NAME")
+    if env:
+        return env
+
+    cfg = _load_obsidian_cfg()
+    name = (cfg.get("vault_name") or "").strip()
+    if name:
+        return name
+
+    vp = (cfg.get("vault_path") or "").strip()
+    if vp:
+        v = _vault_for_path(vp)
+        if v:
+            # obsidian.json 无 name 字段时 name 即 vault id，Obsidian 接受
+            return v["name"]
+        print(f"[WARN] config vault_path={vp} 不在 Obsidian 已打开的 vault 列表中")
+
     v = detect_wiki_vault()
-    return v["name"] if v else "my-wiki"
+    if v:
+        return v["name"]
+
+    print("[WARN] 无法确定 Obsidian vault，回退为 'my-wiki'。"
+          "请在 config/obsidian.json 配置 vault_name 或 vault_path")
+    return "my-wiki"
 
 
 def open_note(rel_path: str, vault: str = None, line: int = None):
@@ -157,9 +219,11 @@ if __name__ == "__main__":
     print("=== Obsidian Vault 发现 ===")
     for v in discover_vaults():
         print(f"  📓 {v['name']}  ->  {v['path']}")
+    print(f"\n🔗 URI 将使用的 vault 名称: {vault_name()}")
     wiki_v = detect_wiki_vault()
     if wiki_v:
-        print(f"\n✅ 当前 wiki 已被 Obsidian 作为 vault 打开: {wiki_v['name']}")
+        print(f"✅ 当前 wiki 已被 Obsidian 作为 vault 打开: {wiki_v['name']}")
     else:
-        print("\n⚠️  当前 wiki 还未在 Obsidian 中打开。建议:")
-        print("    Obsidian → Open folder as vault → 选择 my-wiki 目录")
+        print("\n⚠️  当前 wiki 目录未被 Obsidian 作为 vault 打开。")
+        print("   若 vault 是另一个目录（如 AI Shared/wiki），请在")
+        print("   config/obsidian.json 配置 vault_name 或 vault_path。")
