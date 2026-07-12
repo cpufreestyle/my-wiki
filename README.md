@@ -2,7 +2,7 @@
 
 > 基于 [Andrej Karpathy's LLM Wiki 理念](https://karpathy.github.io/2025/05/11/llm-wiki/) 构建的个人知识库系统
 
-[![Version](https://img.shields.io/badge/version-v2.1.0-blue)](https://github.com/cpufreestyle/my-wiki/releases/tag/v2.1.0)
+[![Version](https://img.shields.io/badge/version-v2.4.0-blue)](https://github.com/cpufreestyle/my-wiki/releases/tag/v2.4.0)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Obsidian](https://img.shields.io/badge/Obsidian-1.0+-purple)](https://obsidian.md)
 
@@ -335,10 +335,13 @@ graph TD
 
 ```
 my-wiki/
-├── README.md                      # 本文件 (v2.0)
+├── README.md                      # 本文件 (v2.4.0)
 ├── INDEX.md                       # 知识索引（自动生成）
-├── wiki_tool.py                   # 统一工具入口 (v2.0)
-├── rag.py                         # 语义 RAG 检索引擎 🆕 (BM25 / Ollama embedding)
+├── wiki_tool.py                   # 统一工具入口 (v2.4.0)
+├── rag.py                         # 语义 RAG 检索引擎 (BM25 / Ollama embedding)
+├── theme.py                       # 统一设计 token（Apple 风浅/深色）🆕
+├── reminder_web.html              # 提醒 Web UI（支持深色模式）🆕
+├── FIGMA_DESIGN_SPEC.md           # Figma 设计规格文档 🆕
 ├── modules/                       # 功能模块 🆕
 │   ├── video-analysis/            # 视频分析
 │   │   ├── README.md
@@ -578,6 +581,19 @@ MYWIKI_RAG_MODE=ollama python rag.py "你的问题" --rebuild
 | `MYWIKI_OLLAMA_URL` | Ollama 服务地址 | `http://localhost:11434` |
 | `MYWIKI_EMBED_MODEL` | 嵌入模型名 | `nomic-embed-text` |
 
+### 9. UI 主题统一（Apple 风浅 / 深色）🆕
+
+- ✅ **统一设计 token**：`theme.py` 集中管理颜色 / 字体 / 圆角 / 阴影，Web 端与桌面端共用同一套值，改一处即可整体换肤
+- ✅ **浅色 / 深色主题**：`reminder_web.html` 支持一键切换深色模式，偏好持久化到 `localStorage`
+- ✅ **设计规格沉淀**：`FIGMA_DESIGN_SPEC.md` 记录界面设计稿与规范，便于后续迭代与协作
+- ✅ **一致体验**：`reminder_ui.py` / `daily_ui.py` 同步适配统一 token
+
+**换肤 / 切换主题**：
+```bash
+# 改 theme.py 中的 LIGHT / DARK 字典即可整体调整配色
+# Web 端：打开 reminder_web.html，点击右上角 🌙/☀️ 切换深 / 浅色
+```
+
 ---
 
 ## 📝 日常使用
@@ -720,6 +736,6 @@ pip install -r requirements.txt
 
 ---
 
-**最后更新**: 2026-07-12（新增语义 RAG 检索）
+**最后更新**: 2026-07-12（语义 RAG 检索 + UI 主题统一）
 
-**版本**: v2.1.0
+**版本**: v2.4.0
