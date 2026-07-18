@@ -19,6 +19,18 @@ import wave
 import struct
 import math
 import array
+import time
+
+# ---- 诊断日志（写入临时目录，便于排查“正在聆听后没下文”问题）----
+_DEBUG_LOG = os.path.join(tempfile.gettempdir(), "mywiki_voice_debug.log")
+
+def _dbg(msg):
+    """写入诊断日志，每行带时间戳。"""
+    try:
+        with open(_DEBUG_LOG, "a", encoding="utf-8") as f:
+            f.write("[{}] {}\n".format(time.strftime("%H:%M:%S"), msg))
+    except Exception:
+        pass
 
 TMP_WAV = os.path.join(tempfile.gettempdir(), "mywiki_voice.wav")
 MAX_SECONDS = 12  # 单次最长录音秒数（可中途点停止提前结束）
@@ -414,13 +426,16 @@ class VoiceRecorder:
         return self._running
 
     def start(self, lang="zh-CN", max_seconds=MAX_SECONDS):
+        _dbg("start() 被调用, _running={}".format(self._running))
         if self._running:
+            _dbg("start() 放弃：已在运行")
             return
         self._running = True
         self._stop.clear()
         self._thread = threading.Thread(
             target=self._run, args=(lang, max_seconds), daemon=True)
         self._thread.start()
+        _dbg("start() 线程已启动")
 
     def stop(self):
         """请求停止录音：非阻塞式终止 ffmpeg，已录部分不再识别（直接取消）。
@@ -451,30 +466,48 @@ class VoiceRecorder:
 
     def _run(self, lang, max_seconds):
         try:
+            _dbg("=== _run 开始 (lang={}, max_seconds={}) ===".format(lang, max_seconds))
             # 1) 录音
             self.on_status("recording", "正在聆听…（最多 {} 秒）".format(max_seconds))
             ffmpeg_path = get_ffmpeg_path()
+            _dbg("ffmpeg_path={}".format(ffmpeg_path))
             if not ffmpeg_path:
+                _dbg("错误：未找到 ffmpeg")
                 self.on_error("未找到 ffmpeg，无法录音。")
                 return
             args = [ffmpeg_path, "-y", "-hide_banner", "-loglevel", "error",
                     *_ffmpeg_input_args(),
                     "-t", str(max_seconds), "-ar", "16000", "-ac", "1",
                     "-c:a", "pcm_s16le", TMP_WAV]
+            _dbg("启动 ffmpeg: {}".format(" ".join(args)))
             # 捕获 stderr 用于诊断录音失败（macOS 麦克风权限、设备不存在等）
-            self._proc = subprocess.Popen(args, stdout=subprocess.PIPE,
-                                          stderr=subprocess.PIPE)
-            stdout_data, stderr_data = self._proc.communicate()
+            # 用局部变量 proc 引用，避免 stop() 并发把 self._proc 设为 None 后
+            # _run 线程访问 self._proc.returncode 导致 AttributeError
+            proc = subprocess.Popen(args, stdout=subprocess.PIPE,
+                                    stderr=subprocess.PIPE)
+            self._proc = proc
+            stdout_data, stderr_data = proc.communicate()
+            retcode = proc.returncode
             self._proc = None
+            _dbg("ffmpeg 结束, returncode={}".format(retcode))
 
-            # 用户中途停止：直接取消，不再识别
+            # 用户中途停止：不再直接丢弃，尝试识别已录内容
             if self._stop.is_set():
-                self.on_status("idle", "已取消")
-                return
+                _dbg("用户中途停止，尝试识别已录内容")
+                wav_size = os.path.getsize(TMP_WAV) if os.path.exists(TMP_WAV) else 0
+                if wav_size < 44:
+                    # 录得太短，无法识别
+                    self.on_status("idle", "已取消")
+                    return
+                # 有有效录音，继续往下走声学分析 + 识别流程
+                _dbg("已录内容有效 ({}字节)，继续识别".format(wav_size))
 
-            if not os.path.exists(TMP_WAV) or os.path.getsize(TMP_WAV) < 44:
+            wav_size = os.path.getsize(TMP_WAV) if os.path.exists(TMP_WAV) else 0
+            _dbg("WAV 文件大小={}".format(wav_size))
+            if not os.path.exists(TMP_WAV) or wav_size < 44:
                 # 录音失败：用 stderr 信息帮助诊断
                 err_msg = stderr_data.decode("utf-8", errors="replace").strip() if stderr_data else ""
+                _dbg("录音失败, stderr={}".format(err_msg[:200]))
                 low = err_msg.lower()
                 if ("operation not permitted" in low or "denied" in low
                         or "authorization" in low or "avcapture" in low
@@ -491,11 +524,14 @@ class VoiceRecorder:
                 return
 
             # 2) 声学特征分析（纯本地，不依赖网络，先于文字识别）
+            _dbg("开始声学分析")
             acoustics = analyze_voice_acoustics(TMP_WAV)
+            _dbg("声学分析完成: {}".format(acoustics is not None))
             if acoustics:
                 self.on_acoustics(acoustics)
 
             # 3) 语音识别（文字）
+            _dbg("开始语音识别")
             self.on_status("recognizing", "识别中…")
             import speech_recognition as sr
             recognizer = sr.Recognizer()
@@ -506,7 +542,9 @@ class VoiceRecorder:
                 audio = recognizer.record(source)
             try:
                 text = recognizer.recognize_google(audio, language=lang)
+                _dbg("识别成功: text={}".format((text or "")[:50]))
             except sr.UnknownValueError:
+                _dbg("识别失败: UnknownValueError")
                 # 文字识别失败时，仍可用声学特征分析心情
                 if acoustics:
                     self.on_result(None, acoustics)
@@ -515,6 +553,7 @@ class VoiceRecorder:
                     self.on_error("没听清，请再说一次。")
                 return
             except sr.RequestError as e:
+                _dbg("识别失败: RequestError={}".format(e))
                 # 网络不通时，仍可用声学特征分析心情
                 if acoustics:
                     self.on_result(None, acoustics)
@@ -523,6 +562,7 @@ class VoiceRecorder:
                     self.on_error("识别服务不可用（需联网）：{}".format(e))
                 return
             except Exception as e:
+                _dbg("识别失败: Exception={}".format(e))
                 # 其他异常时，仍可用声学特征
                 if acoustics:
                     self.on_result(None, acoustics)
@@ -533,17 +573,22 @@ class VoiceRecorder:
 
             text = (text or "").strip()
             if not text:
+                _dbg("识别结果为空")
                 if acoustics:
                     self.on_result(None, acoustics)
                     self.on_status("done", "已分析声音特征")
                 else:
                     self.on_error("识别结果为空，请再说一次。")
                 return
+            _dbg("分发结果: text={}, acoustics={}".format(text[:30], acoustics is not None))
             self.on_result(text, acoustics)
             self.on_status("done", "已识别")
         except FileNotFoundError:
+            _dbg("异常: FileNotFoundError")
             self.on_error("未找到 ffmpeg，无法录音。")
         except Exception as e:
+            _dbg("异常: {}".format(e))
             self.on_error("语音识别失败：{}".format(e))
         finally:
+            _dbg("_run 结束")
             self._running = False

@@ -18,6 +18,14 @@
 
     const SpeechRec = global.SpeechRecognition || global.webkitSpeechRecognition;
 
+    // 是否在「真实浏览器」环境中（有 Web Speech API + 麦克风权限 API）。
+    // InkView / QuickJS 等运行时没有这些，需要走后端录音识别模式。
+    const hasBrowserSpeech = !!(
+        SpeechRec &&
+        global.navigator && global.navigator.mediaDevices &&
+        global.navigator.mediaDevices.getUserMedia
+    );
+
     class VoiceController {
         constructor(opts) {
             opts = opts || {};
@@ -28,6 +36,9 @@
 
             this.recognizer = null;
             this.recognizing = false;
+            // 语音模式：browser（浏览器原生识别）或 backend（走本地服务器录音识别）
+            this.mode = hasBrowserSpeech ? "browser" : "backend";
+            this.backendDuration = 8;   // 后端录音默认时长（秒），点「停止」可提前结束
             // 会话级复用状态
             this.micStream = null;
             this.audioCtx = null;
@@ -59,7 +70,11 @@
             const btn = this._btn();
             if (btn) {
                 btn.addEventListener("click", () => {
-                    if (this.recognizing) { if (this.recognizer) this.recognizer.stop(); return; }
+                    if (this.recognizing) {
+                        if (this.mode === "backend") { this.stopBackend(); return; }
+                        if (this.recognizer) this.recognizer.stop();
+                        return;
+                    }
                     this.start();
                 });
             }
@@ -209,9 +224,10 @@
                 else if (msg === "network")
                     msg = "网络错误，语音识别需要联网";
                 // 文字识别失败时，仍可用声学特征分析
-                const acou = this.acousticsToMood(this.getAcousticsResult());
-                if (acou && acou.voiced >= 3) {
-                    this._dispatch(null, acou);
+                const rawAcou = this.getAcousticsResult();
+                const acouMood = this.acousticsToMood(rawAcou);
+                if (acouMood && rawAcou && rawAcou.voiced >= 3) {
+                    this._dispatch(null, acouMood);
                 } else {
                     const st = this._status();
                     if (st) st.textContent = "识别失败：" + msg;
@@ -224,8 +240,12 @@
         }
 
         async start() {
+            // 后端模式：浏览器/运行时无 Web Speech API，改由本地服务器录音并识别
+            if (this.mode === "backend") {
+                return this.startBackend();
+            }
             if (!SpeechRec) {
-                this._toast("当前浏览器不支持语音识别（请用 Chrome 访问）");
+                this._toast("当前浏览器不支持语音识别（请用 Chrome 或桌面版 GUI）");
                 return;
             }
             // 复用已创建的 recognizer，避免重复弹授权
@@ -249,6 +269,62 @@
                     try { this.recognizer.start(); this.recognizing = true; this._setUI(true); }
                     catch (e) { this._toast("无法启动麦克风，请重试"); }
                 }, 300);
+            }
+        }
+
+        // ---- 后端模式：请求本地服务器录音并识别（无需浏览器语音 API） ----
+        // 优先用 fetch，部分运行时只有 XMLHttpRequest 时回退。
+        _http(url, method, bodyObj) {
+            const opts = { method: method || "POST", headers: { "Content-Type": "application/json" } };
+            if (bodyObj !== undefined) opts.body = JSON.stringify(bodyObj);
+            if (typeof fetch === "function") {
+                return fetch(url, opts);
+            }
+            return new Promise((resolve, reject) => {
+                try {
+                    const xhr = new XMLHttpRequest();
+                    xhr.open(opts.method, url, true);
+                    xhr.setRequestHeader("Content-Type", "application/json");
+                    xhr.onload = () => resolve({
+                        ok: xhr.status >= 200 && xhr.status < 400,
+                        status: xhr.status,
+                        json: () => Promise.resolve(JSON.parse(xhr.responseText || "{}")),
+                    });
+                    xhr.onerror = () => reject(new Error("network"));
+                    xhr.send(opts.body);
+                } catch (e) { reject(e); }
+            });
+        }
+
+        async startBackend() {
+            this.recognizing = true;
+            this._setUI(true);
+            try {
+                const resp = await this._http("/api/voice/start", "POST", { duration: this.backendDuration });
+                const data = await resp.json();
+                if (!resp.ok || data.ok === false) {
+                    throw new Error((data && data.error) || ("HTTP " + resp.status));
+                }
+                const st = this._status();
+                if (st) st.textContent = "服务器正在录音…（点停止结束）";
+            } catch (e) {
+                this.recognizing = false;
+                this._setUI(false);
+                this._toast("无法启动录音：" + (e && e.message ? e.message : e) +
+                            "\n请用桌面版 GUI 或 Chrome 访问本地服务器。");
+            }
+        }
+
+        async stopBackend() {
+            try {
+                const resp = await this._http("/api/voice/stop", "POST", {});
+                const data = await resp.json();
+                const txt = (data && data.text) ? data.text : null;
+                const acou = (data && data.acoustics) ? data.acoustics : null;
+                this._dispatch(txt, acou);
+            } catch (e) {
+                this._stopUI();
+                this._toast("录音结束请求失败：" + (e && e.message ? e.message : e));
             }
         }
 

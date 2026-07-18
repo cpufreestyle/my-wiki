@@ -496,7 +496,7 @@
             } else {
                 bestMood = textMood; bestConf = textConf; reason = textReason;
             }
-            const rec = { time: nowTime(), mood: bestMood, text: (text || `(语音: ${acouDetail}`.slice(0, 50)), confidence: bestConf, reason };
+            const rec = { time: nowTime(), mood: bestMood, text: (text || `(语音: ${acouDetail})`.slice(0, 50)), confidence: bestConf, reason };
             saveMoodRecord(today, rec);
             apiSaveMood(today, bestMood, text, bestConf, reason);
             const emoji = MOOD_EMOJI[bestMood] || "";
@@ -554,7 +554,7 @@
         // ---------- 初始化 ----------
         renderMoodGrid();
         refreshHistory();
-        $("#analyzeBtn").addEventListener("click", analyzeMoodUi);
+        $("#analyzeBtn").addEventListener("click", () => analyzeMoodUi());
     </script>
 </body>
 </html>
