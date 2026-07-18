@@ -2,12 +2,12 @@
 """
 My Wiki - All-in-One Personal Knowledge Tool
 日记 | 心情 | 提醒 | 标签
+
+PySide6 版本 —— 替代原 Tkinter 实现。
+PySide6 的信号槽机制天然线程安全，子线程可通过信号把结果投递到主线程，
+不再需要手动轮询队列。
 """
 import os
-# 抑制 macOS 系统 Tk (8.5) 的弃用警告（命令行里黄色感叹号）
-os.environ.setdefault("TK_SILENCE_DEPRECATION", "1")
-import tkinter as tk
-from tkinter import ttk, scrolledtext, messagebox
 import json
 import subprocess
 import sys
@@ -15,8 +15,18 @@ import re
 import shutil
 import urllib.request
 import tempfile
+import threading
 from datetime import datetime, timedelta
 from collections import Counter
+
+from PySide6.QtCore import Qt, Signal, QObject, QThread, QTimer, QSize
+from PySide6.QtGui import QFont, QAction, QShortcut, QKeySequence, QIcon
+from PySide6.QtWidgets import (
+    QApplication, QMainWindow, QWidget, QTabWidget, QVBoxLayout, QHBoxLayout,
+    QGridLayout, QLabel, QPushButton, QPlainTextEdit, QLineEdit, QCheckBox,
+    QScrollArea, QFrame, QMessageBox, QProgressDialog, QDialog, QSplitter,
+    QSizePolicy, QSpacerItem
+)
 
 # ==================== DEPENDENCY CHECK ====================
 def check_obsidian():
@@ -34,23 +44,11 @@ def check_obsidian():
         for p in paths:
             if os.path.exists(p):
                 return True, p
-        try:
-            import winreg
-            key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Obsidian")
-            path, _ = winreg.QueryValueEx(key, "InstallLocation")
-            winreg.CloseKey(key)
-            if path and os.path.exists(path):
-                return True, os.path.join(path, "Obsidian.exe")
-        except Exception:
-            pass
     return False, None
 
-def check_openclaw():
-    """检测 OpenClaw 是否安装（跨平台）。
 
-    注意：双击 app 启动时进程的 PATH 往往不含终端 shell 的 PATH，
-    因此只靠 `openclaw` 命令可能找不到，需要枚举常见绝对路径。
-    """
+def check_openclaw():
+    """检测 OpenClaw 是否安装（跨平台）。"""
     candidates = []
     if sys.platform == "darwin":
         candidates = [
@@ -60,7 +58,6 @@ def check_openclaw():
             os.path.expanduser("~/.local/bin/openclaw"),
             os.path.expanduser("~/.npm-global/bin/openclaw"),
             os.path.expanduser("~/.cargo/bin/openclaw"),
-            # QClaw 自带的 OpenClaw（macOS 上的实际安装位置）
             os.path.expanduser("~/Library/Application Support/QClaw/openclaw"),
             os.path.expanduser("~/Library/Application Support/QClaw/openclaw/node_modules/.bin/openclaw"),
         ]
@@ -70,14 +67,12 @@ def check_openclaw():
             r"C:\Program Files\QClaw\openclaw.exe",
             r"C:\Program Files (x86)\QClaw\openclaw.exe",
         ]
-    # 动态获取 npm 全局 bin 目录（GUI 启动 PATH 受限时也能命中）
     try:
         out = subprocess.run(["npm", "prefix", "-g"], capture_output=True, text=True, timeout=10)
         if out.returncode == 0:
             candidates.append(os.path.join(out.stdout.strip(), "bin", "openclaw"))
     except Exception:
         pass
-    # PATH 中查找（覆盖终端能直接运行的情况）
     found = shutil.which("openclaw")
     if found:
         candidates.insert(0, found)
@@ -87,364 +82,21 @@ def check_openclaw():
                 return True, c
             continue
         if os.path.exists(c):
-            try:
-                r = subprocess.run([c, "--version"], capture_output=True, text=True, timeout=5)
-                if r.returncode == 0:
-                    return True, (r.stdout.strip() or c)
-            except Exception:
-                pass
             return True, c
     return False, None
-
-def download_file(url, dest):
-    """Download file / 下载文件 (blocking, simple)"""
-    import urllib.request
-    # Use a simple download - progress bar is indeterminate
-    urllib.request.urlretrieve(url, dest)
-
-def install_obsidian(parent_window):
-    """Download and install Obsidian / 下载并安装 Obsidian"""
-    url = "https://github.com/obsidianmd/obsidian-releases/releases/download/v1.8.10/Obsidian-1.8.10.exe"
-    tmp = tempfile.gettempdir()
-    installer = os.path.join(tmp, "Obsidian-setup.exe")
-    
-    # Show download dialog / 显示下载对话框
-    dlg = tk.Toplevel(parent_window)
-    dlg.title("Downloading Obsidian / 下载 Obsidian")
-    dlg.geometry("400x120")
-    dlg.configure(bg=BG)
-    dlg.resizable(True, True)
-    dlg.transient(parent_window)
-    dlg.grab_set()
-    
-    tk.Label(dlg, text="Downloading Obsidian installer...\n正在下载 Obsidian 安装包...", 
-             bg=BG, fg=FG, font=ui(10)).pack(pady=15)
-    progress = ttk.Progressbar(dlg, mode="indeterminate")
-    progress.pack(fill="x", padx=30, pady=5)
-    progress.start()
-    dlg.update()
-    
-    try:
-        download_file(url, installer)
-        progress.stop()
-        dlg.destroy()
-        
-        # Run installer silently / 静默安装
-        result = subprocess.run([installer, "/SILENT", "/ALLUSERS"], timeout=300)
-        os.remove(installer)
-        return result.returncode == 0
-    except Exception as e:
-        progress.stop()
-        dlg.destroy()
-        messagebox.showerror("Error / 错误", "Failed to download Obsidian:\n{}".format(e))
-        return False
-
-def install_openclaw(parent_window):
-    """Install OpenClaw via npm / 通过 npm 安装 OpenClaw"""
-    try:
-        # Check if npm exists
-        subprocess.run(["npm", "--version"], capture_output=True, check=True, timeout=5)
-    except Exception:
-        messagebox.showerror("Error / 错误", 
-            "npm not found. Please install Node.js first:\n"
-            "npm 未找到，请先安装 Node.js：\nhttps://nodejs.org")
-        return False
-    
-    dlg = tk.Toplevel(parent_window)
-    dlg.title("Installing OpenClaw / 安装 OpenClaw")
-    dlg.geometry("450x120")
-    dlg.configure(bg=BG)
-    dlg.resizable(True, True)
-    dlg.transient(parent_window)
-    dlg.grab_set()
-    
-    tk.Label(dlg, text="Installing OpenClaw globally...\n正在全局安装 OpenClaw...", 
-             bg=BG, fg=FG, font=ui(10)).pack(pady=15)
-    progress = ttk.Progressbar(dlg, mode="indeterminate")
-    progress.pack(fill="x", padx=30, pady=5)
-    progress.start()
-    dlg.update()
-    
-    try:
-        result = subprocess.run(["npm", "install", "-g", "openclaw"], 
-                               capture_output=True, text=True, timeout=300)
-        progress.stop()
-        dlg.destroy()
-        if result.returncode == 0:
-            messagebox.showinfo("Success / 成功", "OpenClaw installed successfully!\nOpenClaw 安装成功！")
-            return True
-        else:
-            messagebox.showerror("Error / 错误", "npm install failed:\n{}".format(result.stderr))
-            return False
-    except Exception as e:
-        progress.stop()
-        dlg.destroy()
-        messagebox.showerror("Error / 错误", "Failed to install OpenClaw:\n{}".format(e))
-        return False
-
-def show_welcome_and_check(parent):
-    """
-    在已有的主 Tk 根 (parent) 之上显示欢迎/首次运行窗口（Toplevel）。
-
-    关键:
-      - 整个进程**只有一个 Tk() 根实例**，欢迎框只是它的 Toplevel 子窗口。
-      - **不使用 grab_set()**：macOS 下模态 grab 会拦截主窗口的全部输入，
-        导致"主界面看不见输入框 / 无法点击文本框"。改为非模态窗口，
-        主界面始终在背后可见且可交互。
-      - 由主程序的 root.mainloop() 统一驱动事件。
-
-    按钮行为:
-      - 继续/跳过: 关闭 Toplevel
-      - 退出:      关闭整个程序 (parent.destroy())
-
-    设置环境变量 MYWIKI_SKIP_WELCOME=1 可完全跳过欢迎框。
-    """
-    if os.environ.get("MYWIKI_SKIP_WELCOME") == "1":
-        return
-
-    dlg = tk.Toplevel(parent)
-    dlg.title("MyWiki - First Run Setup / 首次运行设置")
-    dlg.geometry("600x540")
-    dlg.configure(bg=BG)
-    # 允许鼠标拖拽调整大小
-    dlg.resizable(True, True)
-    dlg.minsize(420, 360)
-
-    # 注意: 刻意**不**使用 grab_set() / -topmost，避免遮挡并锁死主窗口输入
-    try:
-        dlg.transient(parent)
-    except Exception:
-        pass
-
-    # Icon
-    if os.path.exists(ICON_PATH):
-        try:
-            dlg.iconbitmap(ICON_PATH)
-        except Exception:
-            pass
-
-    # Title
-    tk.Label(dlg, text="📝 MyWiki", bg=BG, fg=ACCENT, font=ui(20, bold=True)).pack(pady=(25, 5))
-    tk.Label(dlg, text="Personal Knowledge & Diary Manager\n个人知识库与日记管理工具",
-             bg=BG, fg=FG, font=ui(10)).pack()
-
-    tk.Frame(dlg, height=2, bg=ACCENT).pack(fill="x", padx=40, pady=15)
-
-    # Check status
-    obsidian_ok, obsidian_path = check_obsidian()
-    openclaw_ok, openclaw_ver = check_openclaw()
-
-    status_frame = tk.Frame(dlg, bg=BG)
-    status_frame.pack(pady=5)
-
-    tk.Label(status_frame, text="System Check / 系统检测", bg=BG, fg=FG, font=ui(11, bold=True)).pack(anchor="w", padx=30)
-
-    def make_status(p, label, ok):
-        f = tk.Frame(p, bg=BG)
-        f.pack(fill="x", padx=30, pady=4)
-        emoji = "✅" if ok else "❌"
-        color = "#4ec9b0" if ok else "#f48771"
-        tk.Label(f, text="{} {}".format(emoji, label), bg=BG, fg=color, font=ui(10), anchor="w").pack(side="left")
-        return f
-
-    make_status(status_frame, "Obsidian (知识库)", obsidian_ok)
-    make_status(status_frame, "OpenClaw (AI 助手)", openclaw_ok)
-
-    # 语音识别就绪检测（ffmpeg 录音 + SpeechRecognition 识别）
-    v_ffmpeg, v_sr = voice_mood.deps_status()
-    voice_ok = v_ffmpeg and v_sr
-
-    # 语音状态行（保存 label 引用，安装完成后刷新为已就绪）
-    voice_row = tk.Frame(status_frame, bg=BG)
-    voice_row.pack(fill="x", padx=30, pady=4)
-    voice_lbl = tk.Label(
-        voice_row,
-        text="✅ 语音识别 (麦克风记录心情)" if voice_ok
-             else "❌ 语音识别 (缺依赖，可一键安装)",
-        bg=BG, fg="#4ec9b0" if voice_ok else "#f48771",
-        font=ui(10), anchor="w")
-    voice_lbl.pack(side="left")
-
-    # 一键安装语音依赖（后台 pip 安装，按钮显示进度 / 可重试）
-    _voice_btn = {"ref": None}
-
-    # 后台线程安装，主线程轮询 after 取结果（避免跨线程直接调用 after）
-    _voice_result = {}
-
-    def on_install_voice():
-        btn = _voice_btn["ref"]
-        if btn is not None:
-            btn.set_enabled(False)
-            btn.config(text="安装中…")
-        voice_lbl.config(text="❌ 语音识别 (安装中…)")
-        _voice_result.clear()
-
-        def run():
-            try:
-                _voice_result["v"] = voice_mood.auto_install_deps()
-            except Exception as e:
-                _voice_result["v"] = (False, False, ["安装异常：{}".format(e)])
-
-        threading.Thread(target=run, daemon=True).start()
-        parent.after(150, _poll_voice_install)
-
-    def _poll_voice_install():
-        r = _voice_result.get("v")
-        if r is None:
-            parent.after(150, _poll_voice_install)
-            return
-        _finish_voice(*r)
-
-    def _finish_voice(f_ok, s_ok, notes):
-        ok = f_ok and s_ok
-        btn = _voice_btn["ref"]
-        if ok:
-            voice_lbl.config(text="✅ 语音识别 (麦克风记录心情)", fg="#4ec9b0")
-            if btn is not None:
-                btn.destroy()
-            messagebox.showinfo("安装完成 / Done",
-                                "语音依赖已安装，可前往「心情」页点击 🎤 使用。\n"
-                                "Voice deps installed. Go to the Mood tab and tap 🎤.")
-        else:
-            if btn is not None:
-                btn.set_enabled(True)
-                btn.config(text="重试安装语音 / Retry")
-            detail = "语音依赖安装失败，请手动安装：\n" \
-                     "Voice deps install failed, manual install:"
-            if not f_ok:
-                detail += "\n" + t("voice_need_ffmpeg")
-            if not s_ok:
-                detail += "\n" + t("voice_need_sr").format(py=sys.executable)
-            if notes:
-                detail += "\n\n" + "\n".join(notes)
-            messagebox.showerror("语音依赖安装失败 / Failed", detail)
-
-    tk.Frame(dlg, height=2, bg=ACCENT).pack(fill="x", padx=40, pady=10)
-
-    btn_frame = tk.Frame(dlg, bg=BG)
-    btn_frame.pack(pady=10)
-
-    def on_install_obsidian():
-        if install_obsidian(dlg):
-            messagebox.showinfo("Done / 完成", "Obsidian installed. Please restart MyWiki.\nObsidian 已安装，请重启 MyWiki。")
-            dlg.destroy()
-
-    def on_install_openclaw():
-        if install_openclaw(dlg):
-            messagebox.showinfo("Done / 完成", "OpenClaw installed. Please restart MyWiki.\nOpenClaw 已安装，请重启 MyWiki。")
-            dlg.destroy()
-
-    def on_proceed():
-        # 欢迎框为非模态：直接关闭即可，主界面一直在背后可见可交互
-        dlg.destroy()
-        # macOS 下关闭 Toplevel 后主窗口不会自动拿回键盘焦点，
-        # 必须显式把焦点交给第一个输入框，否则文本框"输不进字"
-        try:
-            parent.after(10, lambda: _focus_first_input(parent))
-        except Exception:
-            pass
-
-    def on_exit():
-        parent.destroy()
-
-    if not obsidian_ok:
-        _make_clickable_label(btn_frame, "Install Obsidian / 安装 Obsidian",
-                              on_install_obsidian,
-                              bg=INPUT_BG, fg=ACCENT, hover_bg=BTN_ACTIVE,
-                              font=ui(10), padx=15, pady=5).pack(pady=3)
-
-    if not openclaw_ok:
-        _make_clickable_label(btn_frame, "Install OpenClaw / 安装 OpenClaw",
-                              on_install_openclaw,
-                              bg=INPUT_BG, fg=ACCENT, hover_bg=BTN_ACTIVE,
-                              font=ui(10), padx=15, pady=5).pack(pady=3)
-
-    if not voice_ok:
-        vb = _make_clickable_label(btn_frame, "Install Voice / 安装语音依赖",
-                                   on_install_voice,
-                                   bg=INPUT_BG, fg=ACCENT, hover_bg=BTN_ACTIVE,
-                                   font=ui(10), padx=15, pady=5)
-        vb.pack(pady=3)
-        _voice_btn["ref"] = vb
-
-    btn_row = tk.Frame(btn_frame, bg=BG)
-    btn_row.pack(pady=(10, 0))
-
-    label = "Continue / 继续" if (obsidian_ok and openclaw_ok) else "Skip & Continue / 跳过并继续"
-    _make_clickable_label(btn_row, label, on_proceed,
-                          bg=INPUT_BG, fg=ACCENT, hover_bg=BTN_ACTIVE,
-                          font=ui(10, bold=True), padx=20, pady=6).pack(side=tk.LEFT, padx=5)
-    _make_clickable_label(btn_row, "Exit / 退出", on_exit,
-                          bg=INPUT_BG, fg=INPUT_FG, hover_bg=BTN_ACTIVE,
-                          font=ui(10), padx=20, pady=6).pack(side=tk.LEFT, padx=5)
-
-    tk.Label(dlg, text="Tips: Obsidian & OpenClaw are optional.\n提示：Obsidian 和 OpenClaw 是可选的，MyWiki 可独立运行。",
-             bg=BG, fg=MUTED, font=ui(8)).pack(pady=(10, 5))
-
-    # 不调用 wait_window: 主 root.mainloop() 会驱动本 Toplevel 的事件
-
-def _focus_first_input(root):
-    """把焦点交给主窗口第一个可输入控件，确保键盘事件能被接收。"""
-    for child in root.winfo_children():
-        _walk_focus(child)
-
-
-def _walk_focus(w):
-    try:
-        cls = w.winfo_class()
-    except Exception:
-        return False
-    # ScrolledText 内部真正可输入的是它的 Text 子控件（ScrolledText 本身是 Frame）
-    if "ScrolledText" in type(w).__name__ or cls == "ScrolledText":
-        try:
-            kids = w.winfo_children()
-            text_child = None
-            for k in kids:
-                if k.winfo_class() == "Text":
-                    text_child = k
-                    break
-            target = text_child if text_child is not None else w
-            target.focus_set()
-            try:
-                target.see("1.0")
-            except Exception:
-                pass
-            return True
-        except Exception:
-            pass
-        return False
-    # 普通 Text / Entry 直接聚焦
-    if cls in ("Text", "Entry"):
-        try:
-            w.focus_set()
-            w.see("1.0")
-        except Exception:
-            pass
-        return True
-    # 递归子控件
-    try:
-        for c in w.winfo_children():
-            if _walk_focus(c):
-                return True
-    except Exception:
-        pass
-    return False
 
 
 # ==================== PATHS ====================
 from pathlib import Path as _Path
 _SCRIPT_DIR = _Path(__file__).parent
 WIKI_DIR = str(_SCRIPT_DIR.parent.parent / "wiki")
-# 图标解析：直接 `python wiki_app.py` 时脚本目录即仓库根，真实图标位于
-# 仓库根/icon.ico 与 assets/AppIcon.icns（WIKI_DIR 指向仓库外，旧路径取不到图标）。
-# 按平台优先选 .icns（macOS Tk 支持）/ .ico（Windows/Linux），确保窗口图标真正生效。
+
 def _resolve_app_icon():
     cands = []
     if sys.platform == "darwin":
         cands.append(os.path.join(_SCRIPT_DIR, "assets", "AppIcon.icns"))
     cands.append(os.path.join(_SCRIPT_DIR, "icon.ico"))
-    cands.append(os.path.join(_SCRIPT_DIR, "wiki", "icon.ico"))
-    cands.append(os.path.join(_SCRIPT_DIR, "assets", "AppIcon.icns"))
+    cands.append(os.path.join(_SCRIPT_DIR, "icon.png"))
     for c in cands:
         if os.path.exists(c):
             return c
@@ -455,120 +107,166 @@ DAILY_DIR = os.path.join(WIKI_DIR, "daily")
 MOOD_DIR = os.path.join(WIKI_DIR, "mood")
 REMINDER_DIR = os.path.join(WIKI_DIR, "reminders")
 REMINDER_FILE = os.path.join(REMINDER_DIR, "reminders.json")
-PENDING_FILE = os.path.join(REMINDER_DIR, "pending_notifications.json")
 
-# ==================== THEME（统一设计系统：Apple 风浅/深色，与网页端 reminder_web.html / reminder_ui.py / daily_ui.py 共用 theme.py） ====================
+# ==================== THEME ====================
 from theme import get_tokens, load_theme_pref, save_theme_pref
-
-# 语音识别心情（ffmpeg 录音 + SpeechRecognition 在线识别，无需 pyaudio）
-import threading
 import voice_mood
 
-MODE = load_theme_pref()  # 浅色 / 深色，与另外两个桌面端及网页端同步
+MODE = load_theme_pref()
 
-def apply_theme(mode):
-    """把 theme.py 的 token 映射到本程序的配色常量（支持浅/深色，与网页端一致）。"""
-    T = get_tokens(mode)
-    global BG, BG2, FG, INPUT_BG, INPUT_FG, INPUT_INSERT, ACCENT, ACCENT2, BTN_BG, BTN_ACTIVE, MUTED
-    global BORDER, ORANGE, GREEN, ORANGE_H, GREEN_H, ACCENT_H
-    BG = T["BG"]                # 页面背景：浅灰 / 深灰
-    BG2 = T["SURFACE"]          # 次级背景 / 卡片：白 / 深卡
-    FG = T["TEXT"]              # 主文字
-    INPUT_BG = T["SURFACE"]     # 输入框 / 主按钮：白卡 / 深卡
-    INPUT_FG = T["TEXT"]        # 输入文字
-    INPUT_INSERT = T["TEXT"]    # 光标
-    ACCENT = T["ACCENT"]        # Apple 蓝（深浅一致）
-    ACCENT2 = T["GREEN"]        # 成功 / 强调绿
-    BTN_BG = T["BG"]            # 次级按钮背景（浅灰 / 深灰）
-    BTN_ACTIVE = T["BTN_HOVER"] # 按钮 hover
-    MUTED = T["TEXT2"]          # 次要文字
-    BORDER = T["BORDER"]        # 卡片描边
-    ORANGE = T["ORANGE"]        # 自定义提醒（橙）
-    GREEN = T["GREEN"]          # 查看 / 成功（绿）
-    ORANGE_H = T["ORANGE_H"]    # 橙 hover
-    GREEN_H = T["GREEN_H"]      # 绿 hover
-    ACCENT_H = T["ACCENT_H"]    # 蓝 hover
+def get_theme_colors(mode=None):
+    """返回主题色 dict，供 QSS 样式表使用。"""
+    T = get_tokens(mode or MODE)
+    return T
 
-apply_theme(MODE)
+def apply_qss(app, mode=None):
+    """生成并应用 QSS 全局样式表。"""
+    T = get_theme_colors(mode)
+    bg = T["BG"]
+    surface = T["SURFACE"]
+    text = T["TEXT"]
+    text2 = T["TEXT2"]
+    accent = T["ACCENT"]
+    accent_h = T["ACCENT_H"]
+    border = T["BORDER"]
+    btn_hover = T["BTN_HOVER"]
+    green = T["GREEN"]
+    orange = T["ORANGE"]
 
-# ==================== FONTS (跨平台) ====================
-# Segoe UI / Consolas 是 Windows 字体，macOS 上不存在，会导致字体渲染异常、
-# 中文显示为方块、控件被挤压看不清。这里按平台选择系统自带字体。
-if sys.platform == "darwin":            # macOS
-    UI_FONT = "PingFang SC"             # 系统中文/英文通用无衬线字体
-    MONO_FONT = "Menlo"                 # 等宽字体
-elif sys.platform.startswith("win"):    # Windows
+    qss = f"""
+    QMainWindow, QWidget {{
+        background-color: {bg};
+        color: {text};
+        font-family: {UI_FONT};
+        font-size: {int(12 * FONT_SCALE)}px;
+    }}
+    QTabWidget::pane {{
+        border: 1px solid {border};
+        border-radius: 6px;
+        top: -1px;
+    }}
+    QTabBar::tab {{
+        background: {surface};
+        color: {text};
+        padding: 10px 24px;
+        margin-right: 2px;
+        border: 1px solid {border};
+        border-bottom: none;
+        border-top-left-radius: 6px;
+        border-top-right-radius: 6px;
+        font-size: {int(13 * FONT_SCALE)}px;
+    }}
+    QTabBar::tab:selected {{
+        background: {accent};
+        color: white;
+    }}
+    QTabBar::tab:hover:!selected {{
+        background: {btn_hover};
+    }}
+    QPushButton {{
+        background-color: {surface};
+        color: {text};
+        border: 1px solid {border};
+        border-radius: 5px;
+        padding: 7px 16px;
+        font-size: {int(11 * FONT_SCALE)}px;
+    }}
+    QPushButton:hover {{
+        background-color: {btn_hover};
+    }}
+    QPushButton:pressed {{
+        background-color: {accent_h};
+    }}
+    QPushButton[primary="true"] {{
+        background-color: {accent};
+        color: white;
+        border: none;
+        font-weight: bold;
+        font-size: {int(12 * FONT_SCALE)}px;
+        padding: 8px 18px;
+    }}
+    QPushButton[primary="true"]:hover {{
+        background-color: {accent_h};
+    }}
+    QPlainTextEdit, QLineEdit {{
+        background-color: {bg};
+        color: {text};
+        border: 1px solid {border};
+        border-radius: 4px;
+        padding: 6px;
+        font-size: {int(12 * FONT_SCALE)}px;
+    }}
+    QPlainTextEdit:focus, QLineEdit:focus {{
+        border: 1px solid {accent};
+    }}
+    QCheckBox {{
+        color: {text2};
+        font-size: {int(10 * FONT_SCALE)}px;
+    }}
+    QCheckBox::indicator {{
+        width: 16px;
+        height: 16px;
+    }}
+    QLabel {{
+        color: {text};
+        background: transparent;
+    }}
+    QScrollArea {{
+        border: none;
+        background: {surface};
+    }}
+    QScrollBar:vertical {{
+        background: {surface};
+        width: 10px;
+        border: none;
+    }}
+    QScrollBar::handle:vertical {{
+        background: {border};
+        border-radius: 5px;
+        min-height: 30px;
+    }}
+    QScrollBar::handle:vertical:hover {{
+        background: {accent};
+    }}
+    QScrollBar::add-line, QScrollBar::sub-line {{
+        height: 0;
+    }}
+    QSplitter::handle {{
+        background: {border};
+        height: 3px;
+    }}
+    QSplitter::handle:hover {{
+        background: {accent};
+    }}
+    """
+    app.setStyleSheet(qss)
+
+
+# ==================== FONTS ====================
+if sys.platform == "darwin":
+    UI_FONT = "PingFang SC"
+    MONO_FONT = "Menlo"
+elif sys.platform.startswith("win"):
     UI_FONT = "Microsoft YaHei UI"
     MONO_FONT = "Consolas"
-else:                                    # Linux 等
+else:
     UI_FONT = "Noto Sans CJK SC"
     MONO_FONT = "DejaVu Sans Mono"
 
-# ==================== 字号缩放（全屏使用时整体放大） ====================
-# 以全屏为基础调大文字与图标（emoji 随字号放大）。改这里即可整体微调。
 FONT_SCALE = 1.2
 
-
-def ui(size, bold=False):
-    """返回按 FONT_SCALE 缩放后的 UI 字体元组。"""
+def ui_font(size, bold=False):
     sz = int(round(size * FONT_SCALE))
-    return (UI_FONT, sz, "bold") if bold else (UI_FONT, sz)
+    f = QFont(UI_FONT, sz)
+    f.setBold(bold)
+    return f
+
+def mono_font(size):
+    return QFont(MONO_FONT, int(round(size * FONT_SCALE)))
 
 
-def mono(size):
-    """返回按 FONT_SCALE 缩放后的等宽字体元组。"""
-    return (MONO_FONT, int(round(size * FONT_SCALE)))
-
-
-def _make_clickable_label(parent, text, command, bg, fg, hover_bg=None,
-                          font=None, padx=15, pady=5, cursor="hand2"):
-    """可点击按钮（用 tk.Label 实现）。
-
-    macOS 原生 tk.Button 在深色系统外观下会忽略 bg/fg，导致按钮底色/文字
-    被系统接管、在深色模式下几乎看不清。tk.Label 的 bg/fg 永远生效，
-    因此用它做按钮可保证配色正确。提供 set_enabled / invoke 以兼容
-    原 tk.Button 的部分用法（state、invoke）。
-    """
-    if font is None:
-        font = ui(10)
-    lbl = tk.Label(parent, text=text, bg=bg, fg=fg, font=font,
-                   padx=padx, pady=pady, cursor=cursor)
-    _cmd = {"enabled": True, "command": command}
-
-    def _do_click(_=None):
-        if _cmd["enabled"]:
-            _cmd["command"]()
-
-    def _on_enter(_):
-        if hover_bg and _cmd["enabled"]:
-            lbl.config(bg=hover_bg)
-
-    def _on_leave(_):
-        if hover_bg:
-            lbl.config(bg=bg)
-
-    lbl.bind("<Button-1>", _do_click)
-    lbl.bind("<Enter>", _on_enter)
-    lbl.bind("<Leave>", _on_leave)
-
-    def set_enabled(enabled):
-        _cmd["enabled"] = bool(enabled)
-        if enabled:
-            lbl.config(cursor=cursor)
-            lbl.bind("<Button-1>", _do_click)
-        else:
-            lbl.config(cursor="")
-            try:
-                lbl.unbind("<Button-1>")
-            except Exception:
-                pass
-
-    lbl.set_enabled = set_enabled
-    lbl.invoke = lambda: _do_click()
-    return lbl
-
-# ==================== I18N 语言字典 ====================
-LANG = "zh"  # 默认中文；可切换为 "en"
+# ==================== I18N ====================
+LANG = "zh"
 I18N = {
     "zh": {
         "app_title": "我的知识库",
@@ -595,7 +293,7 @@ I18N = {
         "voice_need_sr": "语音识别需要 Python 包 SpeechRecognition\n\n请安装：\n  {py} -m pip install SpeechRecognition\n\n识别使用 Google 在线接口，需要联网。",
         "mic_perm_btn": "🔧",
         "mic_perm_title": "麦克风权限",
-        "mic_perm_help": "若录音失败或提示「麦克风权限被拒绝」：\n\n1) 打开「系统设置 › 隐私与安全性 › 麦克风」，给运行本程序的终端/应用（Terminal、iTerm 或 MyWiki.app）开启权限；\n2) 或点击下方「一键重置」清空授权，重启后重新弹窗允许；\n3) 完全退出 MyWiki 后重新打开再试。",
+        "mic_perm_help": "若录音失败或提示「麦克风权限被拒绝」：\n\n1) 打开「系统设置 › 隐私与安全性 › 麦克风」，给运行本程序的终端/应用开启权限；\n2) 或点击下方「一键重置」清空授权，重启后重新弹窗允许；\n3) 完全退出 MyWiki 后重新打开再试。",
         "mic_perm_reset": "🔄 一键重置麦克风权限",
         "mic_perm_reset_ok": "已重置麦克风授权。请完全退出 MyWiki 并重新打开，首次录音会重新请求权限，请点「允许」。",
         "mic_perm_reset_fail": "重置失败（可能无需重置，或需手动操作）。请手动到「系统设置 › 隐私与安全性 › 麦克风」开启权限。",
@@ -634,14 +332,14 @@ I18N = {
         "voice_cancel": "Cancelled", "voice_empty": "Couldn't hear that, try again.",
         "voice_netfail": "Recognition service unavailable (needs internet)",
         "voice_need_ffmpeg": "Voice needs ffmpeg (for recording)\n\nInstall it:\n  brew install ffmpeg\n\nThen retry.",
-        "voice_need_sr": "Voice recognition needs the SpeechRecognition package\n\nInstall:\n  {py} -m pip install SpeechRecognition\n\nUses Google's online API (needs internet).",
+        "voice_need_sr": "Voice recognition needs SpeechRecognition\n\nInstall:\n  {py} -m pip install SpeechRecognition\n\nUses Google's online API (needs internet).",
         "mic_perm_btn": "🔧",
         "mic_perm_title": "Microphone Permission",
-        "mic_perm_help": "If recording fails or you see 'microphone permission denied':\n\n1) Open System Settings › Privacy & Security › Microphone and enable the app running MyWiki (Terminal, iTerm or MyWiki.app);\n2) Or click 'Reset' below to clear authorization, then restart and re-allow;\n3) Fully quit MyWiki and reopen before retrying.",
+        "mic_perm_help": "If recording fails or you see 'microphone permission denied':\n\n1) Open System Settings › Privacy & Security › Microphone and enable the app;\n2) Or click 'Reset' below to clear authorization;\n3) Fully quit MyWiki and reopen before retrying.",
         "mic_perm_reset": "🔄 Reset Microphone Permission",
-        "mic_perm_reset_ok": "Microphone authorization reset. Fully quit MyWiki, reopen it, and allow access when prompted on first recording.",
-        "mic_perm_reset_fail": "Reset failed (maybe not needed, or do it manually). Please enable microphone in System Settings › Privacy & Security › Microphone.",
-        "mic_perm_only_mac": "One-click reset is macOS only. Please enable microphone manually in System Settings › Privacy & Security › Microphone.",
+        "mic_perm_reset_ok": "Microphone authorization reset. Fully quit MyWiki, reopen, and allow access when prompted.",
+        "mic_perm_reset_fail": "Reset failed. Please enable microphone in System Settings › Privacy & Security › Microphone.",
+        "mic_perm_only_mac": "One-click reset is macOS only. Please enable microphone manually.",
         "close": "Close",
         "quick_reminders": "  Quick Reminders", "custom": "Custom:",
         "add": "Add", "pending": "  Pending", "cancel_id": "Cancel ID:",
@@ -657,7 +355,6 @@ I18N = {
 }
 
 def t(key, **kw):
-    """取当前语言文案，支持 {n}/{m}/{t}/{i} 占位符"""
     s = I18N.get(LANG, I18N["zh"]).get(key, key)
     return s.format(**kw) if kw else s
 
@@ -672,7 +369,6 @@ MOOD_KEYWORDS = {
 NEGATION_WORDS = ["不", "没", "别", "无", "非", "不太", "不怎么"]
 MOOD_EMOJI = {"开心": "😊", "平静": "😐", "低落": "😢", "兴奋": "🔥", "焦虑": "😰"}
 
-# ==================== STOP WORDS ====================
 STOP_WORDS = set([
     "的", "了", "是", "在", "我", "有", "和", "就", "不", "人", "都", "一", "一个", "上", "也",
     "很", "到", "说", "要", "去", "你", "会", "着", "没有", "看", "好", "自己", "这",
@@ -696,16 +392,13 @@ DOMAIN_KEYWORDS = [
     "Python", "JavaScript", "React", "Vue", "Git", "Docker", "AI", "LLM"
 ]
 
-
 # ==================== CORE FUNCTIONS ====================
-
 def get_today():
     return datetime.now().strftime("%Y-%m-%d")
 
 def get_now():
     return datetime.now().strftime("%H:%M:%S")
 
-# --- Daily ---
 def load_daily(date):
     path = os.path.join(DAILY_DIR, f"{date}.md")
     if os.path.exists(path):
@@ -719,7 +412,6 @@ def save_daily(date, content):
     with open(path, "w", encoding="utf-8") as f:
         f.write(content)
 
-# --- Mood ---
 def analyze_mood(text):
     mood_scores = {m: 0 for m in MOOD_KEYWORDS}
     matched = {m: [] for m in MOOD_KEYWORDS}
@@ -758,7 +450,6 @@ def load_moods(date):
             return json.load(f)
     return []
 
-# --- Tags ---
 def extract_tags(text, top_n=5):
     words = re.findall(r'[\u4e00-\u9fa5a-zA-Z0-9]+', text)
     words = [w for w in words if w not in STOP_WORDS and 2 <= len(w) <= 4 and not w.isdigit()]
@@ -768,7 +459,6 @@ def extract_tags(text, top_n=5):
     all_kw = sorted(domain + normal, key=lambda x: x[1], reverse=True)
     return [t[0] for t in all_kw[:top_n]]
 
-# --- Reminders ---
 def load_reminders():
     if os.path.exists(REMINDER_FILE):
         with open(REMINDER_FILE, "r", encoding="utf-8") as f:
@@ -783,428 +473,386 @@ def save_reminders(reminders):
 def add_reminder(remind_at, message):
     reminders = load_reminders()
     rid = max([r["id"] for r in reminders], default=0) + 1
-    task_name = f"WikiReminder_{rid}"
     reminder = {
         "id": rid,
         "remind_at": remind_at.strftime("%Y-%m-%d %H:%M:%S"),
         "message": message,
         "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "status": "pending",
-        "task_name": task_name
     }
     reminders.append(reminder)
     save_reminders(reminders)
-    # Create Windows scheduled task
-    script_path = os.path.join(WIKI_DIR, "send_reminder.py")
-    python_exe = sys.executable  # Use absolute path
-    date_str = remind_at.strftime("%Y/%m/%d")
-    time_str = remind_at.strftime("%H:%M")
-    cmd = ["schtasks", "/create", "/tn", task_name,
-           "/tr", f'"{python_exe}" "{script_path}" {rid}',
-           "/sc", "once", "/st", time_str, "/sd", date_str, "/f"]
-    try:
-        subprocess.run(cmd, capture_output=True, timeout=10)
-    except Exception:
-        pass
     return reminder
 
 def cancel_reminder(rid):
     reminders = load_reminders()
     for r in reminders:
         if r["id"] == rid and r["status"] == "pending":
-            if r.get("task_name"):
-                try:
-                    subprocess.run(["schtasks", "/delete", "/tn", r["task_name"], "/f"],
-                                   capture_output=True, timeout=10)
-                except Exception:
-                    pass
             r["status"] = "cancelled"
             save_reminders(reminders)
             return True
     return False
 
 
-# ==================== GUI APP ====================
+# ==================== 线程安全的语音信号中继 ====================
+class VoiceSignals(QObject):
+    """语音识别的信号中继：子线程 emit 信号 → 主线程槽函数执行。
+    PySide6 的信号槽默认是队列连接（跨线程时自动排队），天然线程安全。
+    """
+    status_update = Signal(str, str)      # state, msg
+    result_ready = Signal(object, object)  # text(str|None), acoustics(dict|None)
+    error_occurred = Signal(str)           # msg
+    acoustics_ready = Signal(object)       # features dict
 
-class WikiApp:
-    def __init__(self, root):
-        self.root = root
-        self.root.title(t("app_title"))
-        # 默认以全屏（最大化）为基准，方便看清放大后的文字与图标。
-        # 优先用原生最大化；若当前 Tk 构建不支持则回退为手动全屏几何。
-        try:
-            if sys.platform == "darwin":
-                self.root.attributes("-zoomed", True)   # macOS 最大化
-            else:
-                self.root.state("zoomed")               # Windows / Linux 最大化
-        except Exception:
+
+# ==================== GUI APP ====================
+class WikiApp(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle(t("app_title"))
+        self.setMinimumSize(760, 620)
+
+        # 最大化窗口
+        self.showMaximized()
+
+        # 设置窗口图标
+        if ICON_PATH and os.path.exists(ICON_PATH):
             try:
-                sw = self.root.winfo_screenwidth()
-                sh = self.root.winfo_screenheight()
-                top_inset = 28 if sys.platform == "darwin" else 0
-                self.root.geometry("{}x{}+0+0".format(sw, sh - top_inset))
-            except Exception:
-                self.root.geometry("1100x720")
-        # 保留一个合理的最小尺寸，缩小时也不至于挤压
-        self.root.minsize(760, 620)
-        # 允许鼠标拖拽调整主窗口大小
-        self.root.resizable(True, True)
-        self.root.configure(bg=BG)
-        if os.path.exists(ICON_PATH):
-            try:
-                self.root.iconbitmap(ICON_PATH)
+                self.setWindowIcon(QIcon(ICON_PATH))
             except Exception:
                 pass
 
-        # ttk 样式：使用跨平台字体，并给 Tab 更大 padding 防止文字贴边
-        style = ttk.Style()
-        try:
-            style.theme_use("clam")
-        except Exception:
-            pass
-        if style.theme_use() == "clam":
-            # clam 主题下标签栏背景完全可控：深底 + 浅字，不受系统深浅模式影响
-            style.configure("TNotebook", background=BG, borderwidth=0)
-            style.configure("TNotebook.Tab", padding=[16, 8], font=ui(12),
-                            background=BG2, foreground=FG, borderwidth=1)
-            style.map("TNotebook.Tab",
-                      background=[("selected", ACCENT)],
-                      foreground=[("selected", "white")])
-        else:
-            # Aqua 兜底（系统标签栏为浅色背景）：未选中用主文字色，深浅模式都清晰
-            style.configure("TNotebook.Tab", padding=[16, 8], font=ui(12),
-                            background=BG2, foreground=FG)
-            style.map("TNotebook.Tab",
-                      background=[("selected", ACCENT), ("!selected", BG2)],
-                      foreground=[("selected", "white"), ("!selected", FG)])
+        # 语音信号中继（线程安全）
+        self.voice_signals = VoiceSignals()
+        self.voice_signals.status_update.connect(self.on_voice_status)
+        self.voice_signals.result_ready.connect(self.on_voice_result)
+        self.voice_signals.error_occurred.connect(self.on_voice_error)
+        self.voice_signals.acoustics_ready.connect(self.on_voice_acoustics)
 
-        # 顶部工具条：语言切换按钮
-        self._build_topbar()
-
-        self.nb = ttk.Notebook(root)
-        self.nb.pack(fill=tk.BOTH, expand=True, padx=8, pady=(4, 0))
-
-        self.build_daily_tab()
-        self.build_mood_tab()
-        self.build_reminder_tab()
-        self.build_share_tab()
-
-        # Status bar（字号加大更清晰）
-        self.status = tk.Label(root, text=t("ready"), font=ui(10),
-                               bg=BG, fg=MUTED, anchor="w")
-        self.status.pack(fill=tk.X, padx=10, pady=4)
-
-        # Keyboard shortcuts
-        root.bind("<Control-s>", lambda e: self.save_daily())
-        root.bind("<Control-S>", lambda e: self.save_daily())
-
-        # 启动即把键盘焦点交给日记文本框（macOS 下 Tk 不会自动聚焦）
-        try:
-            self.daily_text.focus_set()
-        except Exception:
-            pass
-
-    def _build_topbar(self):
-        """顶部工具条，含中英文切换按钮"""
-        bar = tk.Frame(self.root, bg=BG)
-        bar.pack(fill=tk.X, padx=8, pady=(6, 0))
-        tk.Label(bar, text="📝 " + t("app_title"), bg=BG, fg=ACCENT,
-                 font=ui(13, bold=True)).pack(side=tk.LEFT, padx=4)
-        _make_clickable_label(bar, t("lang_btn"), self.toggle_language,
-                               bg=INPUT_BG, fg=ACCENT, hover_bg=BTN_ACTIVE,
-                               font=ui(10, bold=True),
-                               padx=12, pady=2).pack(side=tk.RIGHT, padx=4)
-        # 主题切换（浅色/深色，与网页端及另外两个桌面端同步偏好）
-        theme_icon = "🌙" if MODE == "light" else "☀️"
-        _make_clickable_label(bar, theme_icon, self.toggle_theme,
-                              bg=INPUT_BG, fg=ACCENT, hover_bg=BTN_ACTIVE,
-                              font=ui(10, bold=True),
-                              padx=10, pady=2).pack(side=tk.RIGHT, padx=2)
-
-    def toggle_language(self):
-        """中/英切换：切换 LANG 后重建整个界面"""
-        self._stop_voice_if_running()
-        global LANG
-        LANG = "en" if LANG == "zh" else "zh"
-        # 销毁所有子控件后重建
-        for child in list(self.root.winfo_children()):
-            child.destroy()
-        self.__init__(self.root)
-
-    def toggle_theme(self):
-        """浅色/深色切换：写入偏好并整体重建界面（与 reminder/daily 桌面端及网页端同步）。"""
-        self._stop_voice_if_running()
-        global MODE
-        MODE = "dark" if MODE == "light" else "light"
-        save_theme_pref(MODE)
-        apply_theme(MODE)
-        # 保留当前窗口尺寸
-        geo = self.root.geometry()
-        # 销毁所有子控件后重建
-        for child in list(self.root.winfo_children()):
-            child.destroy()
-        self.__init__(self.root)
-        self.root.geometry(geo)
-
-    def _label(self, parent, text, **kw):
-        font = kw.pop("font", ui(kw.pop("size", 11)))
-        return tk.Label(parent, text=text, bg=BG, fg=FG, font=font, **kw)
-
-    def _btn(self, parent, text, cmd, bg=BTN_BG, fg=FG, **kw):
-        padx = kw.get("padx", 15)
-        pady = kw.get("pady", 5)
-        return _make_clickable_label(parent, text, cmd, bg=bg, fg=fg,
-                                     hover_bg=BTN_ACTIVE, font=ui(10),
-                                     padx=padx, pady=pady)
-
-    def _accent_btn(self, parent, text, cmd, **kw):
-        """主操作按钮（填充蓝，对应网页 .btn-primary）"""
-        padx = kw.get("padx", 15)
-        pady = kw.get("pady", 5)
-        return _make_clickable_label(parent, text, cmd, bg=ACCENT, fg="white",
-                                     hover_bg=ACCENT_H, font=ui(11, bold=True),
-                                     padx=padx, pady=pady)
-
-    # ---------- 卡片式布局组件（与网页端 reminder_web.html / reminder_ui.py 一致） ----------
-    def _section(self, parent, text):
-        """小标题（对应网页 .section-title：次要灰、加粗、上下留白）"""
-        tk.Label(parent, text=text, bg=BG, fg=MUTED,
-                 font=ui(12, bold=True)).pack(anchor="w", padx=12, pady=(16, 6))
-
-    def _card(self, parent, padx=10, pady=8, **pack_kw):
-        """白卡容器（SURFACE + 1px BORDER），内容放里面即呈卡片式。"""
-        c = tk.Frame(parent, bg=BG2, highlightbackground=BORDER, highlightthickness=1)
-        c.pack(padx=padx, pady=pady, fill=tk.BOTH, expand=True, **pack_kw)
-        return c
-
-    def _bind_click(self, widget, cb):
-        """把点击绑定到整个卡片（含所有子控件），并变成手型光标。"""
-        try:
-            widget.bind("<Button-1>", lambda e: cb())
-            widget.config(cursor="hand2")
-        except Exception:
-            pass
-        for child in widget.winfo_children():
-            self._bind_click(child, cb)
-
-    def _make_card(self, parent, title, hint=None, dot_color=None, on_click=None):
-        """生成一张可点卡片（对应网页 .preset-card）：圆点 + 标题 + 可选副文案。"""
-        card = tk.Frame(parent, bg=BG2, highlightbackground=BORDER, highlightthickness=1)
-        head = tk.Frame(card, bg=BG2)
-        head.pack(fill=tk.X, padx=14, pady=(12, 2))
-        if dot_color:
-            tk.Label(head, text="●", fg=dot_color, bg=BG2, font=ui(9)).pack(side=tk.LEFT, padx=(0, 8))
-        tk.Label(head, text=title, bg=BG2, fg=FG, font=ui(13, bold=True)).pack(side=tk.LEFT)
-        if hint:
-            tk.Label(card, text=hint, bg=BG2, fg=MUTED, font=ui(11),
-                     anchor="w").pack(fill=tk.X, padx=(32, 14), pady=(0, 12))
-        if on_click:
-            self._bind_click(card, on_click)
-        return card
-
-    # ==================== DAILY TAB ====================
-    def build_daily_tab(self):
-        tab = tk.Frame(self.nb, bg=BG)
-        self.nb.add(tab, text=t("tab_diary"))
-
-        # 顶部：日期 + 模板/标签 按钮
-        top = tk.Frame(tab, bg=BG)
-        top.pack(fill=tk.X, padx=10, pady=(6, 0))
-        self._label(top, f"  {get_today()}", font=ui(13, bold=True)).pack(side=tk.LEFT)
-        self._btn(top, t("tags"), self.extract_and_show_tags, padx=8).pack(side=tk.RIGHT, padx=2)
-        self._btn(top, t("template"), self.insert_template, padx=8).pack(side=tk.RIGHT, padx=2)
-
-        # 编辑区卡片（白卡 + 卡内浅底输入框，对应网页 .field input）
-        editor = self._card(tab)
-        self.daily_text = scrolledtext.ScrolledText(editor, font=mono(13),
-                                                     bg=BG, fg=FG, insertbackground=INPUT_INSERT,
-                                                     wrap=tk.WORD, relief=tk.FLAT, borderwidth=0,
-                                                     highlightthickness=0, padx=10, pady=10, takefocus=1)
-        self.daily_text.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
-        self.daily_text.insert("1.0", load_daily(get_today()))
-
-        # 底部：保存（主按钮）+ 标签显示
-        bot = tk.Frame(tab, bg=BG)
-        bot.pack(fill=tk.X, padx=10, pady=(0, 10))
-        self._accent_btn(bot, t("save"), self.save_daily, padx=18, pady=6).pack(side=tk.RIGHT)
-
-        self.tag_display = tk.Label(bot, text="", bg=BG, fg=ACCENT2, font=ui(10))
-        self.tag_display.pack(side=tk.LEFT)
-
-    def _refocus(self, widget):
-        """macOS 下点击按钮后文本框会失焦，需要显式恢复键盘焦点。"""
-        try:
-            widget.focus_set()
-        except Exception:
-            pass
-
-    def insert_template(self):
-        template = "\n## Done\n- \n\n## Thoughts\n- \n\n## Tomorrow\n- \n"
-        self.daily_text.insert(tk.END, template)
-        self._refocus(self.daily_text)
-
-    def save_daily(self):
-        content = self.daily_text.get("1.0", tk.END).strip()
-        save_daily(get_today(), content)
-        self.status.config(text=f"{t('diary_saved')} - {get_today()} {get_now()}", fg=ACCENT2)
-        self._refocus(self.daily_text)
-
-    def extract_and_show_tags(self):
-        content = self.daily_text.get("1.0", tk.END)
-        tags = extract_tags(content)
-        if tags:
-            self.tag_display.config(text=f"{t('tags')}: {', '.join(tags)}")
-            self.status.config(text=t("extracted_tags", n=len(tags)), fg=ACCENT2)
-        else:
-            self.tag_display.config(text=t("no_tags"))
-            self.status.config(text=t("no_keywords"), fg=MUTED)
-        self._refocus(self.daily_text)
-
-    # ==================== MOOD TAB ====================
-    def build_mood_tab(self):
-        tab = tk.Frame(self.nb, bg=BG)
-        self.nb.add(tab, text=t("tab_mood"))
-
-        # 小标题
-        self._section(tab, t("mood_q"))
-
-        # 输入卡片
-        inp = self._card(tab, pady=6)
-        self.mood_input = scrolledtext.ScrolledText(inp, height=3, font=ui(12),
-                                                      bg=BG, fg=FG, insertbackground=INPUT_INSERT,
-                                                      wrap=tk.WORD, relief=tk.FLAT, borderwidth=0,
-                                                      highlightthickness=0, padx=10, pady=8, takefocus=1)
-        self.mood_input.pack(fill=tk.X, padx=8, pady=8)
-
-        # 语音输入行（🎤 录音 → 识别填框 → 自动分析）
-        vrow = tk.Frame(inp, bg=BG2)
-        vrow.pack(fill=tk.X, padx=8, pady=(0, 8))
-        self.voice_btn = self._btn(vrow, t("voice"), self.on_voice_toggle, padx=14, pady=3)
-        self.voice_btn.pack(side=tk.LEFT)
-        # 麦克风权限帮助/一键重置入口
-        self._btn(vrow, t("mic_perm_btn"), lambda: self._show_mic_permission_dialog(),
-                  padx=8, pady=3, font=ui(11)).pack(side=tk.LEFT)
-        # 识别后自动保存开关（持久化到 config/voice_autosave.txt）
-        self.voice_autosave = tk.BooleanVar(value=voice_mood.load_autosave_pref())
-        tk.Checkbutton(vrow, text=t("voice_autosave"), variable=self.voice_autosave,
-                       command=lambda: voice_mood.save_autosave_pref(self.voice_autosave.get()),
-                       bg=BG2, fg=MUTED, activebackground=BG2, activeforeground=FG,
-                       selectcolor=BG2, font=ui(10),
-                       cursor="hand2", bd=0, highlightthickness=0).pack(side=tk.RIGHT)
-        self.voice_status = tk.Label(vrow, text="", bg=BG2, fg=MUTED, font=ui(10))
-        self.voice_status.pack(side=tk.LEFT, padx=10)
-
-        # 语音识别器（回调通过 root.after 抛回主线程）
+        # 语音识别器
         ffmpeg_ok, sr_ok = voice_mood.deps_status()
         self.voice_deps_ok = ffmpeg_ok and sr_ok
         self.voice_recorder = voice_mood.VoiceRecorder(
-            on_status=lambda s, m: self.root.after(0, self.on_voice_status, s, m),
-            on_result=lambda txt, acou=None: self.root.after(0, self.on_voice_result, txt, acou),
-            on_error=lambda msg: self.root.after(0, self.on_voice_error, msg),
-            on_acoustics=lambda acou: self.root.after(0, self.on_voice_acoustics, acou),
+            on_status=lambda s, m: self.voice_signals.status_update.emit(s, m),
+            on_result=lambda txt, acou=None: self.voice_signals.result_ready.emit(txt, acou),
+            on_error=lambda msg: self.voice_signals.error_occurred.emit(msg),
+            on_acoustics=lambda acou: self.voice_signals.acoustics_ready.emit(acou),
         )
 
-        # 快捷心情（卡片式，对应网页 preset-card 网格）
-        grid = tk.Frame(tab, bg=BG)
-        grid.pack(fill=tk.X, padx=10, pady=(4, 0))
-        grid.columnconfigure(0, weight=1)
-        grid.columnconfigure(1, weight=1)
+        # 构建界面
+        self._build_ui()
+
+        # 快捷键
+        save_sc = QShortcut(QKeySequence("Ctrl+S"), self)
+        save_sc.activated.connect(self.save_daily)
+
+        # 启动后聚焦日记编辑器
+        QTimer.singleShot(100, lambda: self.daily_text.setFocus())
+
+    # ==================== UI 构建 ====================
+    def _build_ui(self):
+        central = QWidget()
+        self.setCentralWidget(central)
+        layout = QVBoxLayout(central)
+        layout.setContentsMargins(8, 6, 8, 4)
+        layout.setSpacing(4)
+
+        # 顶部工具条
+        self._build_topbar(layout)
+
+        # 标签页
+        self.nb = QTabWidget()
+        layout.addWidget(self.nb, stretch=1)
+
+        self._build_daily_tab()
+        self._build_mood_tab()
+        self._build_reminder_tab()
+        self._build_share_tab()
+
+        # 状态栏
+        self.status_label = QLabel(t("ready"))
+        self.status_label.setStyleSheet("color: #888; padding: 2px 8px;")
+        layout.addWidget(self.status_label)
+
+    def _build_topbar(self, parent_layout):
+        bar = QWidget()
+        bar_layout = QHBoxLayout(bar)
+        bar_layout.setContentsMargins(4, 2, 4, 2)
+        bar_layout.setSpacing(4)
+
+        title = QLabel("📝 " + t("app_title"))
+        title.setStyleSheet(f"color: {get_theme_colors()['ACCENT']}; font-weight: bold; font-size: {int(15*FONT_SCALE)}px;")
+        bar_layout.addWidget(title)
+        bar_layout.addStretch()
+
+        theme_icon = "🌙" if MODE == "light" else "☀️"
+        self.theme_btn = QPushButton(theme_icon)
+        self.theme_btn.setFixedWidth(40)
+        self.theme_btn.clicked.connect(self.toggle_theme)
+        bar_layout.addWidget(self.theme_btn)
+
+        self.lang_btn = QPushButton(t("lang_btn"))
+        self.lang_btn.setFixedWidth(50)
+        self.lang_btn.clicked.connect(self.toggle_language)
+        bar_layout.addWidget(self.lang_btn)
+
+        parent_layout.addWidget(bar)
+
+    def _section_label(self, parent_layout, text):
+        lbl = QLabel(text)
+        lbl.setStyleSheet(f"color: {get_theme_colors()['TEXT2']}; font-weight: bold; font-size: {int(12*FONT_SCALE)}px; padding: 8px 12px 4px;")
+        parent_layout.addWidget(lbl)
+
+    def _card_frame(self):
+        T = get_theme_colors()
+        card = QFrame()
+        card.setStyleSheet(f"""
+            QFrame {{
+                background-color: {T['SURFACE']};
+                border: 1px solid {T['BORDER']};
+                border-radius: 6px;
+            }}
+        """)
+        return card
+
+    def _primary_btn(self, text, callback):
+        btn = QPushButton(text)
+        btn.setProperty("primary", True)
+        btn.clicked.connect(callback)
+        return btn
+
+    # ==================== DAILY TAB ====================
+    def _build_daily_tab(self):
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        layout.setContentsMargins(10, 6, 10, 10)
+        layout.setSpacing(6)
+
+        # 顶部：日期 + 按钮
+        top = QHBoxLayout()
+        date_lbl = QLabel(f"  {get_today()}")
+        date_lbl.setStyleSheet(f"font-weight: bold; font-size: {int(13*FONT_SCALE)}px;")
+        top.addWidget(date_lbl)
+        top.addStretch()
+        tags_btn = QPushButton(t("tags"))
+        tags_btn.clicked.connect(self.extract_and_show_tags)
+        top.addWidget(tags_btn)
+        tpl_btn = QPushButton(t("template"))
+        tpl_btn.clicked.connect(self.insert_template)
+        top.addWidget(tpl_btn)
+        layout.addLayout(top)
+
+        # 编辑器卡片
+        editor_card = self._card_frame()
+        editor_layout = QVBoxLayout(editor_card)
+        editor_layout.setContentsMargins(8, 8, 8, 8)
+        self.daily_text = QPlainTextEdit()
+        self.daily_text.setFont(mono_font(13))
+        self.daily_text.setPlainText(load_daily(get_today()))
+        editor_layout.addWidget(self.daily_text)
+        layout.addWidget(editor_card, stretch=1)
+
+        # 底部：保存 + 标签显示
+        bot = QHBoxLayout()
+        self.tag_display = QLabel("")
+        self.tag_display.setStyleSheet(f"color: {get_theme_colors()['GREEN']};")
+        bot.addWidget(self.tag_display)
+        bot.addStretch()
+        save_btn = self._primary_btn(t("save"), self.save_daily)
+        bot.addWidget(save_btn)
+        layout.addLayout(bot)
+
+        self.nb.addTab(tab, t("tab_diary"))
+
+    def insert_template(self):
+        template = "\n## Done\n- \n\n## Thoughts\n- \n\n## Tomorrow\n- \n"
+        self.daily_text.insertPlainText(template)
+        self.daily_text.setFocus()
+
+    def save_daily(self):
+        content = self.daily_text.toPlainText().strip()
+        save_daily(get_today(), content)
+        self.status_label.setText(f"{t('diary_saved')} - {get_today()} {get_now()}")
+        self.daily_text.setFocus()
+
+    def extract_and_show_tags(self):
+        content = self.daily_text.toPlainText()
+        tags = extract_tags(content)
+        if tags:
+            self.tag_display.setText(f"{t('tags')}: {', '.join(tags)}")
+            self.status_label.setText(t("extracted_tags", n=len(tags)))
+        else:
+            self.tag_display.setText(t("no_tags"))
+            self.status_label.setText(t("no_keywords"))
+        self.daily_text.setFocus()
+
+    # ==================== MOOD TAB ====================
+    def _build_mood_tab(self):
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        layout.setContentsMargins(10, 6, 10, 10)
+        layout.setSpacing(6)
+
+        self._section_label(layout, t("mood_q"))
+
+        # 输入卡片
+        inp_card = self._card_frame()
+        inp_layout = QVBoxLayout(inp_card)
+        inp_layout.setContentsMargins(8, 8, 8, 8)
+        self.mood_input = QPlainTextEdit()
+        self.mood_input.setFont(ui_font(12))
+        self.mood_input.setFixedHeight(70)
+        inp_layout.addWidget(self.mood_input)
+
+        # 语音行
+        vrow = QHBoxLayout()
+        self.voice_btn = QPushButton(t("voice"))
+        self.voice_btn.clicked.connect(self.on_voice_toggle)
+        vrow.addWidget(self.voice_btn)
+
+        mic_btn = QPushButton(t("mic_perm_btn"))
+        mic_btn.setFixedWidth(40)
+        mic_btn.clicked.connect(self._show_mic_permission_dialog)
+        vrow.addWidget(mic_btn)
+
+        vrow.addStretch()
+
+        self.voice_status = QLabel("")
+        self.voice_status.setStyleSheet("color: #888;")
+        vrow.addWidget(self.voice_status)
+        vrow.addStretch()
+
+        self.voice_autosave = QCheckBox(t("voice_autosave"))
+        self.voice_autosave.setChecked(voice_mood.load_autosave_pref())
+        self.voice_autosave.toggled.connect(
+            lambda v: voice_mood.save_autosave_pref(v))
+        vrow.addWidget(self.voice_autosave)
+        inp_layout.addLayout(vrow)
+
+        layout.addWidget(inp_card)
+
+        # 快捷心情卡片网格
+        grid_widget = QWidget()
+        grid = QGridLayout(grid_widget)
+        grid.setSpacing(6)
         for i, (mood, emoji) in enumerate(MOOD_EMOJI.items()):
-            card = self._make_card(grid, f"{emoji} {mood}", dot_color=ACCENT,
-                                   on_click=lambda m=mood: self.quick_mood(m))
-            card.grid(row=i // 2, column=i % 2, padx=5, pady=5, sticky="nsew")
+            card = self._mood_card(f"{emoji} {mood}", lambda m=mood: self.quick_mood(m))
+            card.setFixedHeight(50)
+            grid.addWidget(card, i // 2, i % 2)
+        layout.addWidget(grid_widget)
 
-        # 分析按钮（主按钮）
-        btn_frame = tk.Frame(tab, bg=BG)
-        btn_frame.pack(fill=tk.X, padx=10, pady=(10, 0))
-        self._accent_btn(btn_frame, t("auto_analyze"), self.analyze_mood_ui, padx=16, pady=6).pack(side=tk.LEFT)
-        self.mood_result = tk.Label(btn_frame, text="", bg=BG, fg=ACCENT2, font=ui(12))
-        self.mood_result.pack(side=tk.LEFT, padx=10)
+        # 分析按钮
+        btn_row = QHBoxLayout()
+        analyze_btn = self._primary_btn(t("auto_analyze"), lambda: self.analyze_mood_ui())
+        btn_row.addWidget(analyze_btn)
+        self.mood_result = QLabel("")
+        self.mood_result.setStyleSheet(f"color: {get_theme_colors()['GREEN']}; font-size: {int(13*FONT_SCALE)}px;")
+        btn_row.addWidget(self.mood_result)
+        btn_row.addStretch()
+        layout.addLayout(btn_row)
 
-        # 今日记录卡片
-        self._section(tab, t("today_records"))
-        hist = self._card(tab)
-        self.mood_history = scrolledtext.ScrolledText(hist, height=8, font=mono(12),
-                                                        bg=BG, fg=FG, wrap=tk.WORD, relief=tk.FLAT,
-                                                        borderwidth=0, highlightthickness=0,
-                                                        padx=10, pady=8, state=tk.DISABLED)
-        self.mood_history.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
+        # 今日记录
+        self._section_label(layout, t("today_records"))
+        hist_card = self._card_frame()
+        hist_layout = QVBoxLayout(hist_card)
+        hist_layout.setContentsMargins(8, 8, 8, 8)
+        self.mood_history = QPlainTextEdit()
+        self.mood_history.setFont(mono_font(11))
+        self.mood_history.setReadOnly(True)
+        hist_layout.addWidget(self.mood_history)
+        layout.addWidget(hist_card, stretch=1)
+
+        self.nb.addTab(tab, t("tab_mood"))
         self.refresh_mood_history()
 
+    def _mood_card(self, title, on_click):
+        T = get_theme_colors()
+        card = QPushButton(title)
+        card.clicked.connect(on_click)
+        card.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {T['SURFACE']};
+                color: {T['TEXT']};
+                border: 1px solid {T['BORDER']};
+                border-radius: 8px;
+                font-size: {int(14*FONT_SCALE)}px;
+                font-weight: bold;
+                text-align: left;
+                padding-left: 20px;
+            }}
+            QPushButton:hover {{
+                background-color: {T['BTN_HOVER']};
+                border: 1px solid {T['ACCENT']};
+            }}
+        """)
+        return card
+
     def quick_mood(self, mood):
-        text = self.mood_input.get("1.0", tk.END).strip()
+        text = self.mood_input.toPlainText().strip()
         if not text:
             text = f"(quick: {mood})"
         save_mood(get_today(), mood, text, 1.0, "manual")
-        self.mood_result.config(text=f"{MOOD_EMOJI.get(mood, '')} {mood} ✓")
-        self.mood_input.delete("1.0", tk.END)
+        self.mood_result.setText(f"{MOOD_EMOJI.get(mood, '')} {mood} ✓")
+        self.mood_input.clear()
         self.refresh_mood_history()
-        self.status.config(text=t("mood_saved", m=mood), fg=ACCENT2)
-        self._refocus(self.mood_input)
+        self.status_label.setText(t("mood_saved", m=mood))
+        self.mood_input.setFocus()
 
     def analyze_mood_ui(self, acoustics=None):
-        """分析心情，可融合声学特征。"""
-        text = self.mood_input.get("1.0", tk.END).strip()
+        text = self.mood_input.toPlainText().strip()
         if not text and not acoustics:
-            self.mood_result.config(text=t("type_first"))
-            self._refocus(self.mood_input)
+            self.mood_result.setText(t("type_first"))
+            self.mood_input.setFocus()
             return
 
-        # 文本分析
         text_mood, text_conf, text_reason = ("平静", 0, "")
         if text:
             text_mood, text_conf, text_reason = analyze_mood(text)
 
-        # 声学分析
         acou_mood, acou_conf, acou_detail = (None, 0, "")
         if acoustics:
             acou_mood, acou_conf, acou_detail = voice_mood.acoustics_to_mood(acoustics)
 
-        # 融合：文本分析为主（权重 0.6），声学为辅（权重 0.4）
         if acou_mood and text:
-            # 两者都有：加权融合
             MOODS = list(MOOD_EMOJI.keys())
-            combined_scores = {m: 0 for m in MOODS}
-            combined_scores[text_mood] += text_conf * 0.6
-            combined_scores[acou_mood] += acou_conf * 0.4
-            best_mood = max(combined_scores, key=combined_scores.get)
-            best_conf = min(combined_scores[best_mood], 1.0)
-            reason_parts = []
+            combined = {m: 0 for m in MOODS}
+            combined[text_mood] += text_conf * 0.6
+            combined[acou_mood] += acou_conf * 0.4
+            best_mood = max(combined, key=combined.get)
+            best_conf = min(combined[best_mood], 1.0)
+            parts = []
             if text_reason and text_reason != "未检测到明显情绪词":
-                reason_parts.append("文本: {}".format(text_reason))
+                parts.append("文本: {}".format(text_reason))
             if acou_detail:
-                reason_parts.append("声音: {}".format(acou_detail))
-            reason = " | ".join(reason_parts) if reason_parts else acou_detail or text_reason
+                parts.append("声音: {}".format(acou_detail))
+            reason = " | ".join(parts) if parts else acou_detail or text_reason
         elif acou_mood and not text:
-            # 只有声学分析（文字识别失败）
             best_mood = acou_mood
             best_conf = acou_conf
             reason = "声音分析: {}".format(acou_detail)
         else:
-            # 只有文本分析
             best_mood = text_mood
             best_conf = text_conf
             reason = text_reason
 
-        save_text = text if text else "(语音: {})".format(acou_detail[:50])
+        save_text = text if text else "(语音: {})".format((acou_detail or "")[:50])
         save_mood(get_today(), best_mood, save_text, best_conf, reason)
         emoji = MOOD_EMOJI.get(best_mood, "")
-        # 显示更丰富的结果
         detail = ""
         if acou_mood and text_mood and acou_mood != text_mood:
             detail = " (文本→{} 声音→{})".format(text_mood, acou_mood)
-        self.mood_result.config(text=f"{emoji} {best_mood} ({best_conf:.0%}){detail}")
-        self.mood_input.delete("1.0", tk.END)
+        self.mood_result.setText(f"{emoji} {best_mood} ({best_conf:.0%}){detail}")
+        self.mood_input.clear()
         self.refresh_mood_history()
-        self.status.config(text=t("mood_saved", m=f"{best_mood} ({best_conf:.0%})"), fg=ACCENT2)
-        self._refocus(self.mood_input)
+        self.status_label.setText(t("mood_saved", m=f"{best_mood} ({best_conf:.0%})"))
+        self.mood_input.setFocus()
 
-    # ---------- 语音识别心情 ----------
+    # ==================== 语音功能 ====================
     def _voice_lang(self):
         return "zh-CN" if LANG == "zh" else "en-US"
 
     def on_voice_toggle(self):
-        if not getattr(self, "voice_deps_ok", False):
+        if not self.voice_deps_ok:
             ffmpeg_ok, sr_ok = voice_mood.deps_status()
             if not (ffmpeg_ok and sr_ok):
                 need = []
@@ -1212,34 +860,33 @@ class WikiApp:
                     need.append(t("voice_missing_ffmpeg"))
                 if not sr_ok:
                     need.append(t("voice_missing_sr"))
-                if not messagebox.askyesno("语音依赖缺失",
-                                           t("voice_confirm_install").format(n="、".join(need))):
+                reply = QMessageBox.question(self, "语音依赖缺失",
+                    t("voice_confirm_install").format(n="、".join(need)))
+                if reply != QMessageBox.StandardButton.Yes:
                     return
                 self._start_voice_install()
                 return
+
         if self.voice_recorder.running:
             self.voice_recorder.stop()
-            # 立即更新 UI，不等后台回调（避免按钮卡在"停止"状态）
-            self.voice_btn.config(text=t("voice"))
-            self.voice_status.config(text=t("voice_cancel"))
-            self.status.config(text=t("voice_cancel"), fg=MUTED)
+            self.voice_btn.setText(t("voice"))
+            self.voice_status.setText("识别中…")
+            self.status_label.setText("停止录音，正在识别…")
             return
-        self.voice_btn.config(text=t("voice_stop"))
-        self.voice_status.config(text=t("voice_recording").format(n=voice_mood.MAX_SECONDS))
-        self.status.config(text=t("voice_recording").format(n=voice_mood.MAX_SECONDS), fg=MUTED)
+
+        self.voice_btn.setText(t("voice_stop"))
+        self.voice_status.setText(t("voice_recording").format(n=voice_mood.MAX_SECONDS))
+        self.status_label.setText(t("voice_recording").format(n=voice_mood.MAX_SECONDS))
         self.voice_recorder.start(lang=self._voice_lang())
 
-    # ---------- 语音依赖自动安装 ----------
     def _start_voice_install(self):
-        """在后台线程跑 pip 安装，按钮置灰并显示进度；主线程轮询取结果。"""
-        self.voice_btn.set_enabled(False)
-        self.voice_btn.config(text=t("voice_installing"))
-        self.voice_status.config(text=t("voice_installing"))
-        self.status.config(text=t("voice_installing"), fg=MUTED)
-        self._voice_install_result = None
-        threading.Thread(target=self._install_voice_deps, daemon=True).start()
-        # 主线程调度首次轮询（避免跨线程直接调用 after）
-        self.root.after(150, self._poll_voice_install)
+        self.voice_btn.setEnabled(False)
+        self.voice_btn.setText(t("voice_installing"))
+        self.voice_status.setText(t("voice_installing"))
+
+        self._install_thread = threading.Thread(target=self._install_voice_deps, daemon=True)
+        self._install_thread.start()
+        QTimer.singleShot(200, self._poll_voice_install)
 
     def _install_voice_deps(self):
         try:
@@ -1248,185 +895,148 @@ class WikiApp:
             self._voice_install_result = (False, False, ["安装异常：{}".format(e)])
 
     def _poll_voice_install(self):
-        if self._voice_install_result is None:
-            self.root.after(150, self._poll_voice_install)
-            return
-        ffmpeg_ok, sr_ok, notes = self._voice_install_result
-        self._voice_install_result = None
-        self._on_voice_install_done(ffmpeg_ok, sr_ok, notes)
-
-    def _on_voice_install_done(self, ffmpeg_ok, sr_ok, notes):
-        self.voice_btn.set_enabled(True)
-        ok = ffmpeg_ok and sr_ok
-        self.voice_deps_ok = ok
-        if ok:
-            self.voice_status.config(text=t("voice_install_ok"))
-            self.status.config(text=t("voice_install_ok"), fg=ACCENT2)
-            self.on_voice_toggle()  # 依赖就绪，直接开始录音
-            return
-        detail = t("voice_install_fail")
-        if not ffmpeg_ok:
-            detail += "\n" + t("voice_need_ffmpeg")
-        if not sr_ok:
-            detail += "\n" + t("voice_need_sr").format(py=sys.executable)
-        if notes:
-            detail += "\n\n" + "\n".join(notes)
-        messagebox.showerror("语音依赖安装失败", detail)
+        if not hasattr(self, '_voice_install_result') or self._voice_install_result is None:
+            if hasattr(self, '_install_thread') and self._install_thread.is_alive():
+                QTimer.singleShot(200, self._poll_voice_install)
+                return
+        if hasattr(self, '_voice_install_result') and self._voice_install_result:
+            ffmpeg_ok, sr_ok, notes = self._voice_install_result
+            self._voice_install_result = None
+            self.voice_btn.setEnabled(True)
+            ok = ffmpeg_ok and sr_ok
+            self.voice_deps_ok = ok
+            if ok:
+                self.voice_status.setText(t("voice_install_ok"))
+                self.status_label.setText(t("voice_install_ok"))
+                self.on_voice_toggle()
+            else:
+                detail = t("voice_install_fail")
+                if not ffmpeg_ok:
+                    detail += "\n" + t("voice_need_ffmpeg")
+                if not sr_ok:
+                    detail += "\n" + t("voice_need_sr").format(py=sys.executable)
+                if notes:
+                    detail += "\n\n" + "\n".join(notes)
+                QMessageBox.critical(self, "语音依赖安装失败", detail)
 
     def on_voice_result(self, text, acoustics=None):
-        # 填入心情输入框（只有有文字时才填）
         if text:
-            try:
-                cur = self.mood_input.get("1.0", tk.END).strip()
-                if cur:
-                    self.mood_input.insert(tk.END, "\n" + text)
-                else:
-                    self.mood_input.insert("1.0", text)
-            except Exception:
-                pass
-        self.voice_btn.config(text=t("voice"))
-        # 显示识别到的文字或声学特征
+            cur = self.mood_input.toPlainText().strip()
+            if cur:
+                self.mood_input.setPlainText(cur + "\n" + text)
+            else:
+                self.mood_input.setPlainText(text)
+
+        self.voice_btn.setText(t("voice"))
+
         if text:
-            display_text = text[:40] + ("…" if len(text) > 40 else "")
+            display = text[:40] + ("…" if len(text) > 40 else "")
+        elif acoustics:
+            acou_mood, _, acou_detail = voice_mood.acoustics_to_mood(acoustics)
+            display = "声音→{} ({})".format(acou_mood or "未知", (acou_detail or "")[:30])
         else:
-            # 文字识别失败，显示声音特征摘要
-            acou_mood, acou_conf, acou_detail = voice_mood.acoustics_to_mood(acoustics)
-            display_text = "声音→{} ({})".format(acou_mood, acou_detail[:30])
-        # 识别后：开关开则自动分析保存；否则仅填入等用户检查再手动保存
-        if self.voice_autosave.get():
-            try:
-                self.voice_status.config(text="已识别：{}".format(display_text))
-            except Exception:
-                pass
-            self.status.config(text="已识别：{}".format(display_text), fg=ACCENT2)
+            display = "未识别到内容"
+
+        if self.voice_autosave.isChecked():
+            self.voice_status.setText("已识别：{}".format(display))
+            self.status_label.setText("已识别：{}".format(display))
             self.analyze_mood_ui(acoustics=acoustics)
         else:
-            try:
-                self.voice_status.config(text="已填入：{}".format(display_text))
-            except Exception:
-                pass
-            self.status.config(text="已填入，请检查后保存", fg=ACCENT2)
-            self._refocus(self.mood_input)
+            self.voice_status.setText("已填入：{}".format(display))
+            self.status_label.setText("已填入，请检查后保存")
+            self.mood_input.setFocus()
 
     def on_voice_acoustics(self, features):
-        """声学分析结果回调，在识别前先显示声音特征。"""
         try:
-            acou_mood, acou_conf, acou_detail = voice_mood.acoustics_to_mood(features)
+            acou_mood, _, acou_detail = voice_mood.acoustics_to_mood(features)
             emoji = MOOD_EMOJI.get(acou_mood, "")
-            self.voice_status.config(
-                text="声音特征: {} {} {}".format(emoji, acou_mood, acou_detail[:20] if acou_detail else ""))
+            self.voice_status.setText("声音特征: {} {} {}".format(
+                emoji, acou_mood, (acou_detail or "")[:20]))
         except Exception:
             pass
 
     def on_voice_error(self, msg):
-        self.voice_btn.config(text=t("voice"))
-        try:
-            self.voice_status.config(text=msg)
-        except Exception:
-            pass
-        self.status.config(text=msg, fg="orange")
-        # 麦克风权限被拒：自动弹出帮助/重置对话框
+        self.voice_btn.setText(t("voice"))
+        self.voice_status.setText(msg)
+        self.status_label.setText(msg)
         low = (msg or "").lower()
         if "麦克风权限被拒绝" in (msg or "") or "microphone" in low or "operation not permitted" in low:
             self._show_mic_permission_dialog()
 
     def on_voice_status(self, state, msg):
         if state == "recording":
-            self.voice_btn.config(text=t("voice_stop"))
+            self.voice_btn.setText(t("voice_stop"))
         elif state in ("idle", "done"):
-            self.voice_btn.config(text=t("voice"))
-        try:
-            self.voice_status.config(text=msg)
-        except Exception:
-            pass
+            self.voice_btn.setText(t("voice"))
+        self.voice_status.setText(msg)
 
-    # ---------- 麦克风权限帮助 / 一键重置 ----------
     def _show_mic_permission_dialog(self):
-        """弹出麦克风权限说明与「一键重置」对话框（macOS）。"""
-        dlg = tk.Toplevel(self.root)
-        dlg.title(t("mic_perm_title"))
-        dlg.transient(self.root)
-        dlg.grab_set()
-        dlg.resizable(False, False)
-        try:
-            dlg.configure(bg=BG)
-        except Exception:
-            pass
-
-        pad = {"padx": 16, "pady": 12}
-        tk.Label(dlg, text=t("mic_perm_help"), justify=tk.LEFT, wraplength=400,
-                 bg=BG, fg=FG, font=ui(11)).pack(anchor=tk.W, **pad)
-
-        btn_row = tk.Frame(dlg, bg=BG)
-        btn_row.pack(fill=tk.X, padx=16, pady=(0, 14))
-        self._accent_btn(btn_row, t("mic_perm_reset"),
-                         lambda: self._reset_mic_permission(dlg), padx=12, pady=5).pack(side=tk.LEFT)
-        self._btn(btn_row, t("close"), dlg.destroy, padx=12, pady=5).pack(side=tk.LEFT, padx=(8, 0))
-
-        # 居中显示
-        dlg.update_idletasks()
-        w, h = dlg.winfo_width(), dlg.winfo_height()
-        pw, ph = self.root.winfo_x(), self.root.winfo_y()
-        dlg.geometry("+{}+{}".format(pw + (self.root.winfo_width() - w) // 2,
-                                     ph + (self.root.winfo_height() - h) // 2))
+        dlg = QDialog(self)
+        dlg.setWindowTitle(t("mic_perm_title"))
+        dlg.setFixedWidth(420)
+        dlg_layout = QVBoxLayout(dlg)
+        help_lbl = QLabel(t("mic_perm_help"))
+        help_lbl.setWordWrap(True)
+        dlg_layout.addWidget(help_lbl)
+        btn_row = QHBoxLayout()
+        reset_btn = self._primary_btn(t("mic_perm_reset"), lambda: self._reset_mic_permission(dlg))
+        btn_row.addWidget(reset_btn)
+        close_btn = QPushButton(t("close"))
+        close_btn.clicked.connect(dlg.accept)
+        btn_row.addWidget(close_btn)
+        dlg_layout.addLayout(btn_row)
+        dlg.exec()
 
     def _reset_mic_permission(self, dlg):
-        """执行 tccutil reset Microphone（仅 macOS），随后提示重启。"""
-        import subprocess
         if sys.platform != "darwin":
-            dlg.grab_release()
-            dlg.destroy()
-            messagebox.showinfo(t("mic_perm_title"), t("mic_perm_only_mac"))
+            dlg.accept()
+            QMessageBox.information(self, t("mic_perm_title"), t("mic_perm_only_mac"))
             return
         try:
             res = subprocess.run(["tccutil", "reset", "Microphone"],
                                  capture_output=True, text=True, timeout=20)
             ok = res.returncode == 0
-            detail = (res.stderr or res.stdout or "").strip()
-        except Exception as e:
-            ok, detail = False, str(e)
-        dlg.grab_release()
-        dlg.destroy()
+        except Exception:
+            ok = False
+        dlg.accept()
         if ok:
-            messagebox.showinfo(t("mic_perm_title"), t("mic_perm_reset_ok"))
+            QMessageBox.information(self, t("mic_perm_title"), t("mic_perm_reset_ok"))
         else:
-            extra = "\n\n{}".format(detail[:300]) if detail else ""
-            messagebox.showerror(t("mic_perm_title"), t("mic_perm_reset_fail") + extra)
+            QMessageBox.critical(self, t("mic_perm_title"), t("mic_perm_reset_fail"))
 
     def _stop_voice_if_running(self):
-        rec = getattr(self, "voice_recorder", None)
-        if rec is not None and rec.running:
+        if self.voice_recorder and self.voice_recorder.running:
             try:
-                rec.stop()
+                self.voice_recorder.stop()
             except Exception:
                 pass
 
     def refresh_mood_history(self):
         records = load_moods(get_today())
-        self.mood_history.config(state=tk.NORMAL)
-        self.mood_history.delete("1.0", tk.END)
+        lines = []
         if records:
             for r in records:
                 emoji = MOOD_EMOJI.get(r.get("mood", ""), "")
-                line = f"[{r.get('time', '?')}] {emoji} {r.get('mood', '?')} ({r.get('confidence', 0):.0%}) - {r.get('text', '')[:40]}\n"
-                self.mood_history.insert(tk.END, line)
+                conf = r.get("confidence", 0)
+                line = f"[{r.get('time', '?')}] {emoji} {r.get('mood', '?')} ({conf:.0%}) - {r.get('text', '')[:40]}"
+                lines.append(line)
         else:
-            self.mood_history.insert("1.0", t("no_records"))
-        self.mood_history.config(state=tk.DISABLED)
+            lines.append(t("no_records"))
+        self.mood_history.setPlainText("\n".join(lines))
 
     # ==================== REMINDER TAB ====================
-    def build_reminder_tab(self):
-        tab = tk.Frame(self.nb, bg=BG)
-        self.nb.add(tab, text=t("tab_reminder"))
+    def _build_reminder_tab(self):
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        layout.setContentsMargins(10, 6, 10, 10)
+        layout.setSpacing(6)
 
-        # 小标题
-        self._section(tab, t("quick_reminders"))
+        self._section_label(layout, t("quick_reminders"))
 
-        # 预设卡片（2 列网格，对应网页 preset-grid）
-        grid = tk.Frame(tab, bg=BG)
-        grid.pack(fill=tk.X, padx=10, pady=(0, 4))
-        grid.columnconfigure(0, weight=1)
-        grid.columnconfigure(1, weight=1)
+        # 预设卡片
+        grid_widget = QWidget()
+        grid = QGridLayout(grid_widget)
+        grid.setSpacing(6)
         preset_items = [
             ("+1h", 1, "快速稍后提醒"),
             ("+2h", 2, "午间 / 会议"),
@@ -1435,44 +1045,87 @@ class WikiApp:
             (t("tmr18"), "tmr18", "下班提醒"),
         ]
         for i, (label, val, hint) in enumerate(preset_items):
-            card = self._make_card(grid, label, hint, dot_color=ACCENT,
-                                   on_click=lambda v=val: self.preset_reminder(v))
-            card.grid(row=i // 2, column=i % 2, padx=5, pady=5, sticky="nsew")
+            card = self._reminder_card(label, hint, lambda v=val: self.preset_reminder(v))
+            grid.addWidget(card, i // 2, i % 2)
+        layout.addWidget(grid_widget)
 
         # 自定义提醒卡片
-        ccard = self._card(tab, pady=6)
-        head = tk.Frame(ccard, bg=BG2)
-        head.pack(fill=tk.X, padx=12, pady=(10, 4))
-        tk.Label(head, text=t("custom"), bg=BG2, fg=FG, font=ui(11, bold=True)).pack(side=tk.LEFT)
-        row = tk.Frame(ccard, bg=BG2)
-        row.pack(fill=tk.X, padx=12, pady=(0, 10))
-        self.reminder_msg = tk.Entry(row, font=ui(11), bg=BG, fg=FG,
-                                      insertbackground=INPUT_INSERT, relief=tk.FLAT, width=22)
-        self.reminder_msg.pack(side=tk.LEFT, padx=(0, 6))
-        self.reminder_time = tk.Entry(row, font=ui(11), bg=BG, fg=FG,
-                                       insertbackground=INPUT_INSERT, relief=tk.FLAT, width=12)
-        self.reminder_time.insert(0, "HH:MM")
-        self.reminder_time.pack(side=tk.LEFT, padx=(0, 6))
-        self._accent_btn(row, t("add"), self.add_custom_reminder, padx=12, pady=3).pack(side=tk.LEFT)
+        ccard = self._card_frame()
+        clayout = QVBoxLayout(ccard)
+        clayout.setContentsMargins(12, 10, 12, 10)
+        clayout.addWidget(QLabel(t("custom")))
+        row = QHBoxLayout()
+        self.reminder_msg = QLineEdit()
+        self.reminder_msg.setPlaceholderText("提醒内容…")
+        row.addWidget(self.reminder_msg)
+        self.reminder_time = QLineEdit()
+        self.reminder_time.setPlaceholderText("HH:MM")
+        self.reminder_time.setFixedWidth(80)
+        row.addWidget(self.reminder_time)
+        add_btn = self._primary_btn(t("add"), self.add_custom_reminder)
+        row.addWidget(add_btn)
+        clayout.addLayout(row)
+        layout.addWidget(ccard)
 
-        # 待提醒卡片列表
-        self._section(tab, t("pending"))
-        self._build_pending_cards(tab)
+        # 待提醒列表
+        self._section_label(layout, t("pending"))
+        self.pending_scroll = QScrollArea()
+        self.pending_scroll.setWidgetResizable(True)
+        self.pending_container = QWidget()
+        self.pending_layout = QVBoxLayout(self.pending_container)
+        self.pending_layout.setContentsMargins(0, 0, 0, 0)
+        self.pending_layout.setSpacing(6)
+        self.pending_layout.addStretch()
+        self.pending_scroll.setWidget(self.pending_container)
+        layout.addWidget(self.pending_scroll, stretch=1)
 
         # 取消提醒
-        bot = tk.Frame(tab, bg=BG)
-        bot.pack(fill=tk.X, padx=10, pady=(6, 10))
-        self._label(bot, t("cancel_id"), size=10).pack(side=tk.LEFT)
-        self.cancel_id = tk.Entry(bot, font=ui(10), bg=BG, fg=FG,
-                                    insertbackground=INPUT_INSERT, relief=tk.FLAT, width=6)
-        self.cancel_id.pack(side=tk.LEFT, padx=5)
-        self._btn(bot, t("cancel"), self.cancel_reminder_ui, padx=10).pack(side=tk.LEFT, padx=5)
+        bot = QHBoxLayout()
+        bot.addWidget(QLabel(t("cancel_id")))
+        self.cancel_id_input = QLineEdit()
+        self.cancel_id_input.setFixedWidth(60)
+        bot.addWidget(self.cancel_id_input)
+        cancel_btn = QPushButton(t("cancel"))
+        cancel_btn.clicked.connect(self.cancel_reminder_ui)
+        bot.addWidget(cancel_btn)
+        bot.addStretch()
+        layout.addLayout(bot)
 
+        self.nb.addTab(tab, t("tab_reminder"))
         self.refresh_reminder_list()
+
+    def _reminder_card(self, title, hint, on_click):
+        T = get_theme_colors()
+        card = QPushButton()
+        card.clicked.connect(on_click)
+        card.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {T['SURFACE']};
+                border: 1px solid {T['BORDER']};
+                border-radius: 8px;
+                text-align: left;
+                padding: 12px 16px;
+            }}
+            QPushButton:hover {{
+                border: 1px solid {T['ACCENT']};
+                background-color: {T['BTN_HOVER']};
+            }}
+        """)
+        card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(4, 4, 4, 4)
+        title_lbl = QLabel(title)
+        title_lbl.setStyleSheet(f"font-weight: bold; font-size: {int(13*FONT_SCALE)}px; border: none; background: transparent;")
+        title_lbl.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        card_layout.addWidget(title_lbl)
+        hint_lbl = QLabel(hint)
+        hint_lbl.setStyleSheet(f"color: {T['TEXT2']}; font-size: {int(10*FONT_SCALE)}px; border: none; background: transparent;")
+        hint_lbl.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        card_layout.addWidget(hint_lbl)
+        return card
 
     def preset_reminder(self, val):
         now = datetime.now()
-        msg = self.reminder_msg.get().strip() or "Reminder!"
+        msg = self.reminder_msg.text().strip() or "Reminder!"
         if isinstance(val, int):
             target = now + timedelta(hours=val)
         elif val == "tmr9":
@@ -1481,15 +1134,15 @@ class WikiApp:
             target = (now + timedelta(days=1)).replace(hour=18, minute=0, second=0, microsecond=0)
         else:
             return
-        r = add_reminder(target, msg)
-        self.status.config(text=t("reminder_set", t=target.strftime('%H:%M'), m=msg), fg=ACCENT2)
+        add_reminder(target, msg)
+        self.status_label.setText(t("reminder_set", t=target.strftime('%H:%M'), m=msg))
         self.refresh_reminder_list()
 
     def add_custom_reminder(self):
-        msg = self.reminder_msg.get().strip()
-        time_str = self.reminder_time.get().strip()
+        msg = self.reminder_msg.text().strip()
+        time_str = self.reminder_time.text().strip()
         if not msg:
-            self.status.config(text=t("enter_msg"), fg="orange")
+            self.status_label.setText(t("enter_msg"))
             return
         try:
             h, m = map(int, time_str.split(":"))
@@ -1497,55 +1150,59 @@ class WikiApp:
             if target <= datetime.now():
                 target += timedelta(days=1)
             add_reminder(target, msg)
-            self.status.config(text=t("reminder_set", t=target.strftime('%H:%M'), m=msg), fg=ACCENT2)
+            self.status_label.setText(t("reminder_set", t=target.strftime('%H:%M'), m=msg))
             self.refresh_reminder_list()
         except ValueError:
-            self.status.config(text=t("bad_time"), fg="orange")
+            self.status_label.setText(t("bad_time"))
 
     def cancel_reminder_ui(self):
         try:
-            rid = int(self.cancel_id.get().strip())
+            rid = int(self.cancel_id_input.text().strip())
             if cancel_reminder(rid):
-                self.status.config(text=t("reminder_cancelled", i=rid), fg=ACCENT2)
+                self.status_label.setText(t("reminder_cancelled", i=rid))
                 self.refresh_reminder_list()
             else:
-                self.status.config(text=t("cannot_cancel", i=rid), fg="orange")
+                self.status_label.setText(t("cannot_cancel", i=rid))
         except ValueError:
-            self.status.config(text=t("enter_id"), fg="orange")
-
-    def _build_pending_cards(self, parent):
-        """可滚动的待提醒卡片列表容器（对应网页 .pending-list）"""
-        outer = self._card(parent, pady=0)
-        self.rem_canvas = tk.Canvas(outer, bg=BG2, highlightthickness=0)
-        self.rem_scroll = tk.Scrollbar(outer, command=self.rem_canvas.yview)
-        self.rem_inner = tk.Frame(self.rem_canvas, bg=BG2)
-        self.rem_canvas.create_window((0, 0), window=self.rem_inner, anchor="nw")
-        self.rem_canvas.configure(yscrollcommand=self.rem_scroll.set)
-        self.rem_canvas.pack(side="left", fill="both", expand=True)
-        self.rem_scroll.pack(side="right", fill="y")
+            self.status_label.setText(t("enter_id"))
 
     def refresh_reminder_list(self):
-        for w in list(self.rem_inner.winfo_children()):
-            w.destroy()
+        # 清除旧卡片（保留末尾的 stretch）
+        while self.pending_layout.count() > 1:
+            item = self.pending_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
         reminders = load_reminders()
         pending = [r for r in reminders if r["status"] == "pending"]
+        T = get_theme_colors()
         if not pending:
-            tk.Label(self.rem_inner, text=t("no_pending"), bg=BG2, fg=MUTED,
-                     font=ui(11)).pack(fill=tk.X, padx=14, pady=14)
+            empty = QLabel(t("no_pending"))
+            empty.setStyleSheet(f"color: {T['TEXT2']}; padding: 14px;")
+            self.pending_layout.insertWidget(0, empty)
         else:
             for r in pending:
-                card = tk.Frame(self.rem_inner, bg=BG2, highlightbackground=BORDER, highlightthickness=1)
-                card.pack(fill=tk.X, padx=14, pady=6)
-                tk.Label(card, text="#{}  {}".format(r["id"], r["remind_at"]),
-                         font=ui(12, bold=True), bg=BG2, fg=ACCENT).pack(anchor="w", padx=14, pady=(10, 2))
-                tk.Label(card, text=r["message"], font=ui(13), bg=BG2, fg=FG,
-                         wraplength=320, justify="left").pack(anchor="w", padx=14, pady=(0, 10))
-        self.rem_inner.update_idletasks()
-        self.rem_canvas.configure(scrollregion=self.rem_canvas.bbox("all"))
+                card = QFrame()
+                card.setStyleSheet(f"""
+                    QFrame {{
+                        background-color: {T['SURFACE']};
+                        border: 1px solid {T['BORDER']};
+                        border-radius: 6px;
+                    }}
+                """)
+                cl = QVBoxLayout(card)
+                cl.setContentsMargins(14, 10, 14, 10)
+                head = QLabel(f"#{r['id']}  {r['remind_at']}")
+                head.setStyleSheet(f"color: {T['ACCENT']}; font-weight: bold; font-size: {int(12*FONT_SCALE)}px; border: none; background: transparent;")
+                cl.addWidget(head)
+                body = QLabel(r["message"])
+                body.setStyleSheet(f"font-size: {int(13*FONT_SCALE)}px; border: none; background: transparent;")
+                body.setWordWrap(True)
+                cl.addWidget(body)
+                self.pending_layout.insertWidget(self.pending_layout.count() - 1, card)
 
-    # ==================== SHARE TAB (Obsidian × All Agents) ====================
+    # ==================== SHARE TAB ====================
     def _shared_modules(self):
-        """懒加载共享 Wiki 模块，返回 (wiki_core, agent_registry, obsidian_bridge) 或 None"""
         try:
             shared = os.path.join(_SCRIPT_DIR, "modules", "shared-wiki")
             if shared not in sys.path:
@@ -1555,65 +1212,62 @@ class WikiApp:
             import obsidian_bridge as _ob
             return _wc, _ar, _ob
         except Exception as e:
-            messagebox.showerror("Shared module error",
-                                 "无法加载共享 Wiki 模块 (modules/shared-wiki):\n{}".format(e))
+            QMessageBox.critical(self, "Shared module error",
+                                 "无法加载共享 Wiki 模块:\n{}".format(e))
             return None
 
-    def build_share_tab(self):
-        tab = tk.Frame(self.nb, bg=BG)
-        self.nb.add(tab, text=t("tab_share"))
+    def _build_share_tab(self):
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(6)
 
-        # ---- 顶部说明 ----
-        head = tk.Frame(tab, bg=BG)
-        head.pack(fill=tk.X, padx=10, pady=(10, 4))
-        self._label(head, t("share_title"),
-                    font=ui(12, bold=True)).pack(side=tk.LEFT)
-        self._btn(head, t("refresh"), self.share_refresh,
-                  bg=BTN_BG, fg=FG, padx=10).pack(side=tk.RIGHT)
+        # 顶部
+        top = QHBoxLayout()
+        title = QLabel(t("share_title"))
+        title.setStyleSheet(f"font-weight: bold; font-size: {int(12*FONT_SCALE)}px;")
+        top.addWidget(title)
+        top.addStretch()
+        refresh_btn = QPushButton(t("refresh"))
+        refresh_btn.clicked.connect(self.share_refresh)
+        top.addWidget(refresh_btn)
+        layout.addLayout(top)
 
-        # ---- 可拖拽分隔的上下两栏：上=内容框，下=操作按钮 ----
-        # 用 PanedWindow 提供可鼠标拖拽的分隔条，让内容框能手动调整大小
-        pw = tk.PanedWindow(tab, orient=tk.VERTICAL, bg=BG,
-                            sashwidth=6, sashrelief=tk.RAISED,
-                            showhandle=True, handlepad=10, handlesize=10)
-        pw.pack(fill=tk.BOTH, expand=True, padx=10, pady=4)
+        # 可拖拽分隔
+        splitter = QSplitter(Qt.Orientation.Vertical)
+        self.share_status = QPlainTextEdit()
+        self.share_status.setReadOnly(True)
+        self.share_status.setFont(mono_font(11))
+        splitter.addWidget(self.share_status)
 
-        # 状态区（内容框，可拖拽分隔条改变高度）— 白卡 + 卡内浅底
-        status = tk.Frame(pw, bg=BG2, highlightbackground=BORDER, highlightthickness=1)
-        self.share_status = scrolledtext.ScrolledText(status, height=9, font=mono(11),
-                                                      bg=BG, fg=FG, insertbackground=INPUT_INSERT,
-                                                      wrap=tk.WORD, relief=tk.FLAT, borderwidth=0,
-                                                      highlightthickness=0,
-                                                      padx=8, pady=6, state=tk.DISABLED)
-        self.share_status.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
-        pw.add(status, minsize=120, height=360)
+        btns = QWidget()
+        btn_layout = QHBoxLayout(btns)
+        btn_layout.setContentsMargins(0, 4, 0, 0)
+        start_btn = self._primary_btn(t("start_server"), self.share_start_server)
+        btn_layout.addWidget(start_btn)
+        obs_btn = QPushButton(t("open_obsidian"))
+        obs_btn.clicked.connect(self.share_open_obsidian)
+        btn_layout.addWidget(obs_btn)
+        bcast_btn = QPushButton(t("broadcast"))
+        bcast_btn.clicked.connect(self.share_broadcast)
+        btn_layout.addWidget(bcast_btn)
+        btn_layout.addStretch()
+        splitter.addWidget(btns)
+        splitter.setSizes([360, 40])
+        layout.addWidget(splitter, stretch=1)
 
-        # ---- 操作按钮（放在下方，可拖拽分隔条调整上方内容框大小） ----
-        acts = tk.Frame(pw, bg=BG)
-        self._accent_btn(acts, t("start_server"), self.share_start_server, padx=12).pack(side=tk.LEFT, padx=3)
-        self._btn(acts, t("open_obsidian"), self.share_open_obsidian,
-                  bg=BTN_BG, fg=FG, padx=12).pack(side=tk.LEFT, padx=3)
-        self._btn(acts, t("broadcast"), self.share_broadcast,
-                  bg=BTN_BG, fg=FG, padx=12).pack(side=tk.LEFT, padx=3)
-        pw.add(acts, minsize=40)
-
-        # 初始填充
+        self.nb.addTab(tab, t("tab_share"))
         self.share_refresh()
 
     def share_set_status(self, text):
-        self.share_status.config(state=tk.NORMAL)
-        self.share_status.delete("1.0", tk.END)
-        self.share_status.insert(tk.END, text)
-        self.share_status.config(state=tk.DISABLED)
+        self.share_status.setPlainText(text)
 
     def share_refresh(self):
-        """刷新 Agent 与 Obsidian 状态"""
         mods = self._shared_modules()
         if not mods:
             return
         _wc, _ar, _ob = mods
         lines = []
-        # Obsidian
         try:
             vaults = _ob.discover_vaults()
             wiki_v = _ob.detect_wiki_vault()
@@ -1630,7 +1284,6 @@ class WikiApp:
         except Exception as e:
             lines.append("📓 Obsidian: 检测失败 ({})".format(e))
         lines.append("")
-        # Agents
         try:
             agents = _ar.discover()
             lines.append("🤖 发现的 Agent ({} 个):".format(len(agents)))
@@ -1645,56 +1298,46 @@ class WikiApp:
         self.share_set_status("\n".join(lines))
 
     def share_start_server(self):
-        """后台启动 MCP Server（让所有 Agent 可接入共享 Wiki）"""
         mods = self._shared_modules()
         if not mods:
             return
-        _wc, _ar, _ob = mods
         server_py = os.path.join(_SCRIPT_DIR, "modules", "shared-wiki", "mcp_server.py")
         if not os.path.exists(server_py):
-            messagebox.showerror("Error", "找不到 mcp_server.py")
+            QMessageBox.critical(self, "Error", "找不到 mcp_server.py")
             return
-        # 启动前检测依赖：mcp 未安装会导致子进程静默退出
         try:
             import mcp  # noqa: F401
         except ImportError:
-            messagebox.showerror(
-                "缺少依赖: mcp",
-                "当前 Python 环境未安装 mcp 包，MCP Server 无法启动。\n\n"
-                "请先安装依赖:\n"
-                "  {} -m pip install mcp\n\n"
-                "安装后再点此按钮启动。".format(sys.executable))
+            QMessageBox.critical(self, "缺少依赖: mcp",
+                "当前 Python 环境未安装 mcp 包。\n\n请先安装:\n  {} -m pip install mcp".format(sys.executable))
             return
         try:
-            # 后台启动，不阻塞 GUI（stderr 写入日志便于排错）
             log_path = os.path.join(WIKI_DIR, "mcp_server.log")
             log_f = open(log_path, "w")
             proc = subprocess.Popen([sys.executable, server_py],
                                     stdout=log_f, stderr=subprocess.STDOUT)
             self._mcp_proc = proc
-            self.status.config(text="MCP Server 已启动 (pid={})".format(proc.pid))
-            messagebox.showinfo("MCP Server",
-                                "MyWiki MCP Server 已在后台启动。\n\n"
-                                "在你的 Agent 宿主 (Claude Desktop / Cursor / OpenClaw) 配置:\n"
-                                '  command: {}\n  args: ["{}"]'.format(sys.executable, server_py))
+            self.status_label.setText("MCP Server 已启动 (pid={})".format(proc.pid))
+            QMessageBox.information(self, "MCP Server",
+                "MyWiki MCP Server 已在后台启动。\n\n"
+                "在你的 Agent 宿主配置:\n"
+                '  command: {}\n  args: ["{}"]'.format(sys.executable, server_py))
         except Exception as e:
-            messagebox.showerror("启动失败", str(e))
+            QMessageBox.critical(self, "启动失败", str(e))
 
     def share_open_obsidian(self):
-        """在 Obsidian 中打开今日日记"""
         mods = self._shared_modules()
         if not mods:
             return
         _wc, _ar, _ob = mods
         today = datetime.now().strftime("%Y-%m-%d")
         try:
-            cmd = _ob.open_note("daily/{}".format(today))
-            self.status.config(text="已在 Obsidian 打开 {}".format(today))
+            _ob.open_note("daily/{}".format(today))
+            self.status_label.setText("已在 Obsidian 打开 {}".format(today))
         except Exception as e:
-            messagebox.showerror("打开失败", str(e))
+            QMessageBox.critical(self, "打开失败", str(e))
 
     def share_broadcast(self):
-        """向所有 Agent 广播 Wiki 更新"""
         mods = self._shared_modules()
         if not mods:
             return
@@ -1708,36 +1351,160 @@ class WikiApp:
                 msg = ("通知完成\n\n已发布更新: daily/{}.md\n\n".format(today) +
                        "✅ 已推送 ({}): {}\n".format(len(sent), ", ".join(sent) or "无") +
                        "❌ 失败 ({}): {}\n".format(len(failed), ", ".join(failed) or "无") +
-                       "⏭ 跳过 ({}): {}\n".format(len(skipped), ", ".join(skipped) or "无") +
-                       "\n说明: 仅支持 webhook 的 Agent 会真正收到更新；"
-                       "模型服务(Ollama/LM-Studio)与文件同步型(Obsidian/OpenClaw 等)不参与通知。")
+                       "⏭ 跳过 ({}): {}\n".format(len(skipped), ", ".join(skipped) or "无"))
             else:
-                msg = ("通知完成，但本次没有可接收的 Agent（不是错误）。\n\n"
+                msg = ("通知完成，但本次没有可接收的 Agent。\n\n"
                        "已发布更新: daily/{}.md\n\n".format(today) +
-                       "当前跳过项:\n  · " + "\n  · ".join(skipped) + "\n\n" +
-                       "含义:\n"
-                       "  - Ollama-API / LM-Studio-API: 仅用于探测本地模型服务，不接收通知\n"
-                       "  - OpenClaw / Claude / Cursor / Memo / Obsidian: 通过共享文件同步，无需通知\n\n"
-                       "当你有 Agent 暴露 http://host:port/webhook 并登记后，才会真正推送过去。")
-            self.status.config(text="已通知 Agent")
-            messagebox.showinfo("通知 Agent", msg)
+                       "跳过项:\n  · " + "\n  · ".join(skipped))
+            self.status_label.setText("已通知 Agent")
+            QMessageBox.information(self, "通知 Agent", msg)
             self.share_refresh()
         except Exception as e:
-            messagebox.showerror("广播失败", str(e))
+            QMessageBox.critical(self, "广播失败", str(e))
+
+    # ==================== 语言/主题切换 ====================
+    def toggle_language(self):
+        self._stop_voice_if_running()
+        global LANG
+        LANG = "en" if LANG == "zh" else "zh"
+        self._rebuild_ui()
+
+    def toggle_theme(self):
+        self._stop_voice_if_running()
+        global MODE
+        MODE = "dark" if MODE == "light" else "light"
+        save_theme_pref(MODE)
+        self._rebuild_ui()
+
+    def _rebuild_ui(self):
+        """重建整个 UI（语言/主题切换后）。"""
+        # 移除中央控件
+        central = self.takeCentralWidget()
+        if central:
+            central.deleteLater()
+        # 重新设置
+        self.setWindowTitle(t("app_title"))
+        apply_qss(QApplication.instance(), MODE)
+        self._build_ui()
+
+
+# ==================== WELCOME DIALOG ====================
+class WelcomeDialog(QDialog):
+    """首次运行欢迎框。"""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("MyWiki - First Run Setup / 首次运行设置")
+        self.setMinimumSize(500, 480)
+        layout = QVBoxLayout(self)
+        layout.setSpacing(10)
+
+        title = QLabel("📝 MyWiki")
+        title.setStyleSheet(f"font-size: {int(24*FONT_SCALE)}px; font-weight: bold; color: {get_theme_colors()['ACCENT']};")
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(title)
+
+        subtitle = QLabel("Personal Knowledge & Diary Manager\n个人知识库与日记管理工具")
+        subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(subtitle)
+
+        # 状态检测
+        obsidian_ok, _ = check_obsidian()
+        openclaw_ok, _ = check_openclaw()
+        v_ffmpeg, v_sr = voice_mood.deps_status()
+        voice_ok = v_ffmpeg and v_sr
+
+        status_lbl = QLabel("System Check / 系统检测")
+        status_lbl.setStyleSheet("font-weight: bold;")
+        layout.addWidget(status_lbl)
+
+        for label, ok in [("Obsidian (知识库)", obsidian_ok),
+                          ("OpenClaw (AI 助手)", openclaw_ok),
+                          ("语音识别 (麦克风记录心情)", voice_ok)]:
+            emoji = "✅" if ok else "❌"
+            color = "#4ec9b0" if ok else "#f48771"
+            row = QLabel(f"{emoji} {label}")
+            row.setStyleSheet(f"color: {color}; padding-left: 20px;")
+            layout.addWidget(row)
+
+        # 安装按钮
+        btn_frame = QHBoxLayout()
+        if not voice_ok:
+            install_btn = QPushButton("Install Voice / 安装语音依赖")
+            install_btn.setProperty("primary", True)
+            install_btn.clicked.connect(self._install_voice)
+            btn_frame.addWidget(install_btn)
+        btn_frame.addStretch()
+        layout.addLayout(btn_frame)
+
+        # 继续/退出
+        bottom = QHBoxLayout()
+        continue_lbl = "Continue / 继续" if (obsidian_ok and openclaw_ok) else "Skip & Continue / 跳过并继续"
+        continue_btn = QPushButton(continue_lbl)
+        continue_btn.setProperty("primary", True)
+        continue_btn.clicked.connect(self.accept)
+        bottom.addWidget(continue_btn)
+        exit_btn = QPushButton("Exit / 退出")
+        exit_btn.clicked.connect(self.reject)
+        bottom.addWidget(exit_btn)
+        layout.addLayout(bottom)
+
+        tips = QLabel("Tips: Obsidian & OpenClaw are optional.\n提示：Obsidian 和 OpenClaw 是可选的。")
+        tips.setStyleSheet("color: #888; font-size: 10px;")
+        tips.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(tips)
+
+    def _install_voice(self):
+        """安装语音依赖。"""
+        progress = QProgressDialog("正在安装语音依赖…", "取消", 0, 0, self)
+        progress.setWindowModality(Qt.WindowModality.WindowModal)
+        progress.show()
+
+        result = {"v": None}
+        def run():
+            try:
+                result["v"] = voice_mood.auto_install_deps()
+            except Exception as e:
+                result["v"] = (False, False, ["安装异常：{}".format(e)])
+
+        thread = threading.Thread(target=run, daemon=True)
+        thread.start()
+
+        # 轮询
+        def poll():
+            if result["v"] is None:
+                QTimer.singleShot(200, poll)
+                return
+            progress.close()
+            f_ok, s_ok, notes = result["v"]
+            if f_ok and s_ok:
+                QMessageBox.information(self, "安装完成",
+                    "语音依赖已安装，可前往「心情」页点击 🎤 使用。")
+            else:
+                detail = "安装失败:\n" + "\n".join(notes) if notes else "安装失败"
+                QMessageBox.critical(self, "安装失败", detail)
+
+        QTimer.singleShot(200, poll)
 
 
 # ==================== MAIN ====================
 if __name__ == "__main__":
-    # 整个进程只有一个 Tk() 根实例
-    root = tk.Tk()
+    app = QApplication(sys.argv)
 
-    # 构建主界面（先绘制，确保输入框始终可见可交互）
-    app = WikiApp(root)
-    root.update_idletasks()
+    # 应用 QSS 样式
+    apply_qss(app, MODE)
 
-    # 在首个主循环刷新后显示非模态欢迎框（Toplevel，单根单 mainloop）
-    # 欢迎框不再 grab，主界面在其背后依然可点击、可输入
-    root.after(200, show_welcome_and_check, root)
+    # 设置应用图标
+    if ICON_PATH and os.path.exists(ICON_PATH):
+        try:
+            app.setWindowIcon(QIcon(ICON_PATH))
+        except Exception:
+            pass
 
-    # Start main loop / 启动主事件循环
-    root.mainloop()
+    window = WikiApp()
+    window.show()
+
+    # 首次运行显示欢迎框（非模态，不影响主窗口）
+    if os.environ.get("MYWIKI_SKIP_WELCOME") != "1":
+        QTimer.singleShot(200, lambda: WelcomeDialog(window).show())
+
+    sys.exit(app.exec())

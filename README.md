@@ -2,7 +2,7 @@
 
 > 基于 [Andrej Karpathy's LLM Wiki 理念](https://karpathy.github.io/2025/05/11/llm-wiki/) 构建的个人知识库系统
 
-[![Version](https://img.shields.io/badge/version-v2.6.0-blue)](https://github.com/cpufreestyle/my-wiki/releases/tag/v2.6.0)
+[![Version](https://img.shields.io/badge/version-v2.7.0-blue)](https://github.com/cpufreestyle/my-wiki/releases/tag/v2.7.0)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Obsidian](https://img.shields.io/badge/Obsidian-1.0+-purple)](https://obsidian.md)
 
@@ -348,10 +348,10 @@ graph TD
 
 ```text
 my-wiki/
-├── README.md                      # 本文件 (v2.6.0)
+├── README.md                      # 本文件 (v2.7.0)
 ├── INDEX.md                       # 知识索引（自动生成）
 ├── wiki_app.py                    # 桌面端主程序（Tkinter GUI：日记 / 心情 / 提醒 / Share）🆕
-├── wiki_tool.py                   # 统一工具入口 (v2.6.0)
+├── wiki_tool.py                   # 统一工具入口 (v2.7.0)
 ├── rag.py                         # 语义 RAG 检索引擎 (BM25 / Ollama embedding)
 ├── voice_mood.py                  # 语音心情（ffmpeg 录音 + SpeechRecognition 在线识别）🆕
 ├── daily_ui.py                    # 日记桌面端 UI 🆕
@@ -421,7 +421,7 @@ my-wiki/
 
 ## 🔌 功能模块
 
-MyWiki v2.6.0 集成以下功能模块，位于 `modules/` 目录：
+MyWiki v2.7.0 集成以下功能模块，位于 `modules/` 目录：
 
 ### 模块列表
 
@@ -477,7 +477,7 @@ modules/
 
 ## 🛠 集成工具
 
-### wiki_tool.py v2.6.0
+### wiki_tool.py v2.7.0
 
 统一的命令行入口，集成所有模块：
 
@@ -800,4 +800,4 @@ node --test "tests/**/*.test.mjs"
 
 **最后更新**: 2026-07-12（主窗口主题统一 / 按钮配色修复 / 字号全屏适配 + 测试与 CI 保障）
 
-**版本**: v2.6.0
+**版本**: v2.7.0
