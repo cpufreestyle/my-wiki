@@ -21,5 +21,8 @@ python-dateutil>=2.8.0
 # 可选：用于 Obsidian dataview 查询
 # dataclasses-json>=0.5.0
 
+# 桌面 GUI（wiki_app.py 等，PySide6 优先，PyQt6 可替代）
+PySide6>=6.5.0
+
 # OpenClaw 集成
 # openclaw-client>=0.1.0  # 如果有的话
