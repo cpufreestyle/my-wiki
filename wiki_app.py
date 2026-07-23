@@ -89,7 +89,7 @@ def check_openclaw():
 # ==================== PATHS ====================
 from pathlib import Path as _Path
 _SCRIPT_DIR = _Path(__file__).parent
-WIKI_DIR = str(_SCRIPT_DIR.parent.parent / "wiki")
+WIKI_DIR = str(_SCRIPT_DIR)  # 仓库根目录（daily/mood/reminders/wiki 均在此，与 wiki_tool.py / scripts 约定一致）
 
 def _resolve_app_icon():
     cands = []
