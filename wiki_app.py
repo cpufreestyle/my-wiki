@@ -89,7 +89,25 @@ def check_openclaw():
 # ==================== PATHS ====================
 from pathlib import Path as _Path
 _SCRIPT_DIR = _Path(__file__).parent
-WIKI_DIR = str(_SCRIPT_DIR)  # 仓库根目录（daily/mood/reminders/wiki 均在此，与 wiki_tool.py / scripts 约定一致）
+def _resolve_wiki_dir():
+    """wiki 数据根目录。
+
+    优先级: 环境变量 MYWIKI_ROOT > config/obsidian.json 的 vault_path (Obsidian vault) > 仓库根(_SCRIPT_DIR)。
+    """
+    env = os.environ.get("MYWIKI_ROOT")
+    if env and os.path.isdir(os.path.expanduser(env)):
+        return os.path.expanduser(env)
+    cfg = os.path.join(_SCRIPT_DIR, "config", "obsidian.json")
+    if os.path.exists(cfg):
+        try:
+            vp = json.load(open(cfg, encoding="utf-8")).get("vault_path", "")
+            if vp and os.path.isdir(os.path.expanduser(vp)):
+                return os.path.expanduser(vp)
+        except Exception:
+            pass
+    return str(_SCRIPT_DIR)
+
+WIKI_DIR = _resolve_wiki_dir()
 
 def _resolve_app_icon():
     cands = []

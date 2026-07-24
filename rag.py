@@ -39,14 +39,34 @@ sys.stderr.reconfigure(encoding="utf-8")
 # 配置
 # ---------------------------------------------------------------------------
 
+def _resolve_vault_path(repo_root) -> "Path | None":
+    """若 config/obsidian.json 配置了 vault_path 且存在，则返回该 Obsidian vault 作为数据根。"""
+    cfg = Path(repo_root) / "config" / "obsidian.json"
+    if cfg.exists():
+        try:
+            import json
+            vp = json.loads(cfg.read_text(encoding="utf-8")).get("vault_path", "")
+            if vp and Path(vp).expanduser().is_dir():
+                return Path(vp).expanduser()
+        except Exception:
+            pass
+    return None
+
+
 def find_wiki_root() -> Path:
-    """智能定位 wiki 根目录。"""
+    """智能定位 wiki 根目录。
+
+    优先级: 环境变量 MYWIKI_ROOT > config/obsidian.json 的 vault_path (Obsidian vault) > 仓库根。
+    """
     env = os.environ.get("MYWIKI_ROOT")
     if env:
         p = Path(env).expanduser()
         if p.exists():
             return p
-    here = Path(__file__).resolve().parent
+    here = Path(__file__).resolve().parent  # rag.py 位于仓库根
+    vp = _resolve_vault_path(here)
+    if vp:
+        return vp
     if (here / "daily").exists() or (here / "README.md").exists():
         return here
     alt = here / "wiki"

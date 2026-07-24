@@ -29,8 +29,25 @@ except ImportError:
     yaml = None
 
 
+def _resolve_vault_path(repo_root) -> "Path | None":
+    """若 config/obsidian.json 配置了 vault_path 且存在，则返回该 Obsidian vault 作为数据根。"""
+    cfg = Path(repo_root) / "config" / "obsidian.json"
+    if cfg.exists():
+        try:
+            import json
+            vp = json.loads(cfg.read_text(encoding="utf-8")).get("vault_path", "")
+            if vp and Path(vp).expanduser().is_dir():
+                return Path(vp).expanduser()
+        except Exception:
+            pass
+    return None
+
+
 def find_wiki_root() -> Path:
-    """智能定位 wiki 根目录。"""
+    """智能定位 wiki 根目录。
+
+    优先级: 环境变量 MYWIKI_ROOT > config/obsidian.json 的 vault_path (Obsidian vault) > 仓库根。
+    """
     env = os.environ.get("MYWIKI_ROOT")
     if env:
         p = Path(env).expanduser()
@@ -39,16 +56,19 @@ def find_wiki_root() -> Path:
 
     # 当前文件: modules/shared-wiki/wiki_core.py -> 仓库根 = parent.parent.parent
     here = Path(__file__).resolve()
+    repo_root = here.parent.parent.parent
+    vp = _resolve_vault_path(repo_root)
+    if vp:
+        return vp
     candidates = [
-        here.parent.parent.parent,                    # 仓库根
-        here.parent.parent.parent.parent / "wiki",    # 部署形态
+        repo_root,
         Path.home() / ".qclaw" / "workspace" / "wiki",
     ]
     for c in candidates:
         if (c / "INDEX.md").exists() or (c / "daily").exists() or (c / "README.md").exists():
             return c
     # 兜底返回仓库根
-    return here.parent.parent.parent
+    return repo_root
 
 
 WIKI_ROOT = find_wiki_root()

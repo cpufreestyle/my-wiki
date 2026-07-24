@@ -12,7 +12,29 @@ from pathlib import Path
 sys.stdout.reconfigure(encoding='utf-8')
 sys.stderr.reconfigure(encoding='utf-8')
 
-WIKI_ROOT = Path(__file__).parent
+REPO_ROOT = Path(__file__).resolve().parent  # my-wiki 仓库根
+
+
+def _resolve_wiki_root():
+    """wiki 数据根目录。
+
+    优先级: 环境变量 MYWIKI_ROOT > config/obsidian.json 的 vault_path (Obsidian vault) > 仓库根。
+    """
+    env = os.environ.get("MYWIKI_ROOT")
+    if env and Path(os.path.expanduser(env)).is_dir():
+        return Path(os.path.expanduser(env))
+    cfg = REPO_ROOT / "config" / "obsidian.json"
+    if cfg.exists():
+        try:
+            vp = json.loads(cfg.read_text(encoding="utf-8")).get("vault_path", "")
+            if vp and Path(os.path.expanduser(vp)).is_dir():
+                return Path(os.path.expanduser(vp))
+        except Exception:
+            pass
+    return REPO_ROOT
+
+
+WIKI_ROOT = _resolve_wiki_root()
 
 
 def update_index():
