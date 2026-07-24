@@ -30,18 +30,36 @@ from PySide6.QtWidgets import (
 
 # ==================== DEPENDENCY CHECK ====================
 def check_obsidian():
-    """检测 Obsidian 是否安装（跨平台）。"""
+    """检测 Obsidian 是否安装（跨平台）。返回 (bool, path)。"""
     if sys.platform == "darwin":
         if os.path.exists("/Applications/Obsidian.app"):
             return True, "/Applications/Obsidian.app"
         return False, None
     if sys.platform == "win32":
-        paths = [
-            r"C:\Users\{}\AppData\Local\Obsidian\Obsidian.exe".format(os.getenv("USERNAME")),
+        # 1) 通过 obsidian:// URI 处理程序反查真实 exe（最可靠，跨任意安装路径）
+        try:
+            import winreg
+            for root in (winreg.HKEY_LOCAL_MACHINE, winreg.HKEY_CURRENT_USER):
+                try:
+                    with winreg.OpenKey(root, r"Software\Classes\obsidian\shell\open\command") as k:
+                        val = winreg.QueryValue(k, "")
+                        if val:
+                            exe = val.split('"')[1] if '"' in val else val.split()[0]
+                            if os.path.exists(exe):
+                                return True, exe
+                except OSError:
+                    continue
+        except Exception:
+            pass
+        # 2) 常见安装路径（用 expanduser 兼容 C:/D: 盘符差异）
+        base = os.path.expanduser("~")
+        candidates = [
+            os.path.join(base, "AppData", "Local", "Programs", "Obsidian", "Obsidian.exe"),
+            os.path.join(base, "AppData", "Local", "Obsidian", "Obsidian.exe"),
             r"C:\Program Files\Obsidian\Obsidian.exe",
             r"C:\Program Files (x86)\Obsidian\Obsidian.exe",
         ]
-        for p in paths:
+        for p in candidates:
             if os.path.exists(p):
                 return True, p
     return False, None
