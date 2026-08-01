@@ -16,6 +16,8 @@ SUITES = [
     "test_mood_web",
     "test_reminder_web",
     "test_index",
+    "test_rag_web",
+    "test_graph_web",
 ]
 
 

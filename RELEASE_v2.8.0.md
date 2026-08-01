@@ -24,6 +24,7 @@
 ## 📦 完整变更清单
 
 ### 新增文件
+
 - `index.html`：项目入口页
 - `scripts/smoke_desktop_qt.py`：PySide6 桌面端无头冒烟测试
 - `tests/test_index.py`、`tests/run_all.py`：索引测试与统一测试入口
@@ -31,6 +32,7 @@
 - `RELEASE_v2.8.0.md`：本发布文档
 
 ### 修改文件
+
 - `theme.py`：新增 UI 偏好读取/写入（`load_ui_prefs` / `save_ui_prefs`）
 - `requirements.txt`：声明 `PySide6>=6.5.0`
 - `.github/workflows/ci.yml`：新增桌面端 PySide6 冒烟测试

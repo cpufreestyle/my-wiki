@@ -207,7 +207,8 @@
         </header>
 
         <h2 class="section-title">功能模块</h2>
-        <section class="module-grid" aria-label="模块导航">
+        <section class="module-grid" id="moduleGrid" aria-label="模块导航">
+            <!-- 模块卡片由脚本从 /api/modules 动态渲染；下方为离线降级默认项 -->
             <a class="module-card accent" href="reminder_web.html">
                 <span class="emoji" aria-hidden="true">⏰</span>
                 <span class="body">
@@ -227,6 +228,20 @@
                 <span class="body">
                     <span class="label">心情记录</span>
                     <span class="hint">语音 / 文字记录情绪</span>
+                </span>
+            </a>
+            <a class="module-card accent" href="rag_web.html">
+                <span class="emoji" aria-hidden="true">🔍</span>
+                <span class="body">
+                    <span class="label">语义检索</span>
+                    <span class="hint">本地知识库问答</span>
+                </span>
+            </a>
+            <a class="module-card green" href="graph_web.html">
+                <span class="emoji" aria-hidden="true">🕸️</span>
+                <span class="body">
+                    <span class="label">知识图谱</span>
+                    <span class="hint">笔记关联网络</span>
                 </span>
             </a>
         </section>
@@ -258,6 +273,54 @@
             const cur = document.documentElement.getAttribute("data-theme");
             applyTheme(cur === "dark" ? "light" : "dark");
         });
+
+        // ---------- 动态加载模块导航（后端 /api/modules） ----------
+        // 成功则用后端返回的可用模块重建卡片；失败（如直接 file:// 打开）保留默认卡片。
+        (function loadModules() {
+            const grid = document.getElementById("moduleGrid");
+            if (!grid) return;
+            function apiBase() {
+                try {
+                    const rel = new URL("api/modules", location.href);
+                    return rel.pathname.endsWith("/api/modules")
+                        ? rel.pathname.replace(/\/api\/modules$/, "") : "/";
+                } catch { return "/"; }
+            }
+            const candidates = [
+                apiBase() + "api/modules",
+                "/api/modules",
+            ];
+            let done = false;
+            (async () => {
+                for (const url of candidates) {
+                    try {
+                        const resp = await fetch(url, { cache: "no-store" });
+                        if (!resp.ok) continue;
+                        const data = await resp.json();
+                        if (!data || !data.ok || !Array.isArray(data.modules) || !data.modules.length) continue;
+                        grid.innerHTML = "";
+                        for (const m of data.modules) {
+                            const a = document.createElement("a");
+                            a.className = "module-card " + (m.color || "accent");
+                            a.href = m.file;
+                            a.innerHTML =
+                                '<span class="emoji" aria-hidden="true">' + (m.emoji || "📄") + '</span>' +
+                                '<span class="body">' +
+                                    '<span class="label">' + escapeHtml(m.label) + '</span>' +
+                                    '<span class="hint">' + escapeHtml(m.hint || "") + '</span>' +
+                                '</span>';
+                            grid.appendChild(a);
+                        }
+                        done = true;
+                        break;
+                    } catch (e) { /* 尝试下一个候选地址 */ }
+                }
+            })();
+            function escapeHtml(s) {
+                return String(s == null ? "" : s)
+                    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+            }
+        })();
     </script>
 </body>
 </html>

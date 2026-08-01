@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MyWiki 知识图谱</title>
+    <style>
+        :root {
+            --bg: #f5f5f7;
+            --surface: #ffffff;
+            --text: #1d1d1f;
+            --text-secondary: #86868b;
+            --accent: #0a84ff;
+            --accent-hover: #0070e0;
+            --orange: #ff9f0a;
+            --orange-hover: #e88e00;
+            --green: #34c759;
+            --green-hover: #2bb04e;
+            --border: #e5e5ea;
+            --radius-card: 14px;
+            --radius-btn: 10px;
+            --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.08);
+            --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.06);
+            --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display",
+                "PingFang SC", "Helvetica Neue", "Microsoft YaHei", sans-serif;
+            --mono: "SF Mono", Menlo, Consolas, "PingFang SC", monospace;
+        }
+
+        [data-theme="dark"] {
+            --bg: #1c1c1e;
+            --surface: #2c2c2e;
+            --text: #f5f5f7;
+            --text-secondary: #98989d;
+            --accent: #0a84ff;
+            --accent-hover: #409cff;
+            --orange: #ff9f0a;
+            --orange-hover: #ffb340;
+            --green: #30d158;
+            --green-hover: #40d969;
+            --border: #3a3a3c;
+            --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4);
+            --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.5);
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: var(--font); background: var(--bg); color: var(--text);
+            -webkit-font-smoothing: antialiased; line-height: 1.45;
+            transition: background 0.2s ease, color 0.2s ease; min-height: 100vh;
+        }
+
+        .app { max-width: 860px; margin: 0 auto; padding: 32px 20px 48px; }
+
+        .app-header { position: relative; text-align: center; margin-bottom: 20px; }
+        .app-header .icon {
+            width: 56px; height: 56px; margin: 0 auto 14px; display: grid; place-items: center;
+            font-size: 28px; background: var(--surface); border-radius: 16px; box-shadow: var(--shadow-sm);
+        }
+        .app-header h1 { font-size: 22px; font-weight: 600; letter-spacing: -0.01em; }
+        .app-header p { margin-top: 4px; font-size: 14px; color: var(--text-secondary); }
+
+        .theme-toggle {
+            position: absolute; top: 0; right: 0; width: 38px; height: 38px; border: none;
+            border-radius: 50%; background: var(--surface); color: var(--text); font-size: 17px;
+            cursor: pointer; box-shadow: var(--shadow-sm); display: grid; place-items: center;
+            transition: transform 0.15s ease, background 0.2s ease;
+        }
+        .theme-toggle:hover { transform: scale(1.08); }
+        .theme-toggle:active { transform: scale(0.94); }
+        .theme-toggle:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+
+        .back-link {
+            display: inline-flex; align-items: center; gap: 6px; margin-bottom: 16px;
+            font-size: 13px; color: var(--text-secondary); text-decoration: none;
+        }
+        .back-link:hover { color: var(--accent); }
+
+        .toolbar {
+            display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 14px;
+        }
+        .legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--text-secondary); }
+        .legend span { display: inline-flex; align-items: center; gap: 5px; }
+        .legend i { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+
+        .meta { font-size: 13px; color: var(--text-secondary); margin: 0 4px 10px; }
+
+        .canvas-wrap {
+            position: relative; background: var(--surface); border-radius: var(--radius-card);
+            box-shadow: var(--shadow-sm); overflow: hidden; border: 1px solid var(--border);
+        }
+        svg { display: block; width: 100%; height: 520px; touch-action: none; cursor: grab; }
+        svg:active { cursor: grabbing; }
+
+        .node circle { stroke: var(--surface); stroke-width: 2; cursor: pointer; transition: opacity 0.15s ease; }
+        .node text {
+            font-size: 11px; fill: var(--text); pointer-events: none;
+            font-family: var(--font); paint-order: stroke; stroke: var(--surface); stroke-width: 3px; stroke-linejoin: round;
+        }
+        .edge { stroke: var(--border); stroke-width: 1.2; transition: opacity 0.15s ease; }
+        .dim { opacity: 0.12 !important; }
+
+        .toast {
+            position: fixed; left: 50%; bottom: 32px; transform: translateX(-50%) translateY(20px);
+            background: rgba(29, 29, 31, 0.92); color: #fff; padding: 12px 20px; border-radius: 12px;
+            font-size: 14px; opacity: 0; pointer-events: none; transition: opacity 0.2s ease, transform 0.2s ease;
+            z-index: 2000; max-width: 90%; text-align: center; white-space: pre-line;
+        }
+        .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+        .empty-tip { text-align: center; font-size: 14px; color: var(--text-secondary); padding: 40px 0; }
+
+        @media (max-width: 480px) {
+            .app { padding: 28px 14px 40px; }
+            .app-header h1 { font-size: 20px; }
+            svg { height: 420px; }
+        }
+    </style>
+</head>
+<body>
+    <main class="app">
+        <a class="back-link" href="index.html">← 返回总入口</a>
+        <header class="app-header">
+            <button class="theme-toggle" id="themeToggle" aria-label="切换深色模式" title="切换深色 / 浅色">🌙</button>
+            <div class="icon" aria-hidden="true">🕸️</div>
+            <h1>知识图谱</h1>
+            <p>MyWiki · 笔记关联网络</p>
+        </header>
+
+        <div class="toolbar">
+            <div class="legend" id="legend" aria-label="图例"></div>
+        </div>
+        <p class="meta" id="meta" aria-live="polite"></p>
+        <div class="canvas-wrap">
+            <svg id="graph" role="img" aria-label="知识图谱可视化"></svg>
+        </div>
+    </main>
+
+    <div class="toast" id="toast" role="status"></div>
+
+    <script>
+        // 屏蔽跨域 Script error 噪音
+        window.addEventListener("error", (e) => {
+            if (!e || e.message === "Script error." || e.filename === "") {
+                e.preventDefault(); return true;
+            }
+        }, true);
+
+        const $ = (sel) => document.querySelector(sel);
+
+        // 自动探测 API 基址：优先相对路径（兼容子目录/门户跳转），失败回退到根路径
+        function apiBase() {
+            const rel = new URL("api/graph", location.href);
+            return rel.pathname.endsWith("/api/graph") ? rel.pathname.replace(/\/api\/graph$/, "") : "/";
+        }
+
+        // ---------- 主题 ----------
+        const themeToggle = $("#themeToggle");
+        function applyTheme(t) {
+            document.documentElement.setAttribute("data-theme", t);
+            themeToggle.textContent = t === "dark" ? "☀️" : "🌙";
+            try { localStorage.setItem("mywiki-theme", t); } catch {}
+        }
+        (function initTheme() {
+            let t = "light";
+            try { t = localStorage.getItem("mywiki-theme") || "light"; } catch {}
+            applyTheme(t);
+        })();
+        themeToggle.addEventListener("click", () => {
+            const cur = document.documentElement.getAttribute("data-theme");
+            applyTheme(cur === "dark" ? "light" : "dark");
+        });
+
+        function toast(msg) {
+            const el = $("#toast");
+            el.textContent = msg;
+            el.classList.add("show");
+            clearTimeout(el._t);
+            el._t = setTimeout(() => el.classList.remove("show"), 2400);
+        }
+
+        // ---------- 轻量力导向布局（无外部依赖） ----------
+        const SVG_NS = "http://www.w3.org/2000/svg";
+        let nodes = [], edges = [], adjacency = {};
+
+        async function loadGraph() {
+            const base = apiBase();
+            const candidates = [base + "api/graph", "/api/graph"];
+            for (const url of candidates) {
+                try {
+                    const r = await fetch(url);
+                    const ct = r.headers.get("Content-Type") || "";
+                    if (!ct.includes("json")) {
+                        // 返回的是 HTML（如 404 页面），不是 JSON —— 尝试下一个候选
+                        continue;
+                    }
+                    const data = await r.json();
+                    if (!data.ok) { showError(data.error || "加载失败"); return; }
+                    initGraph(data);
+                    return;
+                } catch (e) {
+                    // 继续尝试下一个候选地址
+                }
+            }
+            showError("网络错误：无法获取知识图谱数据，请确认已通过本地服务器访问（而非直接打开文件）。");
+        }
+
+        function showError(msg) {
+            $("#meta").textContent = msg;
+            $("#graph").innerHTML = '<text x="50%" y="50%" text-anchor="middle" fill="#86868b" font-size="14">无法加载图谱</text>';
+        }
+
+        function initGraph(data) {
+            nodes = (data.nodes || []).map((n) => ({ ...n }));
+            edges = (data.links || []).map((l) => ({ ...l }));
+            adjacency = {};
+            const byId = {};
+            nodes.forEach((n) => { byId[n.id] = n; adjacency[n.id] = new Set(); });
+            const valid = [];
+            edges.forEach((e) => {
+                if (byId[e.source] && byId[e.target]) {
+                    adjacency[e.source].add(e.target);
+                    adjacency[e.target].add(e.source);
+                    valid.push(e);
+                }
+            });
+            edges = valid;
+
+            $("#meta").textContent = "节点 " + nodes.length + " · 关联 " + edges.length;
+
+            layout();
+            renderLegend();
+            render();
+            bindInteractions();
+        }
+
+        // 初始环形 + 随机扰动，随后做几轮松弛
+        function layout() {
+            const w = $("#graph").clientWidth || 800;
+            const h = $("#graph").clientHeight || 520;
+            const cx = w / 2, cy = h / 2;
+            const R = Math.min(w, h) * 0.38;
+            nodes.forEach((n, i) => {
+                const a = (i / nodes.length) * Math.PI * 2;
+                n.x = cx + R * Math.cos(a) + (Math.random() - 0.5) * 20;
+                n.y = cy + R * Math.sin(a) + (Math.random() - 0.5) * 20;
+                n.vx = 0; n.vy = 0;
+            });
+            const area = w * h;
+            const k = Math.sqrt(area / Math.max(nodes.length, 1)) * 0.6; // 理想间距
+            for (let iter = 0; iter < 220; iter++) {
+                // 斥力
+                for (let i = 0; i < nodes.length; i++) {
+                    const a = nodes[i];
+                    for (let j = i + 1; j < nodes.length; j++) {
+                        const b = nodes[j];
+                        let dx = a.x - b.x, dy = a.y - b.y;
+                        let d2 = dx * dx + dy * dy; if (d2 < 0.01) { dx = Math.random(); dy = Math.random(); d2 = dx * dx + dy * dy; }
+                        const d = Math.sqrt(d2);
+                        const f = (k * k) / d2 * 0.5;
+                        const fx = (dx / d) * f, fy = (dy / d) * f;
+                        a.vx += fx; a.vy += fy; b.vx -= fx; b.vy -= fy;
+                    }
+                }
+                // 引力（边）
+                for (const e of edges) {
+                    const a = nodes.find((n) => n.id === e.source);
+                    const b = nodes.find((n) => n.id === e.target);
+                    if (!a || !b) continue;
+                    let dx = b.x - a.x, dy = b.y - a.y;
+                    const d = Math.sqrt(dx * dx + dy * dy) || 0.01;
+                    const f = (d - k) * 0.02;
+                    const fx = (dx / d) * f, fy = (dy / d) * f;
+                    a.vx += fx; a.vy += fy; b.vx -= fx; b.vy -= fy;
+                }
+                // 向心 + 位移 + 阻尼
+                for (const n of nodes) {
+                    n.vx += (cx - n.x) * 0.002;
+                    n.vy += (cy - n.y) * 0.002;
+                    n.vx *= 0.85; n.vy *= 0.85;
+                    n.x += n.vx; n.y += n.vy;
+                    n.x = Math.max(24, Math.min(w - 24, n.x));
+                    n.y = Math.max(24, Math.min(h - 24, n.y));
+                }
+            }
+        }
+
+        function nodeRadius(n) {
+            const c = adjacency[n.id] ? adjacency[n.id].size : 0;
+            return 7 + Math.min(c, 8);
+        }
+
+        function renderLegend() {
+            const types = {};
+            nodes.forEach((n) => { types[n.type] = n.color; });
+            const legend = $("#legend");
+            legend.innerHTML = "";
+            Object.keys(types).forEach((t) => {
+                const s = document.createElement("span");
+                s.innerHTML = '<i style="background:' + types[t] + '"></i>' +
+                    '<span style="color:var(--text)">' + t + '</span>';
+                legend.appendChild(s);
+            });
+        }
+
+        let svg, edgeEls = [], nodeEls = {};
+        function render() {
+            svg = $("#graph");
+            svg.innerHTML = "";
+            edgeEls = [];
+            nodeEls = {};
+
+            // 边
+            for (const e of edges) {
+                const a = nodes.find((n) => n.id === e.source);
+                const b = nodes.find((n) => n.id === e.target);
+                if (!a || !b) continue;
+                const line = document.createElementNS(SVG_NS, "line");
+                line.setAttribute("x1", a.x); line.setAttribute("y1", a.y);
+                line.setAttribute("x2", b.x); line.setAttribute("y2", b.y);
+                line.setAttribute("class", "edge");
+                line.dataset.s = e.source; line.dataset.t = e.target;
+                svg.appendChild(line);
+                edgeEls.push(line);
+            }
+            // 节点
+            for (const n of nodes) {
+                const g = document.createElementNS(SVG_NS, "g");
+                g.setAttribute("class", "node");
+                g.dataset.id = n.id;
+                const c = document.createElementNS(SVG_NS, "circle");
+                c.setAttribute("cx", n.x); c.setAttribute("cy", n.y);
+                c.setAttribute("r", nodeRadius(n));
+                c.setAttribute("fill", n.color || "#9E9E9E");
+                g.appendChild(c);
+                const txt = document.createElementNS(SVG_NS, "text");
+                txt.setAttribute("x", n.x);
+                txt.setAttribute("y", n.y - nodeRadius(n) - 4);
+                txt.setAttribute("text-anchor", "middle");
+                txt.textContent = n.label || n.id;
+                g.appendChild(txt);
+                svg.appendChild(g);
+                nodeEls[n.id] = g;
+            }
+        }
+
+        // 点击节点高亮邻居
+        function bindInteractions() {
+            svg.addEventListener("click", (ev) => {
+                const g = ev.target.closest(".node");
+                if (!g) { clearHighlight(); return; }
+                const id = g.dataset.id;
+                const neighbors = adjacency[id] || new Set();
+                nodes.forEach((n) => {
+                    const el = nodeEls[n.id];
+                    if (!el) return;
+                    const on = (n.id === id) || neighbors.has(n.id);
+                    el.classList.toggle("dim", !on);
+                });
+                edgeEls.forEach((e) => {
+                    const on = (e.dataset.s === id) || (e.dataset.t === id);
+                    e.classList.toggle("dim", !on);
+                });
+            });
+            svg.addEventListener("dblclick", clearHighlight);
+
+            // 拖拽
+            let drag = null, moved = false;
+            svg.addEventListener("pointerdown", (ev) => {
+                const g = ev.target.closest(".node");
+                if (!g) return;
+                drag = g.dataset.id; moved = false;
+                svg.setPointerCapture(ev.pointerId);
+            });
+            svg.addEventListener("pointermove", (ev) => {
+                if (!drag) return;
+                const n = nodes.find((x) => x.id === drag);
+                if (!n) return;
+                const pt = svgPoint(ev);
+                n.x = pt.x; n.y = pt.y; moved = true;
+                render();
+            });
+            svg.addEventListener("pointerup", () => { drag = null; });
+        }
+
+        function svgPoint(ev) {
+            const r = svg.getBoundingClientRect();
+            return { x: ev.clientX - r.left, y: ev.clientY - r.top };
+        }
+
+        function clearHighlight() {
+            nodes.forEach((n) => { const el = nodeEls[n.id]; if (el) el.classList.remove("dim"); });
+            edgeEls.forEach((e) => e.classList.remove("dim"));
+        }
+
+        loadGraph();
+    </script>
+</body>
+</html>

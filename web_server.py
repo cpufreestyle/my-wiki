@@ -130,6 +130,11 @@ class Handler(SimpleHTTPRequestHandler):
         if self.path in ("/", "/index.html"):
             self.path = "/index.html"
             return super().do_GET()
+        # 浏览器自动请求的图标：返回 204 空响应，消除无谓 404
+        if self.path == "/favicon.ico":
+            self.send_response(204)
+            self.end_headers()
+            return
         # API 路由
         if self.path.startswith("/api/rag"):
             self._handle_rag()
@@ -137,7 +142,41 @@ class Handler(SimpleHTTPRequestHandler):
         if self.path.startswith("/api/graph"):
             self._handle_graph()
             return
+        if self.path == "/api/modules" or self.path.startswith("/api/modules?"):
+            self._handle_modules()
+            return
         return super().do_GET()
+
+    # ---- 可用网页模块清单（供 index.html 动态渲染导航） ----
+    # 每个模块：file=对应网页文件名；仅当该文件实际存在时才返回，
+    # 因此新增/删除 *_web.html 页面后，入口会自动更新，无需改 HTML。
+    MODULE_REGISTRY = [
+        {"id": "reminder", "file": "reminder_web.html", "label": "快速提醒",
+         "hint": "设置常用 / 自定义提醒", "emoji": "⏰", "color": "accent"},
+        {"id": "daily", "file": "daily_web.html", "label": "每日日记",
+         "hint": "记录当日随笔与心情", "emoji": "📝", "color": "green"},
+        {"id": "mood", "file": "mood_web.html", "label": "心情记录",
+         "hint": "语音 / 文字记录情绪", "emoji": "💡", "color": "orange"},
+        {"id": "rag", "file": "rag_web.html", "label": "语义检索",
+         "hint": "本地知识库问答", "emoji": "🔍", "color": "accent"},
+        {"id": "graph", "file": "graph_web.html", "label": "知识图谱",
+         "hint": "笔记关联网络", "emoji": "🕸️", "color": "green"},
+    ]
+
+    def _handle_modules(self):
+        modules = []
+        for m in self.MODULE_REGISTRY:
+            path = os.path.join(ROOT, m["file"])
+            if os.path.isfile(path) and os.path.getsize(path) > 0:
+                modules.append({
+                    "id": m["id"],
+                    "file": m["file"],
+                    "label": m["label"],
+                    "hint": m["hint"],
+                    "emoji": m["emoji"],
+                    "color": m["color"],
+                })
+        self._send_json({"ok": True, "modules": modules})
 
     # ---- 语义检索（复用 rag.py 的 RAGEngine） ----
     def _handle_rag(self):
@@ -269,12 +308,6 @@ class Handler(SimpleHTTPRequestHandler):
 
     def log_message(self, fmt, *args):
         pass  # 静默
-
-    def do_GET(self):
-        # 根路径 / 明确返回门户页 index.html（避免某些运行时回退到目录列表）
-        if self.path in ("/", "/index.html"):
-            self.path = "/index.html"
-        return super().do_GET()
 
 
 def run_server(port=8080):

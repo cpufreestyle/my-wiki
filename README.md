@@ -621,6 +621,8 @@ MYWIKI_RAG_MODE=ollama python rag.py "你的问题" --rebuild
 - ✅ **浅色 / 深色主题**：`reminder_web.html` / `daily_web.html` / `mood_web.html` 均支持一键切换深色模式，偏好持久化到 `localStorage`
 - ✅ **桌面端功能网页化**：提醒 / 日记 / 心情三大桌面端功能均已提供对应的自包含网页版（同一套 Apple 风设计），无需启动 GUI 即可在浏览器使用
 - ✅ **网页端总入口**：`index.html` 为统一门户页，卡片式导航进入各模块；经 `web_server.py` 启动后根路径 `/` 即门户页
+- ✅ **语义检索网页版**：`rag_web.html` 调用 `rag.py` 的 `RAGEngine`（`/api/rag` 接口），支持 BM25 / Ollama embedding 两种模式，含语音输入
+- ✅ **知识图谱可视化**：`graph_web.html` 读取 `knowledge_graph.json`（`/api/graph` 接口），纯 SVG 力导向布局（无外部依赖），按类型着色、点击高亮邻居、可拖拽
 - ✅ **卡片高度可调**：三个网页版的卡片均保证高度高于字体（`--card-h` 变量兜底），并提供「卡片高度」滑块手动统一调节，偏好持久化到 `localStorage`（daily 的编辑器高度随滑块联动）
 - ✅ **设计规格沉淀**：`FIGMA_DESIGN_SPEC.md` 记录界面设计稿与规范，便于后续迭代与协作
 - ✅ **一致体验**：`reminder_ui.py` / `daily_ui.py` / `wiki_app.py` 同步适配统一 token
