@@ -3,6 +3,7 @@
 # 修改这里即可整体换肤。
 
 import os
+import json
 
 # ---------- 字体 ----------
 FONT = "Helvetica Neue"  # macOS 下中文回退到系统字体
@@ -54,6 +55,22 @@ DEFAULT_MODE = "light"
 _PREF_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config")
 PREF_FILE = os.path.join(_PREF_DIR, "theme_pref.txt")
 
+# UI 偏好文件（行间距、卡片内边距等可调参数）
+UI_PREF_FILE = os.path.join(_PREF_DIR, "ui_pref.json")
+
+# UI 偏好默认值
+DEFAULT_UI_PREFS = {
+    "card_line_spacing": 12,      # 卡片内标题行与副文案之间的间距(px)
+    "card_padding_v": 16,         # 卡片上下内边距(px)
+    "card_padding_h": 18,         # 卡片左右内边距(px)
+    "card_gap": 12,               # 卡片之间的间距(px)
+    "card_min_height": 80,        # 卡片最小高度(px)，可手动拖拽调整
+    "title_font_size": 15,        # 标题字号(px)
+    "hint_font_size": 12,         # 副文案字号(px)
+    "title_line_padding": 2,      # 标题上下额外 padding(px)
+    "mood_card_height": 52,       # 心情卡片高度(px)，对齐网页端 --card-h 默认 52px
+}
+
 
 def load_theme_pref() -> str:
     """读取用户主题偏好（light / dark），读不到则回退默认浅色。"""
@@ -83,3 +100,35 @@ def get_tokens(mode: str | None = None) -> dict[str, str]:
     if mode is None:
         mode = load_theme_pref()
     return DARK if mode == "dark" else LIGHT
+
+
+def load_ui_prefs() -> dict:
+    """读取 UI 偏好（行间距等），读不到则回退默认值。"""
+    prefs = dict(DEFAULT_UI_PREFS)
+    try:
+        if os.path.exists(UI_PREF_FILE):
+            with open(UI_PREF_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if isinstance(data, dict):
+                # 只合并已知键，保证新字段有默认值
+                for k in DEFAULT_UI_PREFS:
+                    if k in data:
+                        try:
+                            prefs[k] = type(DEFAULT_UI_PREFS[k])(data[k])
+                        except (TypeError, ValueError):
+                            pass
+    except Exception:
+        pass
+    return prefs
+
+
+def save_ui_prefs(prefs: dict) -> None:
+    """写入 UI 偏好，供下次启动读取。"""
+    try:
+        os.makedirs(_PREF_DIR, exist_ok=True)
+        # 只存已知键
+        clean = {k: prefs.get(k, DEFAULT_UI_PREFS[k]) for k in DEFAULT_UI_PREFS}
+        with open(UI_PREF_FILE, "w", encoding="utf-8") as f:
+            json.dump(clean, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass

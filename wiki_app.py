@@ -25,7 +25,7 @@ from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QTabWidget, QVBoxLayout, QHBoxLayout,
     QGridLayout, QLabel, QPushButton, QPlainTextEdit, QLineEdit, QCheckBox,
     QScrollArea, QFrame, QMessageBox, QProgressDialog, QDialog, QSplitter,
-    QSizePolicy, QSpacerItem
+    QSizePolicy, QSpacerItem, QSpinBox, QSlider
 )
 
 # ==================== DEPENDENCY CHECK ====================
@@ -145,10 +145,25 @@ REMINDER_DIR = os.path.join(WIKI_DIR, "reminders")
 REMINDER_FILE = os.path.join(REMINDER_DIR, "reminders.json")
 
 # ==================== THEME ====================
-from theme import get_tokens, load_theme_pref, save_theme_pref
+from theme import (
+    get_tokens, load_theme_pref, save_theme_pref,
+    load_ui_prefs, save_ui_prefs, DEFAULT_UI_PREFS,
+)
 import voice_mood
 
 MODE = load_theme_pref()
+UI_PREFS = load_ui_prefs()  # 行间距等可调 UI 偏好
+
+
+def get_ui_pref(key, default=None):
+    """读取单个 UI 偏好值。"""
+    return UI_PREFS.get(key, DEFAULT_UI_PREFS.get(key, default))
+
+
+def set_ui_pref(key, value):
+    """设置单个 UI 偏好值（同步内存与磁盘）。"""
+    UI_PREFS[key] = value
+    save_ui_prefs(UI_PREFS)
 
 def get_theme_colors(mode=None):
     """返回主题色 dict，供 QSS 样式表使用。"""
@@ -156,7 +171,15 @@ def get_theme_colors(mode=None):
     return T
 
 def apply_qss(app, mode=None):
-    """生成并应用 QSS 全局样式表。"""
+    """生成并应用 QSS 全局样式表，对齐网页版 Apple 风设计系统。
+
+    设计要点（与 mood_web.html / daily_web.html / reminder_web.html 一致）：
+      - 卡片：圆角 14px + 阴影分层，无边框（靠阴影区分层次）
+      - 按钮：圆角 10px；primary 蓝底白字；tool 描边
+      - 输入框：透明背景融入卡片
+      - section-title：13px 次要色、大写、字间距
+      - 正文 14-15px，行高 1.6
+    """
     T = get_theme_colors(mode)
     bg = T["BG"]
     surface = T["SURFACE"]
@@ -168,93 +191,148 @@ def apply_qss(app, mode=None):
     btn_hover = T["BTN_HOVER"]
     green = T["GREEN"]
     orange = T["ORANGE"]
+    is_dark = (mode or MODE) == "dark"
+    # 阴影：深色模式用更浓的黑色，浅色模式用淡灰
+    shadow_rgb = "rgba(0,0,0,0.45)" if is_dark else "rgba(0,0,0,0.08)"
+    shadow_md_rgb = "rgba(0,0,0,0.5)" if is_dark else "rgba(0,0,0,0.06)"
 
     qss = f"""
     QMainWindow, QWidget {{
         background-color: {bg};
         color: {text};
         font-family: {UI_FONT};
-        font-size: {int(12 * FONT_SCALE)}px;
+        font-size: 14px;
     }}
+    /* ---------- 标签页（对齐网页 header，更宽松） ---------- */
     QTabWidget::pane {{
-        border: 1px solid {border};
-        border-radius: 6px;
-        top: -1px;
+        border: none;
+        background: transparent;
+        top: -2px;
     }}
     QTabBar::tab {{
-        background: {surface};
-        color: {text};
-        padding: 10px 24px;
-        margin-right: 2px;
-        border: 1px solid {border};
-        border-bottom: none;
-        border-top-left-radius: 6px;
-        border-top-right-radius: 6px;
-        font-size: {int(13 * FONT_SCALE)}px;
+        background: transparent;
+        color: {text2};
+        padding: 10px 22px;
+        margin: 0 2px;
+        border: none;
+        border-bottom: 3px solid transparent;
+        font-size: 14px;
+        font-weight: 500;
     }}
     QTabBar::tab:selected {{
-        background: {accent};
-        color: white;
+        color: {accent};
+        border-bottom: 3px solid {accent};
     }}
     QTabBar::tab:hover:!selected {{
-        background: {btn_hover};
+        color: {text};
+        border-bottom: 3px solid {border};
     }}
+    /* ---------- 按钮（对齐网页 .tool-btn / .analyze-btn） ---------- */
     QPushButton {{
         background-color: {surface};
         color: {text};
         border: 1px solid {border};
-        border-radius: 5px;
-        padding: 7px 16px;
-        font-size: {int(11 * FONT_SCALE)}px;
+        border-radius: 10px;
+        padding: 9px 16px;
+        font-size: 13px;
+        font-weight: 600;
     }}
     QPushButton:hover {{
-        background-color: {btn_hover};
+        border-color: {accent};
+        background-color: {surface};
     }}
     QPushButton:pressed {{
-        background-color: {accent_h};
+        background-color: {btn_hover};
     }}
     QPushButton[primary="true"] {{
         background-color: {accent};
-        color: white;
-        border: none;
-        font-weight: bold;
-        font-size: {int(12 * FONT_SCALE)}px;
-        padding: 8px 18px;
+        color: #ffffff;
+        border: 1px solid {accent};
+        border-radius: 10px;
+        font-weight: 700;
+        font-size: 15px;
+        padding: 12px 18px;
     }}
     QPushButton[primary="true"]:hover {{
         background-color: {accent_h};
+        border-color: {accent_h};
     }}
-    QPlainTextEdit, QLineEdit {{
-        background-color: {bg};
-        color: {text};
-        border: 1px solid {border};
-        border-radius: 4px;
-        padding: 6px;
-        font-size: {int(12 * FONT_SCALE)}px;
+    QPushButton[card="true"] {{
+        background-color: {surface};
+        border: none;
+        border-radius: 14px;
+        text-align: left;
+        padding: 0px;
+        font-weight: 500;
     }}
-    QPlainTextEdit:focus, QLineEdit:focus {{
+    QPushButton[card="true"]:hover {{
+        background-color: {surface};
         border: 1px solid {accent};
     }}
+    /* ---------- 输入框（透明背景融入卡片，对齐网页 textarea） ---------- */
+    QPlainTextEdit, QLineEdit {{
+        background-color: transparent;
+        color: {text};
+        border: none;
+        border-radius: 4px;
+        padding: 4px 6px;
+        font-size: 14px;
+        line-height: 1.6;
+        selection-background-color: {accent};
+        selection-color: #ffffff;
+    }}
+    QPlainTextEdit:focus, QLineEdit:focus {{
+        border: none;
+    }}
+    /* ---------- 卡片容器（对齐网页 .card：阴影无边框） ---------- */
+    QFrame[card="true"] {{
+        background-color: {surface};
+        border: none;
+        border-radius: 14px;
+    }}
+    QFrame[card="true"] > QLabel {{
+        color: {text};
+        background: transparent;
+    }}
+    /* ---------- 复选框 ---------- */
     QCheckBox {{
         color: {text2};
-        font-size: {int(10 * FONT_SCALE)}px;
+        font-size: 12px;
+        background: transparent;
     }}
     QCheckBox::indicator {{
         width: 16px;
         height: 16px;
+        border-radius: 4px;
+        border: 1px solid {border};
+        background: {surface};
     }}
+    QCheckBox::indicator:checked {{
+        background: {accent};
+        border-color: {accent};
+    }}
+    /* ---------- 标签默认透明 ---------- */
     QLabel {{
         color: {text};
         background: transparent;
     }}
+    /* ---------- section-title（对齐网页 .section-title） ---------- */
+    QLabel[section="true"] {{
+        color: {text2};
+        font-size: 13px;
+        font-weight: 600;
+        padding: 22px 4px 12px;
+    }}
+    /* ---------- 滚动区域 ---------- */
     QScrollArea {{
         border: none;
-        background: {surface};
+        background: transparent;
     }}
     QScrollBar:vertical {{
-        background: {surface};
+        background: transparent;
         width: 10px;
         border: none;
+        margin: 4px;
     }}
     QScrollBar::handle:vertical {{
         background: {border};
@@ -267,6 +345,10 @@ def apply_qss(app, mode=None):
     QScrollBar::add-line, QScrollBar::sub-line {{
         height: 0;
     }}
+    QScrollBar::add-page, QScrollBar::sub-page {{
+        background: transparent;
+    }}
+    /* ---------- 分隔条 ---------- */
     QSplitter::handle {{
         background: {border};
         height: 3px;
@@ -342,6 +424,8 @@ I18N = {
         "enter_id": "请输入有效编号", "reminder_set": "提醒已设置：{t} - {m}",
         "reminder_cancelled": "提醒 #{i} 已取消", "cannot_cancel": "无法取消 #{i}",
         "tmr9": "明天9点", "tmr18": "明天18点",
+        "settings_btn": "⚙️", "settings_title": "界面设置",
+        "settings_card_spacing": "卡片行间距：", "settings_card_padding": "卡片内边距：",
         "share_title": "🌐 共享知识库 — Obsidian × 所有 Agent",
         "refresh": "刷新", "start_server": "▶ 启动 MCP 服务",
         "open_obsidian": "🔭 在 Obsidian 打开", "broadcast": "🔔 通知 Agent",
@@ -384,6 +468,8 @@ I18N = {
         "enter_id": "Enter valid ID", "reminder_set": "Reminder set: {t} - {m}",
         "reminder_cancelled": "Reminder #{i} cancelled", "cannot_cancel": "Cannot cancel #{i}",
         "tmr9": "Tomorrow 9am", "tmr18": "Tomorrow 6pm",
+        "settings_btn": "⚙️", "settings_title": "UI Settings",
+        "settings_card_spacing": "Card line spacing:", "settings_card_padding": "Card padding:",
         "share_title": "🌐 Shared Wiki — Obsidian × All Agents",
         "refresh": "Refresh", "start_server": "▶ Start MCP Server",
         "open_obsidian": "🔭 Open in Obsidian", "broadcast": "🔔 Notify Agents",
@@ -607,48 +693,91 @@ class WikiApp(QMainWindow):
 
         # 状态栏
         self.status_label = QLabel(t("ready"))
-        self.status_label.setStyleSheet("color: #888; padding: 2px 8px;")
+        self.status_label.setStyleSheet(f"color: {get_theme_colors()['TEXT2']}; font-size: 13px; padding: 4px 20px 8px; text-align: center;")
+        self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.status_label)
 
     def _build_topbar(self, parent_layout):
+        """顶部工具条（对齐网页 .app-header：居中标题 + 右上角圆形主题按钮）。"""
+        T = get_theme_colors()
         bar = QWidget()
         bar_layout = QHBoxLayout(bar)
-        bar_layout.setContentsMargins(4, 2, 4, 2)
-        bar_layout.setSpacing(4)
+        bar_layout.setContentsMargins(4, 8, 4, 4)
+        bar_layout.setSpacing(8)
 
-        title = QLabel("📝 " + t("app_title"))
-        title.setStyleSheet(f"color: {get_theme_colors()['ACCENT']}; font-weight: bold; font-size: {int(15*FONT_SCALE)}px;")
-        bar_layout.addWidget(title)
+        # 左侧占位（与右侧按钮对称，让标题居中）
         bar_layout.addStretch()
 
+        # 居中标题（对齐网页 h1：600 字重、紧凑字间距）
+        title = QLabel("📝 " + t("app_title"))
+        title.setStyleSheet(f"color: {T['TEXT']}; font-weight: 600; font-size: 18px; letter-spacing: -0.01em;")
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        bar_layout.addWidget(title)
+
+        bar_layout.addStretch()
+
+        # 右上角主题切换（对齐网页 .theme-toggle：圆形按钮）
         theme_icon = "🌙" if MODE == "light" else "☀️"
         self.theme_btn = QPushButton(theme_icon)
-        self.theme_btn.setFixedWidth(40)
+        self.theme_btn.setFixedSize(38, 38)
+        self.theme_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {T['SURFACE']};
+                border: none;
+                border-radius: 19px;
+                font-size: 17px;
+            }}
+            QPushButton:hover {{ background-color: {T['BTN_HOVER']}; }}
+        """)
         self.theme_btn.clicked.connect(self.toggle_theme)
         bar_layout.addWidget(self.theme_btn)
 
+        # 语言切换
         self.lang_btn = QPushButton(t("lang_btn"))
-        self.lang_btn.setFixedWidth(50)
+        self.lang_btn.setFixedSize(44, 38)
         self.lang_btn.clicked.connect(self.toggle_language)
         bar_layout.addWidget(self.lang_btn)
+
+        # 界面设置按钮（行间距等）
+        self.settings_btn = QPushButton(t("settings_btn"))
+        self.settings_btn.setFixedSize(38, 38)
+        self.settings_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {T['SURFACE']};
+                border: none;
+                border-radius: 19px;
+                font-size: 18px;
+            }}
+            QPushButton:hover {{ background-color: {T['BTN_HOVER']}; }}
+        """)
+        self.settings_btn.clicked.connect(self.open_ui_settings)
+        bar_layout.addWidget(self.settings_btn)
 
         parent_layout.addWidget(bar)
 
     def _section_label(self, parent_layout, text):
+        """小标题（对齐网页 .section-title：13px 次要色、600 字重）。"""
         lbl = QLabel(text)
-        lbl.setStyleSheet(f"color: {get_theme_colors()['TEXT2']}; font-weight: bold; font-size: {int(12*FONT_SCALE)}px; padding: 8px 12px 4px;")
+        lbl.setProperty("section", True)
         parent_layout.addWidget(lbl)
 
     def _card_frame(self):
+        """卡片容器（对齐网页 .card：圆角 14px + 阴影，无边框）。
+        QSS 无法直接设阴影，用 QGraphicsDropShadowEffect 补上。
+        """
         T = get_theme_colors()
+        is_dark = MODE == "dark"
         card = QFrame()
-        card.setStyleSheet(f"""
-            QFrame {{
-                background-color: {T['SURFACE']};
-                border: 1px solid {T['BORDER']};
-                border-radius: 6px;
-            }}
-        """)
+        card.setProperty("card", True)
+        # 阴影效果（QSS 不支持 box-shadow，用 effect 替代）
+        from PySide6.QtWidgets import QGraphicsDropShadowEffect
+        from PySide6.QtGui import QColor
+        shadow = QGraphicsDropShadowEffect(card)
+        shadow.setBlurRadius(20)
+        shadow.setOffset(0, 1)
+        shadow_color = QColor(0, 0, 0, 50 if is_dark else 20)
+        shadow.setColor(shadow_color)
+        card.setGraphicsEffect(shadow)
         return card
 
     def _primary_btn(self, text, callback):
@@ -661,13 +790,15 @@ class WikiApp(QMainWindow):
     def _build_daily_tab(self):
         tab = QWidget()
         layout = QVBoxLayout(tab)
-        layout.setContentsMargins(10, 6, 10, 10)
-        layout.setSpacing(6)
+        layout.setContentsMargins(20, 16, 20, 16)
+        layout.setSpacing(10)
 
         # 顶部：日期 + 按钮
         top = QHBoxLayout()
-        date_lbl = QLabel(f"  {get_today()}")
-        date_lbl.setStyleSheet(f"font-weight: bold; font-size: {int(13*FONT_SCALE)}px;")
+        top.setSpacing(8)
+        date_lbl = QLabel(get_today())
+        date_lbl.setStyleSheet("font-weight: 600; font-size: 17px; color: #1d1d1f;")
+        date_lbl.setStyleSheet(f"font-weight: 600; font-size: 17px; color: {get_theme_colors()['TEXT']};")
         top.addWidget(date_lbl)
         top.addStretch()
         tags_btn = QPushButton(t("tags"))
@@ -681,7 +812,7 @@ class WikiApp(QMainWindow):
         # 编辑器卡片
         editor_card = self._card_frame()
         editor_layout = QVBoxLayout(editor_card)
-        editor_layout.setContentsMargins(8, 8, 8, 8)
+        editor_layout.setContentsMargins(4, 4, 4, 4)
         self.daily_text = QPlainTextEdit()
         self.daily_text.setFont(mono_font(13))
         self.daily_text.setPlainText(load_daily(get_today()))
@@ -690,8 +821,9 @@ class WikiApp(QMainWindow):
 
         # 底部：保存 + 标签显示
         bot = QHBoxLayout()
+        bot.setSpacing(10)
         self.tag_display = QLabel("")
-        self.tag_display.setStyleSheet(f"color: {get_theme_colors()['GREEN']};")
+        self.tag_display.setStyleSheet(f"color: {get_theme_colors()['GREEN']}; font-size: 13px; font-weight: 500;")
         bot.addWidget(self.tag_display)
         bot.addStretch()
         save_btn = self._primary_btn(t("save"), self.save_daily)
@@ -726,22 +858,24 @@ class WikiApp(QMainWindow):
     def _build_mood_tab(self):
         tab = QWidget()
         layout = QVBoxLayout(tab)
-        layout.setContentsMargins(10, 6, 10, 10)
-        layout.setSpacing(6)
+        layout.setContentsMargins(20, 16, 20, 16)
+        layout.setSpacing(10)
 
         self._section_label(layout, t("mood_q"))
 
         # 输入卡片
         inp_card = self._card_frame()
         inp_layout = QVBoxLayout(inp_card)
-        inp_layout.setContentsMargins(8, 8, 8, 8)
+        inp_layout.setContentsMargins(14, 14, 14, 14)
+        inp_layout.setSpacing(10)
         self.mood_input = QPlainTextEdit()
-        self.mood_input.setFont(ui_font(12))
-        self.mood_input.setFixedHeight(70)
+        self.mood_input.setFont(ui_font(13))
+        self.mood_input.setFixedHeight(90)
         inp_layout.addWidget(self.mood_input)
 
         # 语音行
         vrow = QHBoxLayout()
+        vrow.setSpacing(10)
         self.voice_btn = QPushButton(t("voice"))
         self.voice_btn.clicked.connect(self.on_voice_toggle)
         vrow.addWidget(self.voice_btn)
@@ -754,7 +888,7 @@ class WikiApp(QMainWindow):
         vrow.addStretch()
 
         self.voice_status = QLabel("")
-        self.voice_status.setStyleSheet("color: #888;")
+        self.voice_status.setStyleSheet(f"color: {get_theme_colors()['TEXT2']}; font-size: 12px;")
         vrow.addWidget(self.voice_status)
         vrow.addStretch()
 
@@ -770,19 +904,19 @@ class WikiApp(QMainWindow):
         # 快捷心情卡片网格
         grid_widget = QWidget()
         grid = QGridLayout(grid_widget)
-        grid.setSpacing(6)
+        grid.setSpacing(12)
         for i, (mood, emoji) in enumerate(MOOD_EMOJI.items()):
             card = self._mood_card(f"{emoji} {mood}", lambda m=mood: self.quick_mood(m))
-            card.setFixedHeight(50)
             grid.addWidget(card, i // 2, i % 2)
         layout.addWidget(grid_widget)
 
         # 分析按钮
         btn_row = QHBoxLayout()
+        btn_row.setSpacing(10)
         analyze_btn = self._primary_btn(t("auto_analyze"), lambda: self.analyze_mood_ui())
         btn_row.addWidget(analyze_btn)
         self.mood_result = QLabel("")
-        self.mood_result.setStyleSheet(f"color: {get_theme_colors()['GREEN']}; font-size: {int(13*FONT_SCALE)}px;")
+        self.mood_result.setStyleSheet(f"color: {get_theme_colors()['GREEN']}; font-size: 14px; font-weight: 600;")
         btn_row.addWidget(self.mood_result)
         btn_row.addStretch()
         layout.addLayout(btn_row)
@@ -791,9 +925,9 @@ class WikiApp(QMainWindow):
         self._section_label(layout, t("today_records"))
         hist_card = self._card_frame()
         hist_layout = QVBoxLayout(hist_card)
-        hist_layout.setContentsMargins(8, 8, 8, 8)
+        hist_layout.setContentsMargins(14, 14, 14, 14)
         self.mood_history = QPlainTextEdit()
-        self.mood_history.setFont(mono_font(11))
+        self.mood_history.setFont(mono_font(12))
         self.mood_history.setReadOnly(True)
         hist_layout.addWidget(self.mood_history)
         layout.addWidget(hist_card, stretch=1)
@@ -802,25 +936,42 @@ class WikiApp(QMainWindow):
         self.refresh_mood_history()
 
     def _mood_card(self, title, on_click):
+        """心情卡片（对齐网页 .mood-card：圆点 + 标签，阴影无边框，hover 上浮）。"""
         T = get_theme_colors()
-        card = QPushButton(title)
+        is_dark = MODE == "dark"
+        # 卡片高度对齐网页端 --card-h（默认 52px，可在设置面板 44-160 间调节）
+        mood_h = get_ui_pref("mood_card_height", 52)
+        card = QPushButton()
         card.clicked.connect(on_click)
-        card.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {T['SURFACE']};
-                color: {T['TEXT']};
-                border: 1px solid {T['BORDER']};
-                border-radius: 8px;
-                font-size: {int(14*FONT_SCALE)}px;
-                font-weight: bold;
-                text-align: left;
-                padding-left: 20px;
-            }}
-            QPushButton:hover {{
-                background-color: {T['BTN_HOVER']};
-                border: 1px solid {T['ACCENT']};
-            }}
-        """)
+        card.setProperty("card", True)
+        card.setFixedHeight(mood_h)
+        # 卡片内部布局：圆点 + 标签
+        card_layout = QHBoxLayout(card)
+        # 内边距跟随卡片高度自适应，避免在 52px 高度下文字溢出
+        pad_v = max(6, int((mood_h - 23) / 2))
+        card_layout.setContentsMargins(16, pad_v, 16, pad_v)
+        card_layout.setSpacing(12)
+        # 圆点
+        dot = QLabel("●")
+        dot.setStyleSheet(f"color: {T['ACCENT']}; font-size: 10px; background: transparent; border: none;")
+        dot.setFixedSize(8, 8)
+        dot.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        dot.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        card_layout.addWidget(dot)
+        # 标签
+        label = QLabel(title)
+        label.setStyleSheet(f"font-size: 15px; font-weight: 500; color: {T['TEXT']}; background: transparent; border: none;")
+        label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        card_layout.addWidget(label)
+        card_layout.addStretch()
+        # 阴影
+        from PySide6.QtWidgets import QGraphicsDropShadowEffect
+        from PySide6.QtGui import QColor
+        shadow = QGraphicsDropShadowEffect(card)
+        shadow.setBlurRadius(20)
+        shadow.setOffset(0, 1)
+        shadow.setColor(QColor(0, 0, 0, 50 if is_dark else 20))
+        card.setGraphicsEffect(shadow)
         return card
 
     def quick_mood(self, mood):
@@ -1064,15 +1215,15 @@ class WikiApp(QMainWindow):
     def _build_reminder_tab(self):
         tab = QWidget()
         layout = QVBoxLayout(tab)
-        layout.setContentsMargins(10, 6, 10, 10)
-        layout.setSpacing(6)
+        layout.setContentsMargins(20, 16, 20, 16)
+        layout.setSpacing(10)
 
         self._section_label(layout, t("quick_reminders"))
 
         # 预设卡片
         grid_widget = QWidget()
         grid = QGridLayout(grid_widget)
-        grid.setSpacing(6)
+        grid.setSpacing(get_ui_pref("card_gap", 12))
         preset_items = [
             ("+1h", 1, "快速稍后提醒"),
             ("+2h", 2, "午间 / 会议"),
@@ -1088,8 +1239,11 @@ class WikiApp(QMainWindow):
         # 自定义提醒卡片
         ccard = self._card_frame()
         clayout = QVBoxLayout(ccard)
-        clayout.setContentsMargins(12, 10, 12, 10)
-        clayout.addWidget(QLabel(t("custom")))
+        clayout.setContentsMargins(14, 14, 14, 14)
+        clayout.setSpacing(8)
+        custom_lbl = QLabel(t("custom"))
+        custom_lbl.setStyleSheet(f"font-weight: 600; font-size: 14px; color: {get_theme_colors()['TEXT']};")
+        clayout.addWidget(custom_lbl)
         row = QHBoxLayout()
         self.reminder_msg = QLineEdit()
         self.reminder_msg.setPlaceholderText("提醒内容…")
@@ -1131,33 +1285,71 @@ class WikiApp(QMainWindow):
         self.refresh_reminder_list()
 
     def _reminder_card(self, title, hint, on_click):
+        """预设提醒卡片（对齐网页 .preset-card：阴影无边框、圆点+标题+副文案）。
+        行间距、内边距等可通过 UI 偏好手动调整（顶栏 ⚙️ 按钮）。"""
         T = get_theme_colors()
+        is_dark = MODE == "dark"
+        # 从偏好读取可调参数
+        line_spacing = get_ui_pref("card_line_spacing", 12)
+        pad_v = get_ui_pref("card_padding_v", 16)
+        pad_h = get_ui_pref("card_padding_h", 18)
+        title_size = get_ui_pref("title_font_size", 15)
+        hint_size = get_ui_pref("hint_font_size", 12)
+        title_pad = get_ui_pref("title_line_padding", 2)
+        min_height = get_ui_pref("card_min_height", 80)
         card = QPushButton()
         card.clicked.connect(on_click)
-        card.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {T['SURFACE']};
-                border: 1px solid {T['BORDER']};
-                border-radius: 8px;
-                text-align: left;
-                padding: 12px 16px;
-            }}
-            QPushButton:hover {{
-                border: 1px solid {T['ACCENT']};
-                background-color: {T['BTN_HOVER']};
-            }}
-        """)
+        card.setProperty("card", True)
+        card.setMinimumHeight(min_height)
         card_layout = QVBoxLayout(card)
-        card_layout.setContentsMargins(4, 4, 4, 4)
+        card_layout.setContentsMargins(pad_h, pad_v, pad_h, pad_v)
+        card_layout.setSpacing(line_spacing)
+        # 标题行：圆点 + 标题
+        head = QHBoxLayout()
+        head.setSpacing(10)
+        dot = QLabel("●")
+        dot.setStyleSheet(f"color: {T['ACCENT']}; font-size: 11px; background: transparent; border: none;")
+        dot.setFixedSize(10, 10)
+        dot.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        dot.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        head.addWidget(dot)
         title_lbl = QLabel(title)
-        title_lbl.setStyleSheet(f"font-weight: bold; font-size: {int(13*FONT_SCALE)}px; border: none; background: transparent;")
+        title_lbl.setStyleSheet(
+            f"font-weight: 600; font-size: {title_size}px; color: {T['TEXT']}; "
+            f"border: none; background: transparent; padding: {title_pad}px 0;"
+        )
         title_lbl.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
-        card_layout.addWidget(title_lbl)
+        head.addWidget(title_lbl)
+        head.addStretch()
+        card_layout.addLayout(head)
+        # 副文案
         hint_lbl = QLabel(hint)
-        hint_lbl.setStyleSheet(f"color: {T['TEXT2']}; font-size: {int(10*FONT_SCALE)}px; border: none; background: transparent;")
+        hint_lbl.setStyleSheet(
+            f"color: {T['TEXT2']}; font-size: {hint_size}px; border: none; background: transparent; "
+            f"padding-left: 20px; padding-top: 2px;"
+        )
         hint_lbl.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         card_layout.addWidget(hint_lbl)
+        # 弹性间距，让手柄靠底
+        card_layout.addStretch()
+        # 拖拽手柄（拖动调整卡片高度，释放后保存并重建）
+        handle = ResizeHandle(card, on_release=self._on_card_resized)
+        handle.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, False)
+        card_layout.addWidget(handle, alignment=Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignBottom)
+        # 阴影
+        from PySide6.QtWidgets import QGraphicsDropShadowEffect
+        from PySide6.QtGui import QColor
+        shadow = QGraphicsDropShadowEffect(card)
+        shadow.setBlurRadius(20)
+        shadow.setOffset(0, 1)
+        shadow.setColor(QColor(0, 0, 0, 50 if is_dark else 20))
+        card.setGraphicsEffect(shadow)
         return card
+
+    def _on_card_resized(self, new_height):
+        """卡片拖拽手柄释放后回调：保存高度偏好并重建 UI。"""
+        set_ui_pref("card_min_height", new_height)
+        self._rebuild_ui()
 
     def preset_reminder(self, val):
         now = datetime.now()
@@ -1212,27 +1404,31 @@ class WikiApp(QMainWindow):
         reminders = load_reminders()
         pending = [r for r in reminders if r["status"] == "pending"]
         T = get_theme_colors()
+        is_dark = MODE == "dark"
         if not pending:
             empty = QLabel(t("no_pending"))
-            empty.setStyleSheet(f"color: {T['TEXT2']}; padding: 14px;")
+            empty.setStyleSheet(f"color: {T['TEXT2']}; font-size: 14px; padding: 20px;")
+            empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
             self.pending_layout.insertWidget(0, empty)
         else:
+            from PySide6.QtWidgets import QGraphicsDropShadowEffect
+            from PySide6.QtGui import QColor
             for r in pending:
                 card = QFrame()
-                card.setStyleSheet(f"""
-                    QFrame {{
-                        background-color: {T['SURFACE']};
-                        border: 1px solid {T['BORDER']};
-                        border-radius: 6px;
-                    }}
-                """)
+                card.setProperty("card", True)
+                shadow = QGraphicsDropShadowEffect(card)
+                shadow.setBlurRadius(20)
+                shadow.setOffset(0, 1)
+                shadow.setColor(QColor(0, 0, 0, 50 if is_dark else 20))
+                card.setGraphicsEffect(shadow)
                 cl = QVBoxLayout(card)
-                cl.setContentsMargins(14, 10, 14, 10)
+                cl.setContentsMargins(16, 14, 16, 14)
+                cl.setSpacing(4)
                 head = QLabel(f"#{r['id']}  {r['remind_at']}")
-                head.setStyleSheet(f"color: {T['ACCENT']}; font-weight: bold; font-size: {int(12*FONT_SCALE)}px; border: none; background: transparent;")
+                head.setStyleSheet(f"color: {T['ACCENT']}; font-weight: 600; font-size: 13px; border: none; background: transparent;")
                 cl.addWidget(head)
                 body = QLabel(r["message"])
-                body.setStyleSheet(f"font-size: {int(13*FONT_SCALE)}px; border: none; background: transparent;")
+                body.setStyleSheet(f"font-size: 15px; color: {T['TEXT']}; border: none; background: transparent;")
                 body.setWordWrap(True)
                 cl.addWidget(body)
                 self.pending_layout.insertWidget(self.pending_layout.count() - 1, card)
@@ -1255,13 +1451,14 @@ class WikiApp(QMainWindow):
     def _build_share_tab(self):
         tab = QWidget()
         layout = QVBoxLayout(tab)
-        layout.setContentsMargins(10, 10, 10, 10)
-        layout.setSpacing(6)
+        layout.setContentsMargins(20, 16, 20, 16)
+        layout.setSpacing(10)
 
         # 顶部
         top = QHBoxLayout()
+        top.setSpacing(8)
         title = QLabel(t("share_title"))
-        title.setStyleSheet(f"font-weight: bold; font-size: {int(12*FONT_SCALE)}px;")
+        title.setStyleSheet(f"font-weight: 600; font-size: 15px; color: {get_theme_colors()['TEXT']};")
         top.addWidget(title)
         top.addStretch()
         refresh_btn = QPushButton(t("refresh"))
@@ -1273,7 +1470,7 @@ class WikiApp(QMainWindow):
         splitter = QSplitter(Qt.Orientation.Vertical)
         self.share_status = QPlainTextEdit()
         self.share_status.setReadOnly(True)
-        self.share_status.setFont(mono_font(11))
+        self.share_status.setFont(mono_font(12))
         splitter.addWidget(self.share_status)
 
         btns = QWidget()
@@ -1412,6 +1609,13 @@ class WikiApp(QMainWindow):
         save_theme_pref(MODE)
         self._rebuild_ui()
 
+    def open_ui_settings(self):
+        """打开界面设置对话框，可调整行间距、内边距等。"""
+        dlg = UISettingsDialog(self)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            # 用户点确定后，重建 UI 应用新参数
+            self._rebuild_ui()
+
     def _rebuild_ui(self):
         """重建整个 UI（语言/主题切换后）。"""
         # 移除中央控件
@@ -1422,6 +1626,213 @@ class WikiApp(QMainWindow):
         self.setWindowTitle(t("app_title"))
         apply_qss(QApplication.instance(), MODE)
         self._build_ui()
+
+
+# ==================== RESIZE HANDLE ====================
+class ResizeHandle(QLabel):
+    """卡片底部拖拽手柄：上下拖动调整卡片高度，释放时保存偏好。
+    仅在手柄范围内响应鼠标，不干扰卡片本身的点击。"""
+
+    def __init__(self, card, on_release=None, parent=None):
+        super().__init__("⎍", parent)
+        self._card = card
+        self._on_release = on_release
+        self._dragging = False
+        self._start_y = 0
+        self._start_height = 0
+        self.setCursor(Qt.CursorShape.SizeVerCursor)
+        self.setFixedHeight(16)
+        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        T = get_theme_colors()
+        self.setStyleSheet(
+            f"color: {T['TEXT2']}; background: transparent; border: none; "
+            f"font-size: 10px; padding: 0;"
+        )
+        # 不透明鼠标事件，让手柄能接收拖拽
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, False)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._dragging = True
+            self._start_y = int(event.globalPosition().y())
+            self._start_height = self._card.height()
+            event.accept()
+
+    def mouseMoveEvent(self, event):
+        if self._dragging:
+            delta = int(event.globalPosition().y()) - self._start_y
+            new_height = max(60, self._start_height + delta)
+            self._card.setFixedHeight(new_height)
+            event.accept()
+
+    def mouseReleaseEvent(self, event):
+        if self._dragging:
+            self._dragging = False
+            new_height = self._card.height()
+            if self._on_release:
+                self._on_release(new_height)
+            event.accept()
+
+
+# ==================== UI SETTINGS DIALOG ====================
+class UISettingsDialog(QDialog):
+    """界面设置对话框：可调整卡片行间距、内边距、字号等。
+    设置实时预览，点确定后保存并重建 UI。"""
+
+    # 可调参数定义: (key, label_zh, label_en, min, max, step)
+    FIELDS = [
+        ("card_min_height", "卡片高度", "Card height", 60, 240, 1),
+        ("mood_card_height", "心情卡片高度", "Mood card height", 44, 160, 2),
+        ("card_line_spacing", "卡片行间距", "Card line spacing", 0, 40, 1),
+        ("card_padding_v", "卡片上下内边距", "Card padding (vertical)", 4, 40, 1),
+        ("card_padding_h", "卡片左右内边距", "Card padding (horizontal)", 4, 40, 1),
+        ("card_gap", "卡片之间间距", "Card gap", 0, 30, 1),
+        ("title_font_size", "标题字号", "Title font size", 10, 24, 1),
+        ("hint_font_size", "副文案字号", "Hint font size", 8, 20, 1),
+        ("title_line_padding", "标题行额外间距", "Title line padding", 0, 16, 1),
+    ]
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(t("settings_title"))
+        self.setMinimumSize(420, 360)
+        self._spinboxes = {}
+        T = get_theme_colors()
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 20, 20, 16)
+        layout.setSpacing(12)
+
+        # 提示文字
+        hint = QLabel("调整后点「确定」立即应用。设置会自动保存。"
+                      if LANG == "zh"
+                      else "Click OK to apply. Settings auto-save.")
+        hint.setStyleSheet(f"color: {T['TEXT2']}; font-size: 12px;")
+        hint.setWordWrap(True)
+        layout.addWidget(hint)
+
+        # 参数行
+        for key, lbl_zh, lbl_en, mn, mx, step in self.FIELDS:
+            row = QHBoxLayout()
+            label_text = lbl_zh if LANG == "zh" else lbl_en
+            lbl = QLabel(label_text)
+            lbl.setMinimumWidth(140)
+            lbl.setStyleSheet(f"color: {T['TEXT']}; font-size: 13px;")
+            row.addWidget(lbl)
+
+            spin = QSpinBox()
+            spin.setRange(mn, mx)
+            spin.setSingleStep(step)
+            spin.setValue(get_ui_pref(key, 0))
+            spin.setSuffix(" px")
+            spin.setMinimumWidth(100)
+            spin.setStyleSheet(f"""
+                QSpinBox {{
+                    background-color: {T['SURFACE']};
+                    color: {T['TEXT']};
+                    border: 1px solid {T['BORDER']};
+                    border-radius: 6px;
+                    padding: 4px 8px;
+                    font-size: 13px;
+                }}
+            """)
+            # 实时预览：值变化时立即保存
+            spin.valueChanged.connect(lambda v, k=key: self._on_changed(k, v))
+            self._spinboxes[key] = spin
+            row.addWidget(spin)
+            row.addStretch()
+            layout.addLayout(row)
+
+        # 预览卡片
+        layout.addWidget(self._preview_separator())
+        preview_lbl = QLabel("📋 预览" if LANG == "zh" else "📋 Preview")
+        preview_lbl.setStyleSheet(f"color: {T['TEXT2']}; font-size: 12px; font-weight: 600;")
+        layout.addWidget(preview_lbl)
+        self.preview_container = QVBoxLayout()
+        self.preview_container.setSpacing(get_ui_pref("card_gap", 12))
+        layout.addLayout(self.preview_container)
+        self._refresh_preview()
+
+        # 按钮
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+        reset_btn = QPushButton("恢复默认" if LANG == "zh" else "Reset")
+        reset_btn.clicked.connect(self._reset_defaults)
+        btn_row.addWidget(reset_btn)
+
+        ok_btn = QPushButton("确定" if LANG == "zh" else "OK")
+        ok_btn.setProperty("primary", True)
+        ok_btn.clicked.connect(self.accept)
+        btn_row.addWidget(ok_btn)
+
+        cancel_btn = QPushButton("取消" if LANG == "zh" else "Cancel")
+        cancel_btn.clicked.connect(self._cancel)
+        btn_row.addWidget(cancel_btn)
+        layout.addLayout(btn_row)
+
+        self._cancelled = False
+
+    def _preview_separator(self):
+        T = get_theme_colors()
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.HLine)
+        sep.setStyleSheet(f"color: {T['BORDER']}; background-color: {T['BORDER']}; max-height: 1px;")
+        return sep
+
+    def _on_changed(self, key, value):
+        """值变化时立即保存到偏好（实时预览）。"""
+        set_ui_pref(key, value)
+        self._refresh_preview()
+
+    def _refresh_preview(self):
+        """刷新预览卡片。"""
+        # 清除旧预览
+        while self.preview_container.count():
+            item = self.preview_container.takeAt(0)
+            w = item.widget()
+            if w:
+                w.deleteLater()
+        parent = self.parent()
+        # 心情卡片预览：即时反映「心情卡片高度」调节（对齐网页端 .mood-card）
+        if parent and hasattr(parent, "_mood_card"):
+            mood_preview = parent._mood_card(
+                "开心" if LANG == "zh" else "Happy", lambda: None
+            )
+            mood_preview.setEnabled(False)  # 预览状态不可点击
+            self.preview_container.addWidget(mood_preview)
+        # 提醒卡片预览（复用主窗口的卡片样式）
+        if parent and hasattr(parent, "_reminder_card"):
+            card = parent._reminder_card("+1h", "快速稍后提醒" if LANG == "zh" else "Quick reminder", lambda: None)
+            card.setEnabled(False)  # 预览状态不可点击
+            self.preview_container.addWidget(card)
+        self.preview_container.addStretch()
+
+    def _reset_defaults(self):
+        """恢复所有参数为默认值。"""
+        for key, _, _, _, _, _ in self.FIELDS:
+            default_val = DEFAULT_UI_PREFS.get(key, 0)
+            set_ui_pref(key, default_val)
+            if key in self._spinboxes:
+                self._spinboxes[key].setValue(default_val)
+        self._refresh_preview()
+
+    def _cancel(self):
+        """取消：恢复到对话框打开前的偏好状态。"""
+        self._cancelled = True
+        # 重新从磁盘加载（丢弃实时预览中的修改）
+        global UI_PREFS
+        UI_PREFS.clear()
+        UI_PREFS.update(load_ui_prefs())
+        self.reject()
+
+    def closeEvent(self, event):
+        """关闭按钮(×)也视为取消，恢复之前状态。"""
+        if not self._cancelled:
+            # 通过 closeEvent 关闭，恢复
+            global UI_PREFS
+            UI_PREFS.clear()
+            UI_PREFS.update(load_ui_prefs())
+        super().closeEvent(event)
 
 
 # ==================== WELCOME DIALOG ====================

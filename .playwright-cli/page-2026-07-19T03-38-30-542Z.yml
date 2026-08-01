@@ -1,0 +1,12 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - generic [ref=e3]:
+      - img "128" [ref=e4]
+      - generic [ref=e5]: 128px
+    - generic [ref=e6]:
+      - img "64" [ref=e7]
+      - generic [ref=e8]: 64px
+    - generic [ref=e9]:
+      - img "32" [ref=e10]
+      - generic [ref=e11]: 32px
+  - img "desktop" [ref=e13]

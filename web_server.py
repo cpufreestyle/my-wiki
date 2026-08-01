@@ -199,11 +199,18 @@ class Handler(SimpleHTTPRequestHandler):
     def log_message(self, fmt, *args):
         pass  # 静默
 
+    def do_GET(self):
+        # 根路径 / 明确返回门户页 index.html（避免某些运行时回退到目录列表）
+        if self.path in ("/", "/index.html"):
+            self.path = "/index.html"
+        return super().do_GET()
+
 
 def run_server(port=8080):
     os.chdir(ROOT)
     server = ThreadingHTTPServer(("0.0.0.0", port), Handler)
     print("MyWiki 本地服务器已启动：")
+    print("  总入口:   <INTERNAL_LINK_REMOVED>")
     print("  心情页:   <INTERNAL_LINK_REMOVED>")
     print("  日记页:   <INTERNAL_LINK_REMOVED>")
     print("  提醒页:   <INTERNAL_LINK_REMOVED>")

@@ -30,6 +30,18 @@ jobs:
       - name: Node 单元测试（reminder_web 纯日期逻辑）
         run: node --test "tests/**/*.test.mjs"
 
+      - name: 安装桌面端依赖（PySide6）
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgl1 libglib2.0-0 libegl1 libdbus-1-3
+          python -m pip install --upgrade pip
+          python -m pip install PySide6
+
+      - name: 桌面端启动冒烟（PySide6, offscreen 无头）
+        run: |
+          export QT_QPA_PLATFORM=offscreen
+          python scripts/smoke_desktop_qt.py
+
       - name: RAG 引擎冒烟测试（BM25，零依赖）
         run: python rag.py "本地模型 ollama 配置" --limit 3
 

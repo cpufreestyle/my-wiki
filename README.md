@@ -620,6 +620,7 @@ MYWIKI_RAG_MODE=ollama python rag.py "你的问题" --rebuild
 - ✅ **统一设计 token**：`theme.py` 集中管理颜色 / 字体 / 圆角 / 阴影，Web 端与桌面端共用同一套值，改一处即可整体换肤
 - ✅ **浅色 / 深色主题**：`reminder_web.html` / `daily_web.html` / `mood_web.html` 均支持一键切换深色模式，偏好持久化到 `localStorage`
 - ✅ **桌面端功能网页化**：提醒 / 日记 / 心情三大桌面端功能均已提供对应的自包含网页版（同一套 Apple 风设计），无需启动 GUI 即可在浏览器使用
+- ✅ **网页端总入口**：`index.html` 为统一门户页，卡片式导航进入各模块；经 `web_server.py` 启动后根路径 `/` 即门户页
 - ✅ **卡片高度可调**：三个网页版的卡片均保证高度高于字体（`--card-h` 变量兜底），并提供「卡片高度」滑块手动统一调节，偏好持久化到 `localStorage`（daily 的编辑器高度随滑块联动）
 - ✅ **设计规格沉淀**：`FIGMA_DESIGN_SPEC.md` 记录界面设计稿与规范，便于后续迭代与协作
 - ✅ **一致体验**：`reminder_ui.py` / `daily_ui.py` / `wiki_app.py` 同步适配统一 token
@@ -628,7 +629,8 @@ MYWIKI_RAG_MODE=ollama python rag.py "你的问题" --rebuild
 
 ```bash
 # 改 theme.py 中的 LIGHT / DARK 字典即可整体调整配色
-# Web 端：打开 reminder_web.html / daily_web.html / mood_web.html，点击右上角 🌙/☀️ 切换深 / 浅色
+# Web 端：启动 web_server.py 后访问 / 进入总入口，或直接打开 reminder_web.html / daily_web.html / mood_web.html
+# 各页面右上角 🌙/☀️ 可切换深 / 浅色
 ```
 
 ---
@@ -778,6 +780,9 @@ python -m unittest discover -s tests -p "test_*.py" -v
 
 # 2) Web UI 纯逻辑（Node 内置 test runner，从 HTML 抽取函数运行）
 node --test "tests/**/*.test.mjs"
+
+# 3) 桌面端启动冒烟（PySide6，offscreen 无头，等价 __main__ 启动链路）
+QT_QPA_PLATFORM=offscreen python scripts/smoke_desktop_qt.py
 ```
 
 - `tests/test_reminder_web.py` / `tests/test_daily_web.py` / `tests/test_mood_web.py`：分别校验
@@ -786,7 +791,9 @@ node --test "tests/**/*.test.mjs"
 - `tests/reminder_web.logic.test.mjs`：校验 `getPresetTime` / `computeRemindAt` 的时间计算正确。
 - `tests/daily_web.logic.test.mjs`：校验 `extract_tags` 的停用词过滤 / 领域词加权 / `top_n` 生效。
 - `tests/mood_web.logic.test.mjs`：校验 `analyze_mood` 的关键词命中 / 否定词处理 / 中性回退。
-- `.github/workflows/ci.yml`：push / PR 到 `main` 时自动跑上述测试 + RAG/theme 冒烟检查。
+- `scripts/smoke_desktop_qt.py`：桌面端（PySide6）启动冒烟——构建 `WikiApp`、应用 QSS、弹出
+  欢迎框、校验语音 `VoiceSignals` 信号槽、切换主题 / 语言、触发 MCP 启动处理器，全程无异常。
+- `.github/workflows/ci.yml`：push / PR 到 `main` 时自动跑上述测试 + 桌面端冒烟 + RAG/theme 检查。
 
 ---
 

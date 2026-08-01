@@ -1,0 +1,10 @@
+{
+  "card_line_spacing": 16,
+  "card_padding_v": 16,
+  "card_padding_h": 18,
+  "card_gap": 12,
+  "card_min_height": 124,
+  "title_font_size": 12,
+  "hint_font_size": 12,
+  "title_line_padding": 2
+}
