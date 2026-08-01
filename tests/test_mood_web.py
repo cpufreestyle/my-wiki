@@ -109,5 +109,17 @@ class TestMoodWebStructure(unittest.TestCase):
         self.assertIn("new VoiceController(", self.script, "应实例化共享语音控制器")
 
 
+
+    def test_card_height_control_present(self):
+        # 卡片高度调节：滑块面板 + 控件 + 卡片 min-height 绑定变量
+        self.assertIn("height-panel", self.p.classes, "缺少 .height-panel 卡片高度面板")
+        for i in ["cardHeight", "cardHeightVal"]:
+            self.assertIn(i, self.p.ids, f"缺少卡片高度控件 id: {i}")
+        self.assertIn("var(--card-h)", self.text, "卡片 min-height 应绑定 --card-h 变量")
+        self.assertIn('LS_CARD_H = "mywiki-card-h"', self.script,
+                      "应定义卡片高度 localStorage key(mywiki-card-h)")
+        self.assertIn("localStorage.setItem(LS_CARD_H", self.script,
+                      "卡片高度应持久化到 localStorage")
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

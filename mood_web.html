@@ -39,6 +39,9 @@
             --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.5);
         }
 
+        /* 卡片可调高度：默认 52px，用户可用滑块统一调节 */
+        :root { --card-h: 52px; }
+
         * {
             margin: 0;
             padding: 0;
@@ -191,6 +194,7 @@
             align-items: center;
             gap: 12px;
             text-align: left;
+            min-height: var(--card-h);
             background: var(--surface);
             border: none;
             border-radius: var(--radius-card);
@@ -210,7 +214,12 @@
             background: var(--accent);
             flex-shrink: 0;
         }
-        .mood-card .label { font-size: 15px; font-weight: 500; }
+        .mood-card .label {
+            font-size: 15px;
+            font-weight: 500;
+            line-height: 1.4;
+            flex: 1;
+        }
 
         /* ---------- Actions ---------- */
         .action-row {
@@ -283,6 +292,23 @@
         }
         .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 
+        /* ---------- 卡片高度调节 ---------- */
+        .height-panel {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            background: var(--surface);
+            border-radius: var(--radius-card);
+            box-shadow: var(--shadow-sm);
+            padding: 10px 14px;
+            margin: 14px 0 4px;
+            font-size: 13px;
+            color: var(--text-secondary);
+        }
+        .height-panel label { font-weight: 600; color: var(--text); white-space: nowrap; }
+        .height-panel input[type="range"] { flex: 1; accent-color: var(--accent); cursor: pointer; }
+        .height-panel .val { min-width: 44px; text-align: right; font-variant-numeric: tabular-nums; }
+
         @media (max-width: 480px) {
             .app { padding: 28px 14px 40px; }
             .app-header h1 { font-size: 20px; }
@@ -297,6 +323,12 @@
             <h1>心情</h1>
             <p>MyWiki · 今天感觉如何？</p>
         </header>
+
+        <div class="height-panel">
+            <label for="cardHeight">卡片高度</label>
+            <input type="range" id="cardHeight" min="44" max="160" step="2" aria-label="调节卡片高度" />
+            <span class="val" id="cardHeightVal">52px</span>
+        </div>
 
         <h2 class="section-title">今天感觉如何？</h2>
         <div class="card">
@@ -356,6 +388,28 @@
             const cur = document.documentElement.getAttribute("data-theme");
             applyTheme(cur === "dark" ? "light" : "dark");
         });
+
+        // ---------- 卡片高度调节（所有卡片共享 --card-h，持久化） ----------
+        const LS_CARD_H = "mywiki-card-h";
+        const cardHeight = $("#cardHeight");
+        const cardHeightVal = $("#cardHeightVal");
+        function applyCardHeight(px) {
+            px = Math.max(44, Math.min(160, Number(px) || 52));
+            document.documentElement.style.setProperty("--card-h", px + "px");
+            if (cardHeight) cardHeight.value = px;
+            if (cardHeightVal) cardHeightVal.textContent = px + "px";
+        }
+        (function initCardHeight() {
+            let h = 52;
+            try { h = Number(localStorage.getItem(LS_CARD_H)) || 52; } catch {}
+            applyCardHeight(h);
+            if (cardHeight) {
+                cardHeight.addEventListener("input", () => {
+                    applyCardHeight(cardHeight.value);
+                    try { localStorage.setItem(LS_CARD_H, cardHeight.value); } catch {}
+                });
+            }
+        })();
 
         // ---------- 工具 ----------
         function toast(msg) {

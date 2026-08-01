@@ -22,6 +22,8 @@
             --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display",
                 "PingFang SC", "Helvetica Neue", "Microsoft YaHei", sans-serif;
             --mono: "SF Mono", Menlo, Consolas, "PingFang SC", monospace;
+            --card-h: 44px;
+            --editor-h: 300px;
         }
 
         /* ---------- 深色模式 ---------- */
@@ -131,9 +133,13 @@
             flex: 1;
         }
         .tool-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
             border: 1px solid var(--border);
             border-radius: var(--radius-btn);
             padding: 8px 14px;
+            min-height: var(--card-h);
             font-size: 13px;
             font-weight: 600;
             font-family: inherit;
@@ -180,7 +186,7 @@
         }
         textarea.editor {
             width: 100%;
-            min-height: 300px;
+            min-height: var(--editor-h);
             border: none;
             outline: none;
             resize: vertical;
@@ -205,9 +211,13 @@
             word-break: break-all;
         }
         .save-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
             border: 1px solid var(--accent);
             border-radius: var(--radius-btn);
             padding: 12px 22px;
+            min-height: var(--card-h);
             font-size: 15px;
             font-weight: 700;
             font-family: inherit;
@@ -261,11 +271,28 @@
             transform: translateX(-50%) translateY(0);
         }
 
+        /* ---------- 卡片高度调节 ---------- */
+        .height-panel {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            background: var(--surface);
+            border-radius: var(--radius-card);
+            box-shadow: var(--shadow-sm);
+            padding: 10px 14px;
+            margin: 14px 0 4px;
+            font-size: 13px;
+            color: var(--text-secondary);
+        }
+        .height-panel label { font-weight: 600; color: var(--text); white-space: nowrap; }
+        .height-panel input[type="range"] { flex: 1; accent-color: var(--accent); cursor: pointer; }
+        .height-panel .val { min-width: 44px; text-align: right; font-variant-numeric: tabular-nums; }
+
         /* ---------- 响应式 ---------- */
         @media (max-width: 480px) {
             .app { padding: 28px 14px 40px; }
             .app-header h1 { font-size: 20px; }
-            textarea.editor { min-height: 240px; }
+            textarea.editor { min-height: var(--editor-h); }
         }
     </style>
 </head>
@@ -277,6 +304,12 @@
             <h1>日记</h1>
             <p>MyWiki · 记录今天的想法</p>
         </header>
+
+        <div class="height-panel">
+            <label for="cardHeight">卡片高度</label>
+            <input type="range" id="cardHeight" min="36" max="120" step="2" aria-label="调节卡片高度" />
+            <span class="val" id="cardHeightVal">44px</span>
+        </div>
 
         <div class="date-row">
             <span class="date" id="todayLabel">—</span>
@@ -332,6 +365,29 @@
             const cur = document.documentElement.getAttribute("data-theme");
             applyTheme(cur === "dark" ? "light" : "dark");
         });
+
+        // ---------- 卡片高度调节（按钮用 --card-h，编辑器用 --editor-h，持久化） ----------
+        const LS_CARD_H = "mywiki-card-h";
+        const cardHeight = $("#cardHeight");
+        const cardHeightVal = $("#cardHeightVal");
+        function applyCardHeight(px) {
+            px = Math.max(36, Math.min(120, Number(px) || 44));
+            document.documentElement.style.setProperty("--card-h", px + "px");
+            document.documentElement.style.setProperty("--editor-h", (px * 7) + "px");
+            if (cardHeight) cardHeight.value = px;
+            if (cardHeightVal) cardHeightVal.textContent = px + "px";
+        }
+        (function initCardHeight() {
+            let h = 44;
+            try { h = Number(localStorage.getItem(LS_CARD_H)) || 44; } catch {}
+            applyCardHeight(h);
+            if (cardHeight) {
+                cardHeight.addEventListener("input", () => {
+                    applyCardHeight(cardHeight.value);
+                    try { localStorage.setItem(LS_CARD_H, cardHeight.value); } catch {}
+                });
+            }
+        })();
 
         // ---------- 工具 ----------
         function toast(msg) {
