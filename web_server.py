@@ -30,6 +30,12 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, ROOT)
 import voice_mood
 
+# 网页端 RAG 检索 / 知识图谱所需模块（缺失时接口优雅降级）
+try:
+    from rag import RAGEngine
+except Exception:
+    RAGEngine = None
+
 VOICE_WAV = os.path.join(tempfile.gettempdir(), "mywiki_voice_server.wav")
 DEFAULT_DURATION = 8
 MAX_DURATION = 30
@@ -118,6 +124,71 @@ class Handler(SimpleHTTPRequestHandler):
     def do_OPTIONS(self):
         self.send_response(204)
         self.end_headers()
+
+    def do_GET(self):
+        # 根路径 / 明确返回门户页 index.html（避免某些运行时回退到目录列表）
+        if self.path in ("/", "/index.html"):
+            self.path = "/index.html"
+            return super().do_GET()
+        # API 路由
+        if self.path.startswith("/api/rag"):
+            self._handle_rag()
+            return
+        if self.path.startswith("/api/graph"):
+            self._handle_graph()
+            return
+        return super().do_GET()
+
+    # ---- 语义检索（复用 rag.py 的 RAGEngine） ----
+    def _handle_rag(self):
+        from urllib.parse import urlparse, parse_qs
+        qs = parse_qs(urlparse(self.path).query)
+        query = (qs.get("q") or [""])[0].strip()
+        try:
+            limit = int((qs.get("limit") or ["10"])[0])
+        except Exception:
+            limit = 10
+        limit = max(1, min(limit, 30))
+        if not query:
+            self._send_json({"ok": True, "query": "", "hits": []})
+            return
+        if RAGEngine is None:
+            self._send_json({"ok": False, "error": "rag 模块不可用"}, status=500)
+            return
+        try:
+            eng = RAGEngine()
+            hits = eng.search(query, limit)
+            self._send_json({"ok": True, "query": query, "hits": hits})
+        except Exception as e:
+            self._send_json({"ok": False, "error": str(e)}, status=500)
+
+    # ---- 知识图谱（读取 knowledge_graph.json，归一化 link 的 .md 后缀） ----
+    def _handle_graph(self):
+        gpath = os.path.join(ROOT, "knowledge_graph.json")
+        if not os.path.exists(gpath):
+            self._send_json({"ok": False, "error": "未找到 knowledge_graph.json"}, status=404)
+            return
+        try:
+            with open(gpath, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            nodes = data.get("nodes", [])
+            links = data.get("links", [])
+            # 归一化：link 的 source/target 去掉 .md 后缀，与 node id 对齐
+            norm = {n["id"]: n["id"] for n in nodes}
+            clean_links = []
+            for lk in links:
+                s = (lk.get("source") or "").replace(".md", "")
+                t = (lk.get("target") or "").replace(".md", "")
+                if s in norm and t in norm:
+                    clean_links.append({"source": s, "target": t})
+            self._send_json({
+                "ok": True,
+                "stats": data.get("stats", {}),
+                "nodes": nodes,
+                "links": clean_links,
+            })
+        except Exception as e:
+            self._send_json({"ok": False, "error": str(e)}, status=500)
 
     def _read_body(self):
         length = int(self.headers.get("Content-Length", 0) or 0)
@@ -214,6 +285,9 @@ def run_server(port=8080):
     print("  心情页:   <INTERNAL_LINK_REMOVED>")
     print("  日记页:   <INTERNAL_LINK_REMOVED>")
     print("  提醒页:   <INTERNAL_LINK_REMOVED>")
+    print("  检索页:   <INTERNAL_LINK_REMOVED>")
+    print("  图谱页:   <INTERNAL_LINK_REMOVED>")
+    print("接口:     GET /api/rag?q=...   |   GET /api/graph")
     print("语音接口:   POST /api/voice/start  |  POST /api/voice/stop")
     print("（首次使用请允许终端/应用的麦克风权限；语音识别需联网）")
     try:
