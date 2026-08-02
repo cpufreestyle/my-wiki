@@ -135,5 +135,11 @@ stock-dashboard/
 # Local Obsidian vault mapping (machine-specific, contains absolute paths)
 config/obsidian.json
 
+# Context collector credentials (contains API secrets — never commit)
+config/collect_context.json
+
 # AI 生成的图片（派生产物）
 generated-images/
+
+# CodeBuddy 自动化运行记忆（本机运行态，非仓库产物）
+.codebuddy/

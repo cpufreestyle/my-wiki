@@ -202,8 +202,37 @@ class Handler(SimpleHTTPRequestHandler):
             self._send_json({"ok": False, "error": str(e)}, status=500)
 
     # ---- 知识图谱（读取 knowledge_graph.json，归一化 link 的 .md 后缀） ----
+    def _graph_path(self):
+        """定位 knowledge_graph.json 的可写副本。
+
+        打包(.app)模式下签名包内文件不可改写（否则会破坏代码签名），
+        因此优先使用用户目录里的副本；首次运行时从打包资源拷贝过去。
+        """
+        # 1) 包外可写副本（用户级 / 项目级可写目录）
+        candidates = []
+        app_support = os.path.expanduser("~/Library/Application Support/MyWiki")
+        if sys.platform == "win32":
+            app_support = os.path.expanduser("~/AppData/Local/MyWiki")
+        candidates.append(os.path.join(app_support, "knowledge_graph.json"))
+        # 源码/未打包模式：直接用仓库根目录的版本（可写）
+        candidates.append(os.path.join(ROOT, "knowledge_graph.json"))
+        for p in candidates:
+            if os.path.exists(p):
+                return p
+        # 2) 都不存在：从打包资源(ROOT)拷贝到用户目录再返回
+        src = os.path.join(ROOT, "knowledge_graph.json")
+        if os.path.exists(src):
+            try:
+                os.makedirs(app_support, exist_ok=True)
+                import shutil
+                shutil.copyfile(src, candidates[0])
+                return candidates[0]
+            except Exception:
+                pass
+        return src  # 退化为只读资源路径
+
     def _handle_graph(self):
-        gpath = os.path.join(ROOT, "knowledge_graph.json")
+        gpath = self._graph_path()
         if not os.path.exists(gpath):
             self._send_json({"ok": False, "error": "未找到 knowledge_graph.json"}, status=404)
             return
@@ -310,9 +339,14 @@ class Handler(SimpleHTTPRequestHandler):
         pass  # 静默
 
 
+def make_server(port=8080):
+    """构造但未启动服务器（供 GUI 在同一进程内线程启动，避免 chdir 影响主程序）。"""
+    return ThreadingHTTPServer(("0.0.0.0", port), Handler)
+
+
 def run_server(port=8080):
     os.chdir(ROOT)
-    server = ThreadingHTTPServer(("0.0.0.0", port), Handler)
+    server = make_server(port)
     print("MyWiki 本地服务器已启动：")
     print("  总入口:   <INTERNAL_LINK_REMOVED>")
     print("  心情页:   <INTERNAL_LINK_REMOVED>")

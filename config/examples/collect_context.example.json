@@ -1,0 +1,31 @@
+{
+  "_comment": "上下文采集配置。复制为 ../collect_context.json 后按需修改。敏感字段本机私有，勿提交仓库。采集通过本机 QClaw 已登录的飞书/企业微信集成联动，无需自建应用凭证。",
+  "vault": "/Users/a1-6/AI Shared/wiki",
+  "enabled": {
+    "feishu": true,
+    "wecom": true,
+    "feishu_meeting": false,
+    "recordings": true
+  },
+  "feishu": {
+    "_comment": "飞书聊天采集（lark-cli，user 身份）。无需 app_id/app_secret，直接用 QClaw 登录态。",
+    "max_chats": 20
+  },
+  "wecom": {
+    "_comment": "企业微信聊天采集（wecom-cli）。仅支持最近 7 天会话。",
+    "max_chats": 20
+  },
+  "feishu_meeting": {
+    "_comment": "飞书会议妙记采集（lark-cli minutes）。需开通妙记读取权限。",
+    "max": 10
+  },
+  "recordings": {
+    "_comment": "本地录音目录（可多个）。支持 mp3/m4a/wav；用本机 whisper CLI 转写。",
+    "dirs": [
+      "~/Documents/Recordings",
+      "~/Music/Recordings"
+    ],
+    "model": "base",
+    "language": "zh"
+  }
+}

@@ -623,6 +623,7 @@ MYWIKI_RAG_MODE=ollama python rag.py "你的问题" --rebuild
 - ✅ **网页端总入口**：`index.html` 为统一门户页，卡片式导航进入各模块；经 `web_server.py` 启动后根路径 `/` 即门户页
 - ✅ **语义检索网页版**：`rag_web.html` 调用 `rag.py` 的 `RAGEngine`（`/api/rag` 接口），支持 BM25 / Ollama embedding 两种模式，含语音输入
 - ✅ **知识图谱可视化**：`graph_web.html` 读取 `knowledge_graph.json`（`/api/graph` 接口），纯 SVG 力导向布局（无外部依赖），按类型着色、点击高亮邻居、可拖拽
+- ✅ **桌面端内置网页版**：打开 `wiki_app.py`（或打包后的 `MyWiki.app`）时会自动在后台拉起 `web_server.py`（端口 8080），顶栏「🌐 网页版」按钮一键在浏览器打开知识图谱 / 语义检索页；关闭桌面 App 时网页版服务一并停止，无需手动启停。打包时 `web_server.py`、`rag.py`、`voice_mood.py`、各 `*_web.html` 与 `knowledge_graph.json` 已随 `MyWiki.spec` 一并打入
 - ✅ **卡片高度可调**：三个网页版的卡片均保证高度高于字体（`--card-h` 变量兜底），并提供「卡片高度」滑块手动统一调节，偏好持久化到 `localStorage`（daily 的编辑器高度随滑块联动）
 - ✅ **设计规格沉淀**：`FIGMA_DESIGN_SPEC.md` 记录界面设计稿与规范，便于后续迭代与协作
 - ✅ **一致体验**：`reminder_ui.py` / `daily_ui.py` / `wiki_app.py` 同步适配统一 token
@@ -632,6 +633,7 @@ MYWIKI_RAG_MODE=ollama python rag.py "你的问题" --rebuild
 ```bash
 # 改 theme.py 中的 LIGHT / DARK 字典即可整体调整配色
 # Web 端：启动 web_server.py 后访问 / 进入总入口，或直接打开 reminder_web.html / daily_web.html / mood_web.html
+# 桌面端（wiki_app.py / MyWiki.app）：顶栏「🌐 网页版」按钮自动打开已拉起的网页版（知识图谱 / RAG 检索）
 # 各页面右上角 🌙/☀️ 可切换深 / 浅色
 ```
 
@@ -737,6 +739,37 @@ pip install -r requirements.txt
 
 ---
 
+### 问题 5: 桌面版 `wiki_app.py` 打不开（ModuleNotFoundError: PySide6）
+
+**错误**：`ModuleNotFoundError: No module named 'PySide6'`
+
+**原因**：桌面 GUI 依赖 **PySide6**，且只在项目自带的虚拟环境 `.venv` 中安装。用系统 `python3`（如 `/usr/bin/python3`）直接运行会因缺少该包而报错。
+
+**解决**（任选其一）：
+
+```bash
+# 1) 用项目自带的 .venv 解释器启动（推荐）
+source .venv/bin/activate
+python wiki_app.py
+
+# 或等价地直接调用：
+./.venv/bin/python wiki_app.py
+```
+
+```bash
+# 2) 若尚未创建 .venv，手动安装依赖后启动
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+python wiki_app.py
+```
+
+> macOS 一键启动脚本 `run-mywiki.command` 已内置「创建/激活 `.venv` → 安装依赖 → 启动 GUI」逻辑，双击即可；若菜单栏 / 终端默认 `python3` 指向系统解释器，请改用上述 `.venv` 方式。
+>
+> 打包后的 `MyWiki.app` 已把 PySide6 与 `web_server.py` 等一并打入，**无需** `.venv`，双击即开。
+
+---
+
 ## 🤝 贡献
 
 欢迎贡献！请查看 [CONTRIBUTING.md](CONTRIBUTING.md)（待创建）。
@@ -808,6 +841,6 @@ QT_QPA_PLATFORM=offscreen python scripts/smoke_desktop_qt.py
 
 ---
 
-**最后更新**: 2026-08-01（wiki-root 解析修正 / Obsidian 多盘符检测 / 网页卡片布局修复 / 桌面端 CI 冒烟）
+**最后更新**: 2026-08-01（wiki-root 解析修正 / Obsidian 多盘符检测 / 网页卡片布局修复 / 桌面端 CI 冒烟 / 桌面端内置网页版（自动拉起 web_server，图谱+RAG 开箱即用））
 
 **版本**: v2.8.0

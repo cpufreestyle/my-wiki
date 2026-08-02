@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- 以下三项为 PyInstaller 打包的 Python 应用通过公证(hardened runtime)所需的最小权限。
+         仅在使用 codesign_identity 签名时生效（codesign_identity=None 时会被忽略）。 -->
+
+    <!-- 允许 JIT 编译（部分 Python/C 扩展需要） -->
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+
+    <!-- 允许未签名的可执行内存页 -->
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+
+    <!-- 允许加载未签名的 dylib（PyInstaller 引入的第三方库） -->
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+</dict>
+</plist>
