@@ -2,7 +2,7 @@
 
 > 基于 [Andrej Karpathy's LLM Wiki 理念](https://karpathy.github.io/2025/05/11/llm-wiki/) 构建的个人知识库系统
 
-[![Version](https://img.shields.io/badge/version-v2.8.0-blue)](https://github.com/cpufreestyle/my-wiki/releases/tag/v2.8.0)
+[![Version](https://img.shields.io/badge/version-v2.9.0-blue)](https://github.com/cpufreestyle/my-wiki/releases/tag/v2.9.0)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Obsidian](https://img.shields.io/badge/Obsidian-1.0+-purple)](https://obsidian.md)
 
@@ -348,7 +348,7 @@ graph TD
 
 ```text
 my-wiki/
-├── README.md                      # 本文件 (v2.8.0)
+├── README.md                      # 本文件 (v2.9.0)
 ├── INDEX.md                       # 知识索引（自动生成）
 ├── wiki_app.py                    # 桌面端主程序（PySide6 GUI：日记 / 心情 / 提醒 / Share）
 ├── wiki_tool.py                   # 统一工具入口 (v2.8.0)
@@ -421,7 +421,7 @@ my-wiki/
 
 ## 🔌 功能模块
 
-MyWiki v2.7.0 集成以下功能模块，位于 `modules/` 目录：
+MyWiki v2.9.0 集成以下功能模块，位于 `modules/` 目录：
 
 ### 模块列表
 
@@ -841,6 +841,6 @@ QT_QPA_PLATFORM=offscreen python scripts/smoke_desktop_qt.py
 
 ---
 
-**最后更新**: 2026-08-01（wiki-root 解析修正 / Obsidian 多盘符检测 / 网页卡片布局修复 / 桌面端 CI 冒烟 / 桌面端内置网页版（自动拉起 web_server，图谱+RAG 开箱即用））
+**最后更新**: 2026-08-02（多源上下文采集：飞书/企微聊天 + 妙记 + 本地录音转写 → 共享 Obsidian vault / 桌面端内置网页版 / macOS 代码签名打包修复）
 
-**版本**: v2.8.0
+**版本**: v2.9.0

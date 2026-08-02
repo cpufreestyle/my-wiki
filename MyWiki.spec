@@ -85,11 +85,11 @@ app = BUNDLE(
     name='MyWiki.app',
     icon='assets/AppIcon.icns',
     bundle_identifier='com.mywiki.app',
-    version='2.8.0',
+    version='2.9.0',
     codesign_identity=codesign_identity,
     entitlements_file=entitlements_file,
     info_plist={
-        'CFBundleShortVersionString': '2.8.0',
+        'CFBundleShortVersionString': '2.9.0',
         'NSHighResolutionCapable': True,
         'NSRequiresAquaSystemAppearance': False,
         'CFBundleDisplayName': 'MyWiki',
