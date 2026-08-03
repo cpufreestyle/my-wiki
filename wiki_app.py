@@ -140,26 +140,51 @@ def check_obsidian():
 
 
 def check_openclaw():
-    """检测 OpenClaw 是否安装（跨平台）。OpenClaw 多为 npm 全局 CLI。"""
+    """检测 QClaw / OpenClaw 是否安装。
+
+    用户实际安装的是 QClaw 桌面端（Electron 应用），其真实 exe 位于
+    ``D:\\Program Files\\QClaw\\vX.Y.Z\\QClaw.exe``，注册了 ``qclaw://`` 协议。
+    因此检测优先级：协议注册表反查真实 exe → 常见路径 → 运行中进程兜底。
+    """
     candidates = []
+
+    # 1) 从 qclaw:// 协议注册表反查真实 exe 路径（最可靠）
+    if sys.platform == "win32":
+        try:
+            import winreg
+            for root in (winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE):
+                try:
+                    key = winreg.OpenKey(root, r"Software\Classes\qclaw\shell\open\command")
+                    val, _ = winreg.QueryValueEx(key, "")
+                    winreg.CloseKey(key)
+                    # 值形如: "D:\Program Files\QClaw\v0.2.35\QClaw.exe" "%1"
+                    exe = val.split('"')[1] if '"' in val else val.split()[0]
+                    if exe:
+                        candidates.append(exe)
+                except OSError:
+                    continue
+        except Exception:
+            pass
+
     if sys.platform == "darwin":
-        candidates = [
+        candidates += [
             "/Applications/OpenClaw.app",
+            "/Applications/QClaw.app",
             "/usr/local/bin/openclaw",
             "/opt/homebrew/bin/openclaw",
             os.path.expanduser("~/.local/bin/openclaw"),
             os.path.expanduser("~/.npm-global/bin/openclaw"),
             os.path.expanduser("~/.cargo/bin/openclaw"),
             os.path.expanduser("~/Library/Application Support/QClaw/openclaw"),
-            os.path.expanduser("~/Library/Application Support/QClaw/openclaw/node_modules/.bin/openclaw"),
         ]
     elif sys.platform == "win32":
         base = os.path.expanduser("~")
-        # QClaw 桌面端常见安装路径
-        candidates = [
+        # QClaw 桌面端常见安装路径（含 D: 盘等非常规盘符由上方协议反查覆盖）
+        candidates += [
             os.path.join(base, "AppData", "Local", "Programs", "QClaw", "QClaw.exe"),
             r"C:\Program Files\QClaw\QClaw.exe",
             r"C:\Program Files (x86)\QClaw\QClaw.exe",
+            r"D:\Program Files\QClaw\QClaw.exe",
         ]
         # npm 全局安装（openclaw 实为 npm 全局包）
         npm_root = os.path.join(base, "AppData", "Roaming", "npm")
@@ -174,7 +199,7 @@ def check_openclaw():
             candidates.append(os.path.join(g, "node_modules", "openclaw"))
     except Exception:
         pass
-    found = shutil.which("openclaw")
+    found = shutil.which("openclaw") or shutil.which("qclaw")
     if found:
         candidates.insert(0, found)
     for c in candidates:
@@ -186,7 +211,7 @@ def check_openclaw():
             return True, c
         if os.path.exists(c):
             return True, c
-    # 6) 运行中（openclaw 以 node 形式运行，按镜像名兜底）
+    # 6) 运行中（QClaw 桌面端以 Electron 运行，按镜像名兜底）
     for name in ("openclaw.exe", "qclaw.exe", "QClaw.exe"):
         if _proc_running(name):
             return True, None
