@@ -143,3 +143,9 @@ generated-images/
 
 # CodeBuddy 自动化运行记忆（本机运行态，非仓库产物）
 .codebuddy/
+
+# Qoder 工具缓存（本机运行态，非仓库产物）
+.qoder/
+
+# 采集器退避状态（本机运行态，非仓库产物）
+config/.collect_backoff.json

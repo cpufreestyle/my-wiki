@@ -59,6 +59,151 @@ WECOM_CLI = QCLOW_NPM / "@wecom" / "cli" / "bin" / "wecom.js"
 
 CST = timezone(timedelta(hours=8))
 
+# ---- 增量 / 状态辅助 -------------------------------------------------------
+
+STATE_FILE = REPO / "config" / ".collect_backoff.json"
+
+
+def _load_state() -> dict:
+    try:
+        return json.loads(STATE_FILE.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+def _save_state(state: dict) -> None:
+    try:
+        STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        STATE_FILE.write_text(json.dumps(state, ensure_ascii=False, indent=2),
+                              encoding="utf-8")
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _find_existing(vault: Path, category: str, dedup_key: str) -> Path | None:
+    """按 dedup_key 在已有笔记里找同一条，返回路径或 None。"""
+    cat_dir = vault / category
+    if not cat_dir.exists():
+        return None
+    for existing in sorted(cat_dir.glob("*.md")):
+        try:
+            txt = existing.read_text(encoding="utf-8", errors="ignore")
+        except Exception:  # noqa: BLE001
+            continue
+        if f"{dedup_key}" in txt and "---" in txt:
+            return existing
+    return None
+
+
+def _parse_frontmatter(path: Path) -> dict:
+    """极简 frontmatter 解析，返回键值字典。"""
+    try:
+        txt = path.read_text(encoding="utf-8", errors="ignore")
+    except Exception:  # noqa: BLE001
+        return {}
+    if not txt.startswith("---"):
+        return {}
+    end = txt.find("\n---", 3)
+    if end < 0:
+        return {}
+    meta = {}
+    for line in txt[3:end].splitlines():
+        if ":" in line:
+            k, _, v = line.partition(":")
+            meta[k.strip()] = v.strip()
+    return meta
+
+
+def _merge_frontmatter(txt: str, meta: dict) -> str:
+    """更新已有笔记 frontmatter 中 meta 指定的字段，正文保持不变，返回新文本。
+
+    用于 append 模式在追加新行后仍能持久化 last_synced 等增量标记，
+    否则增量拉取会在下一轮丢失上次同步时间而退化为全量拉取。
+    """
+    if not meta:
+        return txt
+    if not txt.startswith("---"):
+        return txt
+    end = txt.find("\n---", 3)
+    if end < 0:
+        return txt
+    fm_block = txt[3:end]
+    body = txt[end + 4:]
+    out_lines: list[str] = []
+    seen: set[str] = set()
+    for line in fm_block.splitlines():
+        if ":" in line:
+            k, _, _ = line.partition(":")
+            key = k.strip()
+            if key in meta:
+                out_lines.append(f"{key}: {meta[key]}")
+                seen.add(key)
+                continue
+        out_lines.append(line)
+    for key, val in meta.items():
+        if key not in seen:
+            out_lines.append(f"{key}: {val}")
+    return "---\n" + "\n".join(out_lines) + "\n---\n" + body.lstrip("\n")
+
+
+def _narrow_start(days: int, last_synced_iso: str | None, iso: bool = True):
+    """计算拉取起点：取 max(上次同步时间, now-days)。返回 (start_str, last_synced_dt)。"""
+    now = datetime.now(CST)
+    start_dt = now - timedelta(days=days)
+    ls_dt = None
+    if last_synced_iso:
+        try:
+            ls_dt = datetime.fromisoformat(last_synced_iso)
+            if ls_dt.tzinfo is None:
+                ls_dt = ls_dt.replace(tzinfo=CST)
+            if ls_dt > start_dt:
+                start_dt = ls_dt
+        except Exception:  # noqa: BLE001
+            ls_dt = None
+    if iso:
+        return start_dt.isoformat(timespec="seconds"), ls_dt
+    return start_dt.strftime("%Y-%m-%d %H:%M:%S"), ls_dt
+
+
+def _to_iso(ts) -> str | None:
+    """把消息时间戳尽量转成 ISO（支持 ISO 串 / epoch 秒·毫秒）。失败返回 None。"""
+    if not ts:
+        return None
+    s = str(ts).strip()
+    try:
+        return datetime.fromisoformat(s).astimezone(CST).isoformat(timespec="seconds")
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        f = float(s)
+        if f > 1e12:
+            f /= 1000
+        return datetime.fromtimestamp(f, CST).isoformat(timespec="seconds")
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _wecom_should_skip(state: dict) -> bool:
+    """连续无数据且今日已尝试过 -> 退避跳过。"""
+    today = datetime.now(CST).strftime("%Y-%m-%d")
+    ce = state.get("wecom_consecutive_empty", 0)
+    return ce >= 3 and state.get("wecom_last_attempt_date") == today
+
+
+def _wecom_record(state: dict, had_data: bool) -> None:
+    """记录企微本轮结果，更新连续无数据计数与退避状态。"""
+    today = datetime.now(CST).strftime("%Y-%m-%d")
+    if had_data:
+        state["wecom_consecutive_empty"] = 0
+    else:
+        ce = state.get("wecom_consecutive_empty", 0) + 1
+        state["wecom_consecutive_empty"] = min(ce, 999)
+        if ce >= 3:
+            print(f"[warn] 企业微信连续 {ce} 次无数据（可能授权过期 / 无消息），"
+                  f"进入每日退避，今日不再重试", file=sys.stderr)
+    state["wecom_last_attempt_date"] = today
+    _save_state(state)
+
 
 # ---- 配置 ------------------------------------------------------------------
 
@@ -145,30 +290,45 @@ def _ensure_dir(p: Path) -> Path:
 def save_note(category: str, date: str, source: str, title: str, body: str,
               participants: list[str] | None = None, extra_tags: list[str] | None = None,
               vault: Path | None = None, meta: dict | None = None,
-              dedup_key: str | None = None) -> Path:
+              dedup_key: str | None = None, append: bool = False) -> Path:
     """写入一条分源笔记（frontmatter + 正文）。返回文件路径。
 
     dedup_key: 若提供，则在 cat_dir 下查找 frontmatter 含该 key 的已有笔记，
                找到则原地更新（不新增），避免重复累积。
-    meta: 额外写入 frontmatter 的键值（如 minute_token）。
+    meta: 额外写入 frontmatter 的键值（如 minute_token / last_synced）。
+    append: 命中已有笔记时，仅追加正文中「不在旧文件里」的新行，避免边界重复；
+            配合 dedup_key 实现增量更新。
+    无变化时（内容一致）直接跳过写入，避免每轮刷新 mtime 触发无谓同步。
     """
     vault = vault or SHARED_VAULT
     cat_dir = _ensure_dir(vault / category)
-    # 去重：按 dedup_key 在已有笔记里找同一条
-    if dedup_key:
-        for existing in sorted(cat_dir.glob("*.md")):
-            try:
-                txt = existing.read_text(encoding="utf-8", errors="ignore")
-            except Exception:  # noqa: BLE001
-                continue
-            if f"{dedup_key}" in txt and "---" in txt:
-                # 简单判定：frontmatter 含该 key 即视为同一条
-                path = existing
-                break
+    path = _find_existing(vault, category, dedup_key) if dedup_key else None
+    new_body = body.strip()
+
+    # ---- 追加模式：仅补入新增行，并持久化 meta（如 last_synced）----
+    if path is not None and append and path.exists():
+        try:
+            old_txt = path.read_text(encoding="utf-8", errors="ignore")
+        except Exception:  # noqa: BLE001
+            old_txt = ""
+        old_lines = set(old_txt.splitlines())
+        add_lines = [ln for ln in new_body.splitlines() if ln and ln not in old_lines]
+        if add_lines:
+            base = old_txt.rstrip("\n")
+            new_text = base + "\n\n" + "\n".join(add_lines) + "\n"
         else:
-            path = None
-    else:
-        path = None
+            new_text = old_txt  # 无新增，原样保留
+        # 把 last_synced 等增量标记写回 frontmatter，否则下轮会丢失
+        if meta:
+            new_text = _merge_frontmatter(new_text, meta)
+        if _unchanged(path, new_text):
+            print(f"[skip] 无变化：{path}", file=sys.stderr)
+            return path
+        path.write_text(new_text, encoding="utf-8")
+        print((f"[append] {path}" if add_lines else f"[update] {path}"), file=sys.stderr)
+        return path
+
+    # ---- 普通模式（覆盖写 / 首次创建）----
     if path is None:
         safe_title = "".join(c if c.isalnum() or c in " -_（）()" else "_" for c in title)[:60]
         fname = f"{date}-{safe_title}.md"
@@ -196,11 +356,26 @@ def save_note(category: str, date: str, source: str, title: str, body: str,
     fm.append("")
     fm.append(f"# {title}")
     fm.append("")
-    fm.append(body.strip())
+    fm.append(new_body)
     fm.append("")
-    path.write_text("\n".join(fm), encoding="utf-8")
+    new_text = "\n".join(fm)
+    if _unchanged(path, new_text):
+        print(f"[skip] 无变化：{path}", file=sys.stderr)
+        return path
+    path.write_text(new_text, encoding="utf-8")
     print(f"[write] {path}", file=sys.stderr)
     return path
+
+
+def _unchanged(path: Path, new_text: str) -> bool:
+    """文件已存在且内容（忽略首尾空白）一致时返回 True。"""
+    if not path.exists():
+        return False
+    try:
+        old = path.read_text(encoding="utf-8", errors="ignore")
+    except Exception:  # noqa: BLE001
+        return False
+    return old.strip() == new_text.strip()
 
 
 # ---- 飞书采集 --------------------------------------------------------------
@@ -209,7 +384,6 @@ def collect_feishu(cfg: dict, days: int, dry_run: bool, vault: Path) -> int:
     if not (cfg.get("enabled", {}).get("feishu", False)):
         print("[skip] feishu 未启用", file=sys.stderr)
         return 0
-    start_iso = (datetime.now(CST) - timedelta(days=days)).isoformat(timespec="seconds")
     # 1) 拉会话列表
     lst = _run_cli(LARK_CLI, "im", "+chat-list", "--types", "group,p2p",
                    "--sort", "active_time", "--page-size", "20", "--as", "user",
@@ -226,6 +400,12 @@ def collect_feishu(cfg: dict, days: int, dry_run: bool, vault: Path) -> int:
         name = ch.get("name") or cid or "未命名会话"
         if not cid:
             continue
+        # 增量：从上次同步时间之后拉取，缩小传输窗口
+        last_synced = None
+        existing = _find_existing(vault, "chat", f"chat_id: {cid}")
+        if existing:
+            last_synced = _parse_frontmatter(existing).get("last_synced")
+        start_iso, _ = _narrow_start(days, last_synced, iso=True)
         # 2) 拉消息
         msg = _run_cli(LARK_CLI, "im", "+chat-messages-list", "--chat-id", cid,
                        "--start", start_iso, "--order", "asc", "--page-size", "50",
@@ -236,19 +416,27 @@ def collect_feishu(cfg: dict, days: int, dry_run: bool, vault: Path) -> int:
         if not items:
             continue
         lines = []
+        max_ts = None
         for m in items:
             sender = (m.get("sender") or {}).get("name") or m.get("sender_id") or "unknown"
             ts = m.get("create_time") or m.get("timestamp", "")
             content = _extract_lark_content(m)
             if content:
                 lines.append(f"- **{ts}** ({sender}): {content}")
+                iso = _to_iso(ts)
+                if iso and (max_ts is None or iso > max_ts):
+                    max_ts = iso
         if lines:
             date = datetime.now(CST).strftime("%Y-%m-%d")
+            meta = {"chat_id": cid}
+            if max_ts:
+                meta["last_synced"] = max_ts
             body = "\n".join(lines)
             save_note("chat", date, "feishu", name, body,
                       extra_tags=["lark", ch.get("chat_mode", "group")],
-                      meta={"chat_id": cid},
+                      meta=meta,
                       dedup_key=f"chat_id: {cid}",
+                      append=True,
                       vault=vault)
             count += 1
     return count
@@ -293,6 +481,10 @@ def collect_wecom(cfg: dict, days: int, dry_run: bool, vault: Path) -> int:
     if not (cfg.get("enabled", {}).get("wecom", False)):
         print("[skip] wecom 未启用", file=sys.stderr)
         return 0
+    state = _load_state()
+    if _wecom_should_skip(state):
+        print("[skip] 企业微信退避中（连续无数据，今日已重试过），跳过本轮", file=sys.stderr)
+        return 0
     start_iso = (datetime.now(CST) - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
     end_iso = datetime.now(CST).strftime("%Y-%m-%d %H:%M:%S")
     # 1) 会话列表（企微仅支持 7 天，参数走 --json）
@@ -301,10 +493,16 @@ def collect_wecom(cfg: dict, days: int, dry_run: bool, vault: Path) -> int:
                    dry_run=dry_run)
     if dry_run:
         return 0
+    if lst is None:
+        print("[warn] 企业微信 CLI 调用失败（可能未登录 / 授权过期 / 网络异常），本轮跳过",
+              file=sys.stderr)
+        _wecom_record(state, had_data=False)
+        return 0
     # 企微返回包一层 MCP jsonrpc，真正数据在 result.content[].text（字符串）
     chats = _unwrap_mcp_text(lst).get("chats", []) if lst else []
     if not chats:
         print("[info] 企业微信无会话", file=sys.stderr)
+        _wecom_record(state, had_data=False)
         return 0
     count = 0
     for ch in chats[:int(cfg.get("wecom", {}).get("max_chats", 20))]:
@@ -323,20 +521,29 @@ def collect_wecom(cfg: dict, days: int, dry_run: bool, vault: Path) -> int:
         if not items:
             continue
         lines = []
+        max_ts = None
         for m in items:
             sender = m.get("sender") or m.get("from", "")
             ts = m.get("msgtime") or m.get("time", "")
             text = m.get("msg_content") or m.get("content") or ""
             if text:
                 lines.append(f"- **{ts}** ({sender}): {text}")
+                iso = _to_iso(ts)
+                if iso and (max_ts is None or iso > max_ts):
+                    max_ts = iso
         if lines:
             date = datetime.now(CST).strftime("%Y-%m-%d")
+            meta = {"conversation_id": cid}
+            if max_ts:
+                meta["last_synced"] = max_ts
             save_note("chat", date, "wecom", name, "\n".join(lines),
                       extra_tags=["wecom"],
-                      meta={"conversation_id": cid},
+                      meta=meta,
                       dedup_key=f"conversation_id: {cid}",
+                      append=True,
                       vault=vault)
             count += 1
+    _wecom_record(state, had_data=count > 0)
     return count
 
 

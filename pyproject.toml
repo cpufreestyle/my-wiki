@@ -1,0 +1,64 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mywiki"
+version = "2.10.0"
+description = "MyWiki — 个人知识管理工具集（日记、心情、提醒、语义检索、桌面 GUI）"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.9"
+authors = [
+    { name = "Michael Qiu" },
+]
+
+dependencies = [
+    "requests>=2.28.0",
+    "beautifulsoup4>=4.11.0",
+    "markdown>=3.4.0",
+    "pyyaml>=6.0",
+    "python-dateutil>=2.8.0",
+    "PySide6>=6.5.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "playwright",
+]
+
+[project.scripts]
+# CLI 入口 —— 替代 python wiki_tool.py <command>
+mywiki = "wiki_tool:main"
+
+[project.gui-scripts]
+# 桌面 GUI 入口
+mywiki-app = "wiki_app:main"
+# 本地 Web 服务器
+mywiki-server = "web_server:main"
+
+[tool.setuptools]
+# 根目录单文件模块（不迁移到子包时，显式列出）
+py-modules = [
+    "daily_ui",
+    "mood_analyzer",
+    "rag",
+    "reminder_manager",
+    "reminder_server",
+    "reminder_ui",
+    "send_reminder",
+    "tag_extractor",
+    "theme",
+    "voice_mood",
+    "web_server",
+    "wiki_app",
+    "wiki_tool",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["modules*", "scripts*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

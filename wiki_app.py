@@ -2089,7 +2089,7 @@ class WelcomeDialog(QDialog):
 
 
 # ==================== MAIN ====================
-if __name__ == "__main__":
+def main():
     app = QApplication(sys.argv)
 
     # 应用 QSS 样式
@@ -2110,3 +2110,7 @@ if __name__ == "__main__":
         QTimer.singleShot(200, lambda: WelcomeDialog(window).show())
 
     sys.exit(app.exec())
+
+
+if __name__ == "__main__":
+    main()

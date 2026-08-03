@@ -2,7 +2,7 @@
 
 > 基于 [Andrej Karpathy's LLM Wiki 理念](https://karpathy.github.io/2025/05/11/llm-wiki/) 构建的个人知识库系统
 
-[![Version](https://img.shields.io/badge/version-v2.9.0-blue)](https://github.com/cpufreestyle/my-wiki/releases/tag/v2.9.0)
+[![Version](https://img.shields.io/badge/version-v2.10.0-blue)](https://github.com/cpufreestyle/my-wiki/releases/tag/v2.10.0)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Obsidian](https://img.shields.io/badge/Obsidian-1.0+-purple)](https://obsidian.md)
 
@@ -348,7 +348,7 @@ graph TD
 
 ```text
 my-wiki/
-├── README.md                      # 本文件 (v2.9.0)
+├── README.md                      # 本文件 (v2.10.0)
 ├── INDEX.md                       # 知识索引（自动生成）
 ├── wiki_app.py                    # 桌面端主程序（PySide6 GUI：日记 / 心情 / 提醒 / Share）
 ├── wiki_tool.py                   # 统一工具入口 (v2.8.0)

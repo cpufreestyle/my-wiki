@@ -363,7 +363,7 @@ def run_server(port=8080):
         print("\n已停止。")
 
 
-if __name__ == "__main__":
+def main():
     p = 8080
     if len(sys.argv) > 1:
         try:
@@ -371,3 +371,7 @@ if __name__ == "__main__":
         except Exception:
             pass
     run_server(p)
+
+
+if __name__ == "__main__":
+    main()

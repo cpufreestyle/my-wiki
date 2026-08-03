@@ -18,6 +18,8 @@ SUITES = [
     "test_index",
     "test_rag_web",
     "test_graph_web",
+    "test_rag",
+    "test_reminder_manager",
 ]
 
 

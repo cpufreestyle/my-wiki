@@ -1,0 +1,12 @@
+{
+  "feeds": [
+    {"name": "Hacker News",      "url": "https://hnrss.org/frontpage",              "tag": "tech",   "enabled": true},
+    {"name": "GitHub Blog",      "url": "https://github.blog/feed/",                "tag": "github", "enabled": true},
+    {"name": "MIT Tech Review",  "url": "https://www.technologyreview.com/feed/",   "tag": "tech",   "enabled": true},
+    {"name": "Real Python",      "url": "https://realpython.com/atom.xml",          "tag": "python", "enabled": true},
+    {"name": "Planet Python",    "url": "https://planetpython.org/rss20.xml",       "tag": "python", "enabled": true},
+    {"name": "OpenAI Blog",      "url": "https://openai.com/blog/rss.xml",          "tag": "tech",   "enabled": true},
+    {"name": "Anthropic Blog",   "url": "https://www.anthropic.com/feed.xml",       "tag": "tech",   "enabled": true},
+    {"name": "Python Insider",   "url": "https://blog.python.org/feeds/posts/default?alt=rss", "tag": "python", "enabled": true}
+  ]
+}
