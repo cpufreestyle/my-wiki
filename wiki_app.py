@@ -56,44 +56,91 @@ except ModuleNotFoundError as e:
     except Exception:
         pass
     sys.exit(1)
+def _proc_running(name):
+    """检查某进程镜像名是否正在运行（用于识别已安装程序，即使 exe 路径异常）。"""
+    try:
+        out = subprocess.run(
+            ["tasklist", "/FI", "IMAGENAME eq {}".format(name), "/NH", "/FO", "CSV"],
+            capture_output=True, text=True, timeout=10,
+        )
+        return name.lower() in out.stdout.lower()
+    except Exception:
+        return False
+
+
+def _find_exe(root, name):
+    """在 root 下递归查找名为 name 的可执行文件，返回首个命中路径或 None。"""
+    if not os.path.isdir(root):
+        return None
+    try:
+        for dirpath, _dirs, files in os.walk(root, onerror=lambda e: None):
+            for fn in files:
+                if fn.lower() == name:
+                    return os.path.join(dirpath, fn)
+    except Exception:
+        pass
+    return None
+
+
 def check_obsidian():
-    """检测 Obsidian 是否安装（跨平台）。返回 (bool, path)。"""
+    """检测 Obsidian 是否安装/已配置（跨平台）。返回 (bool, path)。"""
     if sys.platform == "darwin":
         if os.path.exists("/Applications/Obsidian.app"):
             return True, "/Applications/Obsidian.app"
         return False, None
     if sys.platform == "win32":
-        # 1) 通过 obsidian:// URI 处理程序反查真实 exe（最可靠，跨任意安装路径）
-        try:
-            import winreg
-            for root in (winreg.HKEY_LOCAL_MACHINE, winreg.HKEY_CURRENT_USER):
-                try:
-                    with winreg.OpenKey(root, r"Software\Classes\obsidian\shell\open\command") as k:
-                        val = winreg.QueryValue(k, "")
-                        if val:
-                            exe = val.split('"')[1] if '"' in val else val.split()[0]
-                            if os.path.exists(exe):
-                                return True, exe
-                except OSError:
-                    continue
-        except Exception:
-            pass
-        # 2) 常见安装路径（用 expanduser 兼容 C:/D: 盘符差异）
+        import winreg
+
+        # 1) 反查 obsidian:// 处理程序，拿到真实 exe（最可靠，跨任意安装路径）
+        def _proto_exe():
+            try:
+                for root in (winreg.HKEY_LOCAL_MACHINE, winreg.HKEY_CURRENT_USER):
+                    try:
+                        with winreg.OpenKey(root, r"Software\Classes\obsidian\shell\open\command") as k:
+                            val = winreg.QueryValue(k, "")
+                            if val:
+                                return val.split('"')[1] if '"' in val else val.split()[0]
+                    except OSError:
+                        continue
+            except Exception:
+                pass
+            return None
+
+        exe = _proto_exe()
+        if exe and os.path.exists(exe):
+            return True, exe
+        # 2) 正在运行（即使 exe 路径异常也能识别）
+        if _proc_running("Obsidian.exe"):
+            return True, exe
+        # 3) 常见安装路径 + 商店版 stub（expanduser 兼容 C:/D: 盘）
         base = os.path.expanduser("~")
-        candidates = [
+        for p in [
             os.path.join(base, "AppData", "Local", "Programs", "Obsidian", "Obsidian.exe"),
             os.path.join(base, "AppData", "Local", "Obsidian", "Obsidian.exe"),
+            os.path.join(base, "AppData", "Local", "Microsoft", "WindowsApps", "Obsidian.exe"),
             r"C:\Program Files\Obsidian\Obsidian.exe",
             r"C:\Program Files (x86)\Obsidian\Obsidian.exe",
-        ]
-        for p in candidates:
+        ]:
             if os.path.exists(p):
                 return True, p
+        # 4) 递归兜底：在常用根目录里找 Obsidian.exe
+        for root in (
+            os.path.join(base, "AppData", "Local", "Programs"),
+            os.path.join(base, "AppData", "Local"),
+            r"C:\Program Files",
+            r"C:\Program Files (x86)",
+        ):
+            hit = _find_exe(root, "obsidian.exe")
+            if hit:
+                return True, hit
+        # 5) 协议已注册：说明系统认识 Obsidian（即使 exe 暂时缺失，也视为已配置）
+        if exe:
+            return True, None
     return False, None
 
 
 def check_openclaw():
-    """检测 OpenClaw 是否安装（跨平台）。"""
+    """检测 OpenClaw 是否安装（跨平台）。OpenClaw 多为 npm 全局 CLI。"""
     candidates = []
     if sys.platform == "darwin":
         candidates = [
@@ -107,15 +154,24 @@ def check_openclaw():
             os.path.expanduser("~/Library/Application Support/QClaw/openclaw/node_modules/.bin/openclaw"),
         ]
     elif sys.platform == "win32":
+        base = os.path.expanduser("~")
+        # QClaw 桌面端常见安装路径
         candidates = [
-            r"C:\Users\{}\AppData\Local\Programs\openclaw\openclaw.exe".format(os.getenv("USERNAME")),
-            r"C:\Program Files\QClaw\openclaw.exe",
-            r"C:\Program Files (x86)\QClaw\openclaw.exe",
+            os.path.join(base, "AppData", "Local", "Programs", "QClaw", "QClaw.exe"),
+            r"C:\Program Files\QClaw\QClaw.exe",
+            r"C:\Program Files (x86)\QClaw\QClaw.exe",
         ]
+        # npm 全局安装（openclaw 实为 npm 全局包）
+        npm_root = os.path.join(base, "AppData", "Roaming", "npm")
+        candidates.append(os.path.join(npm_root, "node_modules", "openclaw"))  # 包目录即证明已装
+        for ext in ("", ".cmd", ".ps1"):
+            candidates.append(os.path.join(npm_root, "openclaw" + ext))
     try:
         out = subprocess.run(["npm", "prefix", "-g"], capture_output=True, text=True, timeout=10)
         if out.returncode == 0:
-            candidates.append(os.path.join(out.stdout.strip(), "bin", "openclaw"))
+            g = out.stdout.strip()
+            candidates.append(os.path.join(g, "bin", "openclaw"))
+            candidates.append(os.path.join(g, "node_modules", "openclaw"))
     except Exception:
         pass
     found = shutil.which("openclaw")
@@ -126,8 +182,14 @@ def check_openclaw():
             if os.path.exists(c):
                 return True, c
             continue
+        if os.path.isdir(c):  # npm 包目录也算已安装
+            return True, c
         if os.path.exists(c):
             return True, c
+    # 6) 运行中（openclaw 以 node 形式运行，按镜像名兜底）
+    for name in ("openclaw.exe", "qclaw.exe", "QClaw.exe"):
+        if _proc_running(name):
+            return True, None
     return False, None
 
 
