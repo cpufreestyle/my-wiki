@@ -1665,20 +1665,38 @@ class WikiApp(QMainWindow):
             self._rebuild_ui()
 
     def open_web_version(self):
-        """打开网页版门户（知识图谱 / RAG 语义检索），复用已运行的 web_server.py。"""
+        """打开网页版门户（知识图谱 / RAG 语义检索），复用已运行的 web_server.py。
+
+        若服务未运行（桌面端打开时本应已自动拉起），则先尝试启动再打开。
+        """
         import webbrowser
         import urllib.request
-        url = "http://localhost:8080/"
+        port = getattr(self, "_web_port", 8080)
+        url = f"http://localhost:{port}/"
         try:
             urllib.request.urlopen(url, timeout=1.5)
         except Exception:
-            QMessageBox.information(
-                self, "网页版未启动",
-                "网页版服务器（web_server.py）尚未运行。\n\n"
-                "请在项目目录执行：\n  python web_server.py\n\n"
-                "启动后再点击此按钮即可在浏览器中打开知识图谱与语义检索页面。",
-            )
-            return
+            # 服务未起：尝试自动拉起（用完即弃，不强制用户手动跑脚本）
+            if not getattr(self, "_web_started", False):
+                self._start_web_server(port)
+                # 给子进程 / 线程一点启动时间
+                for _ in range(10):
+                    try:
+                        urllib.request.urlopen(url, timeout=1.0)
+                        break
+                    except Exception:
+                        import time as _t
+                        _t.sleep(0.4)
+            try:
+                urllib.request.urlopen(url, timeout=1.5)
+            except Exception:
+                QMessageBox.information(
+                    self, "网页版未启动",
+                    "网页版服务器（web_server.py）启动失败。\n\n"
+                    "可尝试在项目目录手动运行：\n  python web_server.py\n\n"
+                    "然后点击此按钮在浏览器中打开知识图谱与语义检索页面。",
+                )
+                return
         webbrowser.open(url)
 
     def _rebuild_ui(self):
@@ -1715,16 +1733,31 @@ class WikiApp(QMainWindow):
         if getattr(self, "_web_started", False):
             return
         self._web_started = True
+        self._web_port = port
 
         if getattr(sys, "frozen", False):
             # 打包模式：线程内嵌启动（web_server 已随 app 打包进资源目录）
             try:
                 import web_server  # 资源目录已在 sys.path
-                srv = web_server.make_server(port)
+            except Exception as e:  # noqa: BLE001
+                print(f"[web] 内嵌 web_server 导入失败：{e}", file=sys.stderr)
+                self._web_started = False
+                return
+            # 端口被占用（如残留的 http.server）时，自动选用下一个可用端口
+            for try_port in range(port, port + 11):
+                try:
+                    srv = web_server.make_server(try_port)
+                except Exception as e:  # noqa: BLE001
+                    print(f"[web] 端口 {try_port} 占用，尝试下一端口：{e}", file=sys.stderr)
+                    continue
+                self._web_port = try_port
                 self._web_server = srv
                 threading.Thread(target=srv.serve_forever, daemon=True).start()
-            except Exception:
-                self._web_started = False
+                if try_port != port:
+                    print(f"[web] 已改用端口 {try_port} 提供网页版", file=sys.stderr)
+                return
+            # 所有候选端口都失败
+            self._web_started = False
             return
 
         # 未打包模式：子进程

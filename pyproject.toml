@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mywiki"
-version = "2.10.0"
+version = "2.10.1"
 description = "MyWiki — 个人知识管理工具集（日记、心情、提醒、语义检索、桌面 GUI）"
 readme = "README.md"
 license = { text = "MIT" }

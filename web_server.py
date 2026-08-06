@@ -28,7 +28,12 @@ from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, ROOT)
-import voice_mood
+
+# 语音模块（ffmpeg / SpeechRecognition）缺失时仅语音接口降级，不阻断整个服务器
+try:
+    import voice_mood
+except Exception:  # noqa: BLE001
+    voice_mood = None
 
 # 网页端 RAG 检索 / 知识图谱所需模块（缺失时接口优雅降级）
 try:
@@ -52,6 +57,9 @@ def _record_worker(duration):
     global _voice_result, _voice_running, _voice_proc
     result = {"ok": False}
     try:
+        if voice_mood is None:
+            _voice_result = {"ok": False, "error": "语音模块未加载（缺少 ffmpeg/SpeechRecognition），仅图谱/检索可用。"}
+            return
         ffmpeg = voice_mood.get_ffmpeg_path()
         if not ffmpeg:
             result = {"ok": False, "error": "未找到 ffmpeg，无法录音。"}
