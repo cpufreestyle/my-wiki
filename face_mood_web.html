@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MyWiki 面部情绪</title>
+    <!-- 主题与样式复用心情页风格（Apple 风格 / 深色模式） -->
+    <style>
+        :root {
+            --bg: #f5f5f7; --surface: #ffffff; --text: #1d1d1f; --text-secondary: #86868b;
+            --accent: #ff2d7e; --accent-hover: #e61f6c; --accent-soft: rgba(255,45,126,0.12);
+            --green: #34c759; --border: #e5e5ea; --radius-card: 14px; --radius-btn: 10px;
+            --shadow-sm: 0 1px 3px rgba(0,0,0,0.08); --shadow-md: 0 8px 24px rgba(0,0,0,0.06);
+            --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display",
+                "PingFang SC", "Helvetica Neue", "Microsoft YaHei", sans-serif;
+        }
+        [data-theme="dark"] {
+            --bg: #1c1c1e; --surface: #2c2c2e; --text: #f5f5f7; --text-secondary: #98989d;
+            --accent: #ff375f; --accent-hover: #ff5e7a; --accent-soft: rgba(255,55,95,0.18);
+            --green: #30d158; --border: #3a3a3c;
+            --shadow-sm: 0 1px 3px rgba(0,0,0,0.4); --shadow-md: 0 8px 24px rgba(0,0,0,0.5);
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: var(--font); background: var(--bg); color: var(--text);
+            -webkit-font-smoothing: antialiased; line-height: 1.45;
+            transition: background 0.2s ease, color 0.2s ease;
+        }
+        .app { max-width: 640px; margin: 0 auto; padding: 28px 20px 56px; }
+        .app-header { text-align: center; margin-bottom: 18px; }
+        .app-header h1 { font-size: 24px; font-weight: 700; letter-spacing: -0.02em; }
+        .app-header p { color: var(--text-secondary); font-size: 14px; margin-top: 4px; }
+        .card {
+            background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-card);
+            padding: 18px; box-shadow: var(--shadow-sm); margin-bottom: 16px;
+        }
+        .stage { position: relative; width: 100%; aspect-ratio: 4 / 3; background: #000;
+            border-radius: 12px; overflow: hidden; }
+        .stage video, .stage canvas {
+            position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;
+        }
+        .stage canvas { pointer-events: none; }
+        .stage .placeholder {
+            position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+            color: #8e8e93; font-size: 14px; text-align: center; padding: 16px;
+        }
+        .controls { display: flex; gap: 10px; margin-top: 14px; flex-wrap: wrap; }
+        button {
+            flex: 1; min-width: 120px; border: none; border-radius: var(--radius-btn);
+            padding: 12px 16px; font-size: 15px; font-weight: 600; cursor: pointer;
+            font-family: var(--font); transition: background 0.15s ease, opacity 0.15s ease;
+        }
+        .btn-primary { background: var(--accent); color: #fff; }
+        .btn-primary:hover { background: var(--accent-hover); }
+        .btn-secondary { background: var(--accent-soft); color: var(--accent); }
+        .btn-secondary:disabled { opacity: 0.45; cursor: not-allowed; }
+        button:disabled { opacity: 0.45; cursor: not-allowed; }
+        .emotion-now {
+            text-align: center; padding: 6px 0 2px;
+        }
+        .emotion-now .label { font-size: 34px; font-weight: 800; letter-spacing: -0.02em; }
+        .emotion-now .conf { color: var(--text-secondary); font-size: 13px; margin-top: 2px; }
+        .bars { margin-top: 12px; display: grid; gap: 8px; }
+        .bar-row { display: grid; grid-template-columns: 64px 1fr 44px; align-items: center; gap: 10px; font-size: 13px; }
+        .bar-row .name { color: var(--text-secondary); }
+        .bar-track { height: 8px; background: var(--border); border-radius: 6px; overflow: hidden; }
+        .bar-fill { height: 100%; background: var(--accent); border-radius: 6px; width: 0%; transition: width 0.15s ease; }
+        .bar-row .val { text-align: right; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+        .status { font-size: 13px; color: var(--text-secondary); margin-top: 10px; min-height: 18px; }
+        .status.err { color: #ff3b30; }
+        .note-area {
+            width: 100%; border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px;
+            font-family: var(--font); font-size: 14px; resize: vertical; min-height: 56px;
+            background: var(--bg); color: var(--text); margin-top: 12px;
+        }
+        .section-title { font-size: 13px; font-weight: 600; color: var(--text-secondary);
+            text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 10px; }
+        .back-link { display: inline-block; margin-bottom: 14px; color: var(--accent);
+            text-decoration: none; font-size: 14px; }
+        .toast {
+            position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%) translateY(20px);
+            background: var(--text); color: var(--bg); padding: 10px 18px; border-radius: 999px;
+            font-size: 14px; opacity: 0; pointer-events: none; transition: all 0.25s ease; z-index: 50;
+        }
+        .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+    </style>
+</head>
+<body>
+    <div class="app">
+        <a class="back-link" href="index.html">← 返回首页</a>
+        <div class="app-header">
+            <h1>😊 面部情绪识别</h1>
+            <p>摄像头实时捕捉 · MediaPipe Face Mesh · 本地推理</p>
+        </div>
+
+        <div class="card">
+            <div class="stage">
+                <video id="video" autoplay playsinline muted></video>
+                <canvas id="overlay"></canvas>
+                <div class="placeholder" id="placeholder">点击下方「开启摄像头」开始</div>
+            </div>
+            <div class="controls">
+                <button class="btn-primary" id="startBtn">开启摄像头</button>
+                <button class="btn-secondary" id="stopBtn" disabled>停止</button>
+            </div>
+            <div class="status" id="status">模型加载中…</div>
+        </div>
+
+        <div class="card">
+            <div class="emotion-now">
+                <div class="label" id="emoLabel">—</div>
+                <div class="conf" id="emoConf">置信度 —</div>
+            </div>
+            <div class="bars" id="bars"></div>
+            <textarea class="note-area" id="note" placeholder="可选：为这次情绪记录加一句备注…"></textarea>
+            <div class="controls">
+                <button class="btn-primary" id="saveBtn" disabled>保存这次记录</button>
+            </div>
+        </div>
+    </div>
+    <div class="toast" id="toast"></div>
+
+    <!-- MediaPipe Tasks Vision（ES Module，CDN） -->
+    <script type="importmap">
+    {
+        "imports": {
+            "@mediapipe/tasks-vision": "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10/vision_bundle.mjs"
+        }
+    }
+    </script>
+    <script type="module">
+        import { FaceLandmarker, FilesetResolver, DrawingUtils } from "@mediapipe/tasks-vision";
+
+        const video = document.getElementById("video");
+        const canvas = document.getElementById("overlay");
+        const ctx = canvas.getContext("2d");
+        const placeholder = document.getElementById("placeholder");
+        const statusEl = document.getElementById("status");
+        const startBtn = document.getElementById("startBtn");
+        const stopBtn = document.getElementById("stopBtn");
+        const saveBtn = document.getElementById("saveBtn");
+        const emoLabel = document.getElementById("emoLabel");
+        const emoConf = document.getElementById("emoConf");
+        const barsEl = document.getElementById("bars");
+        const noteEl = document.getElementById("note");
+        const toastEl = document.getElementById("toast");
+
+        const EMOTIONS = ["平静", "开心", "悲伤", "愤怒", "惊讶", "恐惧", "轻蔑"];
+        // 特征顺序需与 FEATURE_KEYS 一致
+        const FEATURE_KEYS = [
+            "mouthSmileLeft", "mouthSmileRight", "mouthFrownLeft", "mouthFrownRight",
+            "jawOpen", "browDownLeft", "browDownRight", "browInnerUp",
+            "eyeWideLeft", "eyeWideRight", "eyeBlinkLeft", "eyeBlinkRight",
+            "noseSneerLeft", "noseSneerRight", "cheekSquintLeft", "cheekSquintRight",
+            "mouthPucker", "mouthStretchLeft", "mouthStretchRight"
+        ];
+        // 各情绪对特征的线性权重（启发式，范围约 -1..1）
+        const WEIGHTS = {
+            "平静": [ 0.00, 0.00, 0.00, 0.00, -0.30, -0.30, -0.30, -0.40,
+                     -0.35, -0.35,  0.20,  0.20, -0.30, -0.30, -0.30, -0.30, -0.20, -0.20, -0.20],
+            "开心": [ 1.00, 1.00,-0.50,-0.50,  0.10, -0.30, -0.30,  0.00,
+                      0.10,  0.10, -0.20, -0.20,  0.10,  0.10,  0.20,  0.20, -0.20,  0.20,  0.20],
+            "悲伤": [-0.40,-0.40, 0.80, 0.80,  0.00, -0.10, -0.10,  0.50,
+                     -0.30, -0.30,  0.00,  0.00, -0.10, -0.10,  0.00,  0.00,  0.00,  0.10,  0.10],
+            "愤怒": [-0.30,-0.30,-0.10,-0.10, -0.10,  1.00,  1.00,  0.20,
+                     -0.40, -0.40, -0.30, -0.30,  0.60,  0.60,  0.30,  0.30, -0.10, -0.20, -0.20],
+            "惊讶": [ 0.00, 0.00,-0.30,-0.30,  1.00, -0.20, -0.20,  0.80,
+                      1.00,  1.00, -0.20, -0.20, -0.20, -0.20,  0.00,  0.00, -0.20,  0.00,  0.00],
+            "恐惧": [-0.30,-0.30, 0.10, 0.10,  0.40,  0.50,  0.50,  0.80,
+                      0.90,  0.90,  0.00,  0.00,  0.00,  0.00,  0.20,  0.20,  0.00, -0.10, -0.10],
+            "轻蔑":[ 0.30, 0.30,-0.20,-0.20, -0.10,  0.20,  0.20, -0.10,
+                     -0.20, -0.20, -0.10, -0.10,  1.00,  1.00,  0.40,  0.40,  0.00,  0.30,  0.30]
+        };
+        const NEUTRAL_BIAS = 0.18; // 平静的基线偏置，放松表情默认归于平静
+
+        let faceLandmarker = null;
+        let stream = null;
+        let running = false;
+        let rafId = null;
+        let latest = null; // 最近一次情绪结果
+
+        function setStatus(msg, isErr = false) {
+            statusEl.textContent = msg;
+            statusEl.classList.toggle("err", isErr);
+        }
+        function toast(msg) {
+            toastEl.textContent = msg;
+            toastEl.classList.add("show");
+            clearTimeout(toast._t);
+            toast._t = setTimeout(() => toastEl.classList.remove("show"), 1800);
+        }
+
+        async function initModel() {
+            try {
+                setStatus("正在加载 MediaPipe 模型…");
+                const fileset = await FilesetResolver.forVisionTasks(
+                    "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10/wasm"
+                );
+                faceLandmarker = await FaceLandmarker.createFromOptions(fileset, {
+                    baseOptions: {
+                        modelAssetPath:
+                            "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task",
+                        delegate: "GPU"
+                    },
+                    runningMode: "VIDEO",
+                    numFaces: 1,
+                    outputFaceBlendshapes: true,
+                    outputFacialTransformationMatrixes: false
+                });
+                setStatus("模型就绪，等待开启摄像头。");
+            } catch (e) {
+                setStatus("模型加载失败：" + (e?.message || e), true);
+            }
+        }
+
+        function extractFeatures(blendshapes) {
+            const map = {};
+            for (const c of blendshapes.categories) map[c.categoryName] = c.score;
+            return FEATURE_KEYS.map((k) => map[k] || 0);
+        }
+
+        function classify(features) {
+            const raw = EMOTIONS.map((name) => {
+                let s = 0;
+                const w = WEIGHTS[name];
+                for (let i = 0; i < features.length; i++) s += w[i] * features[i];
+                if (name === "平静") s += NEUTRAL_BIAS;
+                return s;
+            });
+            // softmax 归一化为概率
+            const max = Math.max(...raw);
+            const exps = raw.map((v) => Math.exp(v - max));
+            const sum = exps.reduce((a, b) => a + b, 0);
+            const probs = exps.map((v) => v / sum);
+            let best = 0;
+            for (let i = 1; i < probs.length; i++) if (probs[i] > probs[best]) best = i;
+            return { label: EMOTIONS[best], confidence: probs[best], probs };
+        }
+
+        // 仅保留贡献最大的若干 blendshape，用于可解释性回看
+        function topFeatures(blendshapes, n = 6) {
+            const arr = blendshapes.categories
+                .map((c) => [c.categoryName, c.score])
+                .filter(([, v]) => v > 0.05)
+                .sort((a, b) => b[1] - a[1])
+                .slice(0, n);
+            const out = {};
+            for (const [k, v] of arr) out[k] = Math.round(v * 1000) / 1000;
+            return out;
+        }
+
+        function drawResult(result) {
+            const w = canvas.width, h = canvas.height;
+            ctx.save();
+            ctx.clearRect(0, 0, w, h);
+            const lm = result.faceLandmarks && result.faceLandmarks[0];
+            if (lm) {
+                // 炫酷追踪点：只绘制面部边缘轮廓构成"脸型光环" + 鼻尖焦点，
+                // 脸内部不画，避免遮挡；青色霓虹发光，避开粉色。
+                ctx.save();
+                ctx.fillStyle = "rgba(64,224,255,0.9)";
+                ctx.shadowColor = "rgba(64,224,255,0.9)";
+                ctx.shadowBlur = 6;
+                const oval = FaceLandmarker.FACE_LANDMARKS_FACE_OVAL || [];
+                for (const c of oval) {
+                    for (const idx of [c.start, c.end]) {
+                        const p = lm[idx];
+                        if (!p) continue;
+                        ctx.beginPath();
+                        ctx.arc(p.x * w, p.y * h, 2, 0, Math.PI * 2);
+                        ctx.fill();
+                    }
+                }
+                // 鼻尖焦点（略大，作为追踪锚点）
+                const nose = lm[1];
+                if (nose) {
+                    ctx.beginPath();
+                    ctx.arc(nose.x * w, nose.y * h, 3.2, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+                ctx.restore();
+            }
+            ctx.restore();
+        }
+
+        function renderBars(probs) {
+            let html = "";
+            EMOTIONS.forEach((name, i) => {
+                const pct = Math.round(probs[i] * 100);
+                html += `<div class="bar-row">
+                    <span class="name">${name}</span>
+                    <span class="bar-track"><span class="bar-fill" style="width:${pct}%"></span></span>
+                    <span class="val">${pct}%</span>
+                </div>`;
+            });
+            barsEl.innerHTML = html;
+        }
+
+        function loop() {
+            if (!running || !faceLandmarker) return;
+            if (video.currentTime === 0) { rafId = requestAnimationFrame(loop); return; }
+            const result = faceLandmarker.detectForVideo(video, performance.now());
+            if (result.faceLandmarks && result.faceLandmarks.length > 0) {
+                drawResult(result);
+                const features = extractFeatures(result.faceBlendshapes[0]);
+                const r = classify(features);
+                latest = {
+                    label: r.label,
+                    confidence: r.confidence,
+                    features: topFeatures(result.faceBlendshapes[0]),
+                    reason: Object.entries(topFeatures(result.faceBlendshapes[0]))
+                        .map(([k, v]) => `${k}=${v}`).join(", ")
+                };
+                emoLabel.textContent = r.label;
+                emoConf.textContent = "置信度 " + Math.round(r.confidence * 100) + "%";
+                renderBars(r.probs);
+                saveBtn.disabled = false;
+                setStatus("已检测到人脸，正在实时识别…");
+            } else {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                emoLabel.textContent = "—";
+                emoConf.textContent = "置信度 —";
+                renderBars(EMOTIONS.map(() => 0));
+                latest = null;
+                saveBtn.disabled = true;
+                setStatus("未检测到人脸，请正对摄像头。");
+            }
+            rafId = requestAnimationFrame(loop);
+        }
+
+        async function start() {
+            if (!faceLandmarker) { toast("模型尚未就绪"); return; }
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({
+                    video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: "user" },
+                    audio: false
+                });
+                video.srcObject = stream;
+                await video.play();
+                // 画布尺寸对齐视频实际分辨率
+                video.onloadedmetadata = () => {
+                    canvas.width = video.videoWidth || 640;
+                    canvas.height = video.videoHeight || 480;
+                };
+                placeholder.style.display = "none";
+                running = true;
+                startBtn.disabled = true;
+                stopBtn.disabled = false;
+                setStatus("摄像头已开启，识别中…");
+                loop();
+            } catch (e) {
+                setStatus("摄像头开启失败：" + (e?.message || e) +
+                    "（需在 https 或 localhost 下授权，且浏览器允许摄像头权限）", true);
+            }
+        }
+
+        function stop() {
+            running = false;
+            if (rafId) cancelAnimationFrame(rafId);
+            if (stream) { stream.getTracks().forEach((t) => t.stop()); stream = null; }
+            video.srcObject = null;
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            placeholder.style.display = "flex";
+            startBtn.disabled = false;
+            stopBtn.disabled = true;
+            setStatus("已停止。");
+        }
+
+        async function save() {
+            if (!latest) { toast("暂无可保存的识别结果"); return; }
+            const now = new Date();
+            const payload = {
+                date: now.toISOString().slice(0, 10),
+                time: now.toTimeString().slice(0, 8),
+                emotion: latest.label,
+                confidence: Math.round(latest.confidence * 1000) / 1000,
+                note: noteEl.value.trim(),
+                features: latest.features,
+                reason: latest.reason
+            };
+            try {
+                const resp = await fetch("/api/face_mood", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(payload)
+                });
+                const data = await resp.json();
+                if (data.ok) { toast("已保存：" + latest.label); noteEl.value = ""; }
+                else setStatus("保存失败：" + (data.error || "未知错误"), true);
+            } catch (e) {
+                setStatus("保存失败（无法连接本地服务器）：" + (e?.message || e), true);
+            }
+        }
+
+        startBtn.addEventListener("click", start);
+        stopBtn.addEventListener("click", stop);
+        saveBtn.addEventListener("click", save);
+
+        // 主题跟随首页设置
+        try {
+            const t = localStorage.getItem("mywiki-theme");
+            if (t) document.documentElement.setAttribute("data-theme", t);
+        } catch {}
+
+        initModel();
+    </script>
+</body>
+</html>

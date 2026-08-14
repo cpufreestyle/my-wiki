@@ -165,6 +165,8 @@ class Handler(SimpleHTTPRequestHandler):
          "hint": "记录当日随笔与心情", "emoji": "📝", "color": "green"},
         {"id": "mood", "file": "mood_web.html", "label": "心情记录",
          "hint": "语音 / 文字记录情绪", "emoji": "💡", "color": "orange"},
+        {"id": "face_mood", "file": "face_mood_web.html", "label": "面部情绪",
+         "hint": "摄像头 + MediaPipe 人脸情绪识别", "emoji": "😊", "color": "pink"},
         {"id": "rag", "file": "rag_web.html", "label": "语义检索",
          "hint": "本地知识库问答", "emoji": "🔍", "color": "accent"},
         {"id": "graph", "file": "graph_web.html", "label": "知识图谱",
@@ -280,6 +282,8 @@ class Handler(SimpleHTTPRequestHandler):
             self._handle_voice_stop()
         elif path == "/api/mood":
             self._handle_mood()
+        elif path == "/api/face_mood":
+            self._handle_face_mood()
         else:
             self.send_error(404)
 
@@ -336,6 +340,54 @@ class Handler(SimpleHTTPRequestHandler):
             except Exception:
                 records = []
         records.append({k: data.get(k) for k in ("time", "mood", "text", "confidence", "reason")})
+        try:
+            with open(fpath, "w", encoding="utf-8") as f:
+                json.dump(records, f, ensure_ascii=False, indent=2)
+            self._send_json({"ok": True})
+        except Exception as e:
+            self._send_json({"ok": False, "error": str(e)}, status=500)
+
+    def _handle_face_mood(self):
+        """接收浏览器端 MediaPipe FaceLandmarker 的人脸情绪识别结果并落盘到 mood/。
+
+        请求体字段：date, time, emotion(情绪标签), confidence(0-1),
+        note(可选备注), features(可选：关键 blendshape 字典，用于可解释性)。
+        与文本/语音情绪共用 mood/<date>.json，追加一条 source='face' 记录。
+        """
+        try:
+            data = json.loads(self._read_body() or b"{}")
+        except Exception:
+            self._send_json({"ok": False, "error": "无效 JSON"}, status=400)
+            return
+        if not data.get("emotion"):
+            self._send_json({"ok": False, "error": "缺少 emotion 字段"}, status=400)
+            return
+        date = data.get("date") or datetime.now().strftime("%Y-%m-%d")
+        mood_dir = os.path.join(ROOT, "mood")
+        os.makedirs(mood_dir, exist_ok=True)
+        fpath = os.path.join(mood_dir, date + ".json")
+        records = []
+        if os.path.exists(fpath):
+            try:
+                with open(fpath, "r", encoding="utf-8") as f:
+                    records = json.load(f)
+            except Exception:
+                records = []
+        # features 可能较大，仅保留数值类便于回看，多余的忽略
+        features = data.get("features") or {}
+        if isinstance(features, dict):
+            features = {k: round(float(v), 3) for k, v in features.items() if isinstance(v, (int, float))}
+        else:
+            features = {}
+        records.append({
+            "time": data.get("time") or datetime.now().strftime("%H:%M:%S"),
+            "mood": data.get("emotion"),
+            "text": data.get("note") or "",
+            "confidence": data.get("confidence"),
+            "reason": data.get("reason") or (", ".join(f"{k}={v}" for k, v in features.items()) if features else ""),
+            "source": "face",
+            "features": features,
+        })
         try:
             with open(fpath, "w", encoding="utf-8") as f:
                 json.dump(records, f, ensure_ascii=False, indent=2)

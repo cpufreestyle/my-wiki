@@ -20,6 +20,7 @@ SUITES = [
     "test_graph_web",
     "test_rag",
     "test_reminder_manager",
+    "test_face_mood_web",
 ]
 
 
