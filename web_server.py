@@ -51,6 +51,37 @@ _voice_proc = None
 _voice_running = False
 _voice_result = None  # dict
 
+# ---- RAG 引擎单例 ----
+# 索引构建需扫描整个知识库（O(corpus)），此前每个请求都新建引擎并重建索引；
+# 单例化后仅首次构建，之后按 TTL 周期性刷新以纳入新笔记。
+_RAG_TTL = 60.0
+_rag_engine = None
+_rag_indexed_at = 0.0
+_rag_lock = threading.Lock()
+
+
+def _get_rag_engine():
+    """获取 RAGEngine 单例（线程安全），刷新失败时沿用旧索引。"""
+    global _rag_engine, _rag_indexed_at
+    if RAGEngine is None:
+        return None
+    with _rag_lock:
+        if _rag_engine is None:
+            eng = RAGEngine()
+            eng.index()
+            _rag_engine = eng
+            _rag_indexed_at = time.time()
+        elif time.time() - _rag_indexed_at > _RAG_TTL:
+            try:
+                _rag_engine.index()
+            except Exception:
+                pass  # 刷新失败沿用旧索引
+            _rag_indexed_at = time.time()
+    return _rag_engine
+
+# ---- 知识图谱响应缓存（文件 mtime 未变则直接复用上次结果） ----
+_graph_cache = {"path": None, "mtime": None, "payload": None}
+
 
 def _record_worker(duration):
     """后台线程：ffmpeg 录音 → 声学分析 → 文字识别，结果存入 _voice_result。"""
@@ -205,7 +236,10 @@ class Handler(SimpleHTTPRequestHandler):
             self._send_json({"ok": False, "error": "rag 模块不可用"}, status=500)
             return
         try:
-            eng = RAGEngine()
+            eng = _get_rag_engine()
+            if eng is None:
+                self._send_json({"ok": False, "error": "rag 模块不可用"}, status=500)
+                return
             hits = eng.search(query, limit)
             self._send_json({"ok": True, "query": query, "hits": hits})
         except Exception as e:
@@ -247,24 +281,31 @@ class Handler(SimpleHTTPRequestHandler):
             self._send_json({"ok": False, "error": "未找到 knowledge_graph.json"}, status=404)
             return
         try:
+            mtime = os.path.getmtime(gpath)
+            if (_graph_cache["path"] == gpath and _graph_cache["mtime"] == mtime
+                    and _graph_cache["payload"] is not None):
+                self._send_json(_graph_cache["payload"])
+                return
             with open(gpath, "r", encoding="utf-8") as f:
                 data = json.load(f)
             nodes = data.get("nodes", [])
             links = data.get("links", [])
             # 归一化：link 的 source/target 去掉 .md 后缀，与 node id 对齐
-            norm = {n["id"]: n["id"] for n in nodes}
+            norm = {n["id"] for n in nodes}
             clean_links = []
             for lk in links:
                 s = (lk.get("source") or "").replace(".md", "")
                 t = (lk.get("target") or "").replace(".md", "")
                 if s in norm and t in norm:
                     clean_links.append({"source": s, "target": t})
-            self._send_json({
+            payload = {
                 "ok": True,
                 "stats": data.get("stats", {}),
                 "nodes": nodes,
                 "links": clean_links,
-            })
+            }
+            _graph_cache.update(path=gpath, mtime=mtime, payload=payload)
+            self._send_json(payload)
         except Exception as e:
             self._send_json({"ok": False, "error": str(e)}, status=500)
 
@@ -322,13 +363,9 @@ class Handler(SimpleHTTPRequestHandler):
             waited += 0.2
         self._send_json(_voice_result or {"ok": False, "error": "未获取到识别结果。"})
 
-    def _handle_mood(self):
-        try:
-            data = json.loads(self._read_body() or b"{}")
-        except Exception:
-            self._send_json({"ok": False, "error": "无效 JSON"}, status=400)
-            return
-        date = data.get("date") or datetime.now().strftime("%Y-%m-%d")
+    @staticmethod
+    def _append_mood_record(date, record):
+        """向 mood/<date>.json 追加一条记录（文件不存在或损坏时重建列表）。"""
         mood_dir = os.path.join(ROOT, "mood")
         os.makedirs(mood_dir, exist_ok=True)
         fpath = os.path.join(mood_dir, date + ".json")
@@ -339,10 +376,20 @@ class Handler(SimpleHTTPRequestHandler):
                     records = json.load(f)
             except Exception:
                 records = []
-        records.append({k: data.get(k) for k in ("time", "mood", "text", "confidence", "reason")})
+        records.append(record)
+        with open(fpath, "w", encoding="utf-8") as f:
+            json.dump(records, f, ensure_ascii=False, indent=2)
+
+    def _handle_mood(self):
         try:
-            with open(fpath, "w", encoding="utf-8") as f:
-                json.dump(records, f, ensure_ascii=False, indent=2)
+            data = json.loads(self._read_body() or b"{}")
+        except Exception:
+            self._send_json({"ok": False, "error": "无效 JSON"}, status=400)
+            return
+        date = data.get("date") or datetime.now().strftime("%Y-%m-%d")
+        record = {k: data.get(k) for k in ("time", "mood", "text", "confidence", "reason")}
+        try:
+            self._append_mood_record(date, record)
             self._send_json({"ok": True})
         except Exception as e:
             self._send_json({"ok": False, "error": str(e)}, status=500)
@@ -363,23 +410,13 @@ class Handler(SimpleHTTPRequestHandler):
             self._send_json({"ok": False, "error": "缺少 emotion 字段"}, status=400)
             return
         date = data.get("date") or datetime.now().strftime("%Y-%m-%d")
-        mood_dir = os.path.join(ROOT, "mood")
-        os.makedirs(mood_dir, exist_ok=True)
-        fpath = os.path.join(mood_dir, date + ".json")
-        records = []
-        if os.path.exists(fpath):
-            try:
-                with open(fpath, "r", encoding="utf-8") as f:
-                    records = json.load(f)
-            except Exception:
-                records = []
         # features 可能较大，仅保留数值类便于回看，多余的忽略
         features = data.get("features") or {}
         if isinstance(features, dict):
             features = {k: round(float(v), 3) for k, v in features.items() if isinstance(v, (int, float))}
         else:
             features = {}
-        records.append({
+        record = {
             "time": data.get("time") or datetime.now().strftime("%H:%M:%S"),
             "mood": data.get("emotion"),
             "text": data.get("note") or "",
@@ -387,10 +424,9 @@ class Handler(SimpleHTTPRequestHandler):
             "reason": data.get("reason") or (", ".join(f"{k}={v}" for k, v in features.items()) if features else ""),
             "source": "face",
             "features": features,
-        })
+        }
         try:
-            with open(fpath, "w", encoding="utf-8") as f:
-                json.dump(records, f, ensure_ascii=False, indent=2)
+            self._append_mood_record(date, record)
             self._send_json({"ok": True})
         except Exception as e:
             self._send_json({"ok": False, "error": str(e)}, status=500)
