@@ -623,7 +623,7 @@ MYWIKI_RAG_MODE=ollama python rag.py "你的问题" --rebuild
 - ✅ **网页端总入口**：`index.html` 为统一门户页，卡片式导航进入各模块；经 `web_server.py` 启动后根路径 `/` 即门户页
 - ✅ **语义检索网页版**：`rag_web.html` 调用 `rag.py` 的 `RAGEngine`（`/api/rag` 接口），支持 BM25 / Ollama embedding 两种模式，含语音输入
 - ✅ **知识图谱可视化**：`graph_web.html` 读取 `knowledge_graph.json`（`/api/graph` 接口），纯 SVG 力导向布局（无外部依赖），按类型着色、点击高亮邻居、可拖拽
-- ✅ **桌面端内置网页版**：打开 `wiki_app.py`（或打包后的 `MyWiki.app`）时会自动在后台拉起 `web_server.py`（端口 8080），顶栏「🌐 网页版」按钮一键在浏览器打开知识图谱 / 语义检索页；关闭桌面 App 时网页版服务一并停止，无需手动启停。打包时 `web_server.py`、`rag.py`、`voice_mood.py`、各 `*_web.html` 与 `knowledge_graph.json` 已随 `MyWiki.spec` 一并打入
+- ✅ **桌面端内置网页版**：打开 `wiki_app.py`（或打包后的 `MyWiki.app`）时会自动在后台拉起 `web_server.py`（端口 8082），顶栏「🌐 网页版」按钮一键在浏览器打开知识图谱 / 语义检索页；关闭桌面 App 时网页版服务一并停止，无需手动启停。打包时 `web_server.py`、`rag.py`、`voice_mood.py`、各 `*_web.html` 与 `knowledge_graph.json` 已随 `MyWiki.spec` 一并打入
 - ✅ **卡片高度可调**：三个网页版的卡片均保证高度高于字体（`--card-h` 变量兜底），并提供「卡片高度」滑块手动统一调节，偏好持久化到 `localStorage`（daily 的编辑器高度随滑块联动）
 - ✅ **设计规格沉淀**：`FIGMA_DESIGN_SPEC.md` 记录界面设计稿与规范，便于后续迭代与协作
 - ✅ **一致体验**：`reminder_ui.py` / `daily_ui.py` / `wiki_app.py` 同步适配统一 token

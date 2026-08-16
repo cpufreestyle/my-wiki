@@ -49,7 +49,7 @@ class ReminderHandler(SimpleHTTPRequestHandler):
         # 静默日志
         pass
 
-def run_server(port=8080):
+def run_server(port=8082):
     os.chdir(os.path.dirname(os.path.abspath(__file__)))
     server = HTTPServer(('localhost', port), ReminderHandler)
     print(f"服务器启动：<INTERNAL_LINK_REMOVED>")

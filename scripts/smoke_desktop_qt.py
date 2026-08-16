@@ -39,8 +39,8 @@ def main():
         pass
 
     app = w.QApplication(sys.argv)
-    w.apply_qss(app, w.MODE)
-    print("OK 1: QApplication 创建 + apply_qss 应用, 模式=", w.MODE)
+    w.apply_qss(app, w.get_mode())
+    print("OK 1: QApplication 创建 + apply_qss 应用, 模式=", w.get_mode())
 
     window = w.WikiApp()
     window.show()
@@ -61,21 +61,21 @@ def main():
     print("OK 4: WelcomeDialog 构建并显示")
 
     # 主题切换（浅<->深）：会重建并重新 apply_qss
-    before = w.MODE
+    before = w.get_mode()
     window.toggle_theme()
     pump()
-    after = w.MODE
+    after = w.get_mode()
     assert after != before, "toggle_theme 未切换模式"
     print("OK 5: toggle_theme 切换成功 {} -> {}".format(before, after))
     window.toggle_theme()  # 切回
     pump()
 
     # 语言切换（中<->英）：重建界面
-    before_lang = w.LANG
+    before_lang = w.get_lang()
     window.toggle_language()
     pump()
-    assert w.LANG != before_lang, "toggle_language 未切换语言"
-    print("OK 6: toggle_language 切换成功 {} -> {}".format(before_lang, w.LANG))
+    assert w.get_lang() != before_lang, "toggle_language 未切换语言"
+    print("OK 6: toggle_language 切换成功 {} -> {}".format(before_lang, w.get_lang()))
     window.toggle_language()
     pump()
 

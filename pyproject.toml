@@ -53,6 +53,14 @@ py-modules = [
     "voice_mood",
     "web_server",
     "wiki_app",
+    "wiki_data",
+    "wiki_i18n",
+    "wiki_paths",
+    "wiki_tabs_daily",
+    "wiki_tabs_mood",
+    "wiki_tabs_reminder",
+    "wiki_tabs_share",
+    "wiki_theme",
     "wiki_tool",
 ]
 

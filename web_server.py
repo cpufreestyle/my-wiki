@@ -435,12 +435,12 @@ class Handler(SimpleHTTPRequestHandler):
         pass  # 静默
 
 
-def make_server(port=8080):
+def make_server(port=8082):
     """构造但未启动服务器（供 GUI 在同一进程内线程启动，避免 chdir 影响主程序）。"""
     return ThreadingHTTPServer(("0.0.0.0", port), Handler)
 
 
-def run_server(port=8080):
+def run_server(port=8082):
     os.chdir(ROOT)
     server = make_server(port)
     print("MyWiki 本地服务器已启动：")
@@ -460,7 +460,7 @@ def run_server(port=8080):
 
 
 def main():
-    p = 8080
+    p = 8082
     if len(sys.argv) > 1:
         try:
             p = int(sys.argv[1])
