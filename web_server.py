@@ -42,6 +42,13 @@ try:
 except Exception:
     RAGEngine = None
 
+# macOS Vision 人物分割（Apple 官方虚化同款；不可用时前端降级 MediaPipe）
+try:
+    from vision_segment import is_available as _vision_available, VisionSegmenter
+except Exception:
+    _vision_available = lambda: False
+    VisionSegmenter = None
+
 VOICE_WAV = os.path.join(tempfile.gettempdir(), "mywiki_voice_server.wav")
 DEFAULT_DURATION = 8
 MAX_DURATION = 30
@@ -82,6 +89,25 @@ def _get_rag_engine():
 
 # ---- 知识图谱响应缓存（文件 mtime 未变则直接复用上次结果） ----
 _graph_cache = {"path": None, "mtime": None, "payload": None}
+
+# ---- macOS Vision 人物分割器（懒加载单例 + 锁串行化） ----
+_vision_seg = None
+_vision_lock = threading.Lock()
+
+
+def _get_vision_segmenter():
+    """获取 VisionSegmenter 单例；环境不支持时返回 None。"""
+    global _vision_seg
+    if VisionSegmenter is None or not _vision_available():
+        return None
+    if _vision_seg is None:
+        with _vision_lock:
+            if _vision_seg is None:
+                try:
+                    _vision_seg = VisionSegmenter()
+                except Exception:
+                    return None
+    return _vision_seg
 
 
 def _record_worker(duration):
@@ -185,7 +211,15 @@ class Handler(SimpleHTTPRequestHandler):
         if self.path == "/api/modules" or self.path.startswith("/api/modules?"):
             self._handle_modules()
             return
+        if self.path.startswith("/api/vision/status"):
+            self._handle_vision_status()
+            return
         return super().do_GET()
+
+    def _handle_vision_status(self):
+        """报告 macOS Vision 人物分割是否可用（前端据此选择抠图引擎）。"""
+        seg = _get_vision_segmenter()
+        self._send_json({"ok": True, "available": seg is not None})
 
     # ---- 可用网页模块清单（供 index.html 动态渲染导航） ----
     # 每个模块：file=对应网页文件名；仅当该文件实际存在时才返回，
@@ -326,8 +360,37 @@ class Handler(SimpleHTTPRequestHandler):
             self._handle_mood()
         elif path == "/api/face_mood":
             self._handle_face_mood()
+        elif path == "/api/vision/segment":
+            self._handle_vision_segment()
         else:
             self.send_error(404)
+
+    def _handle_vision_segment(self):
+        """接收一帧 JPEG，返回 macOS Vision 人像 alpha mask（RGBA PNG）。
+
+        请求体为原始 JPEG 字节；响应 Content-Type 为 image/png。
+        Vision 不可用时返回 503，前端自动降级浏览器端 MediaPipe。
+        """
+        body = self._read_body()
+        if not body:
+            self._send_json({"ok": False, "error": "缺少 JPEG 帧"}, status=400)
+            return
+        seg = _get_vision_segmenter()
+        if seg is None:
+            self._send_json({"ok": False, "error": "Vision 不可用"}, status=503)
+            return
+        try:
+            with _vision_lock:
+                png = seg.segment_jpeg_to_png(body)
+            payload = png
+            self.send_response(200)
+            self.send_header("Content-Type", "image/png")
+            self.send_header("Content-Length", str(len(payload)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(payload)
+        except Exception as e:
+            self._send_json({"ok": False, "error": str(e)}, status=500)
 
     def _handle_voice_start(self):
         global _voice_running, _voice_result

@@ -24,7 +24,8 @@ entitlements_file = os.path.join(BASE_DIR, 'MyWiki.entitlements') if codesign_id
 # 网页版相关资源：web 服务器、检索/图谱后端、所有 *_web.html 页面与门户页
 WEB_PY = [(os.path.join(BASE_DIR, 'web_server.py'), '.'),
           (os.path.join(BASE_DIR, 'rag.py'), '.'),
-          (os.path.join(BASE_DIR, 'voice_mood.py'), '.')]
+          (os.path.join(BASE_DIR, 'voice_mood.py'), '.'),
+          (os.path.join(BASE_DIR, 'vision_segment.py'), '.')]
 WEB_HTML = [(f, '.') for f in glob.glob(os.path.join(BASE_DIR, '*_web.html'))]
 WEB_HTML.append((os.path.join(BASE_DIR, 'index.html'), '.'))
 # 知识图谱数据也一并打包，使图谱页开箱即用
@@ -45,7 +46,8 @@ a = Analysis(
           + WEB_PY + WEB_HTML + [KG] + SHARED_WIKI,
     hiddenimports=['agent_registry', 'obsidian_bridge', 'mcp_server',
                    'yaml', 'watchdog', 'watchdog.observers', 'watchdog.events',
-                   'rag', 'voice_mood'],
+                   'rag', 'voice_mood', 'vision_segment',
+                   'Vision', 'Quartz', 'Foundation', 'PIL'],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

@@ -215,6 +215,8 @@
         let mouthTrail = [];
 
         // ---- 人像合成画布组（Apple 人像模式思路，Safari 兼容） ----
+        // 抠图 mask 优先走 macOS Vision（后端 /api/vision/segment，
+        // 即 FaceTime 人像 / 照片虚化同款系统引擎）；不可用降级 MediaPipe。
         // 不用 ctx.filter：WebKit 在 save/restore 中有 filter 状态泄漏 bug，
         // 会把后续人像层一并虚化。改为降采样-上采样实现平滑背景虚化。
         const personCanvas = document.createElement("canvas");
@@ -225,8 +227,15 @@
         const bgSmall2Ctx = bgSmall2.getContext("2d");
         const maskSmall = document.createElement("canvas"); // mask 降采样 → 软边缘羽化
         const maskSmallCtx = maskSmall.getContext("2d");
+        const frameCanvas = document.createElement("canvas"); // 抓帧 JPEG → 送 Vision
+        const frameCtx = frameCanvas.getContext("2d");
         const BG_DOWNSCALE = 16; // 背景虚化强度（降采样倍率，≈ f/1.8 人像观感）
         const MASK_FEATHER = 8;  // 人像边缘羽化强度
+        const VISION_POLL_MS = 120; // Vision mask 轮询间隔（GPU 推理 ~15ms，留余量）
+
+        // Vision 状态：'probe' 探测中 | 'on' 使用系统分割 | 'off' 降级 MediaPipe
+        let visionMode = "probe";
+        let visionBusy = false;
 
         function setStatus(msg, isErr = false) {
             statusEl.textContent = msg;
@@ -362,6 +371,44 @@
             }
         }
 
+        async function probeVision() {
+            // 探测 macOS Vision 人物分割是否可用；失败静默降级 MediaPipe
+            try {
+                const r = await fetch("/api/vision/status");
+                const d = await r.json();
+                visionMode = (d && d.available) ? "on" : "off";
+            } catch {
+                visionMode = "off";
+            }
+        }
+
+        function visionMaskImage() {
+            // 返回 Promise<ImageBitmap|null>：送一帧给 Vision，拿回系统 mask
+            if (visionMode !== "on" || visionBusy || video.videoWidth === 0) {
+                return Promise.resolve(null);
+            }
+            visionBusy = true;
+            const w = 480, h = Math.round(480 * video.videoHeight / video.videoWidth) || 360;
+            if (frameCanvas.width !== w || frameCanvas.height !== h) {
+                frameCanvas.width = w; frameCanvas.height = h;
+            }
+            frameCtx.drawImage(video, 0, 0, w, h);
+            const blobP = new Promise((res) => frameCanvas.toBlob(res, "image/jpeg", 0.7));
+            return blobP.then((blob) => {
+                if (!blob) { visionBusy = false; return null; }
+                return fetch("/api/vision/segment", {
+                    method: "POST",
+                    headers: { "Content-Type": "image/jpeg" },
+                    body: blob
+                }).then((r) => {
+                    if (!r.ok) throw new Error("vision " + r.status);
+                    return r.blob();
+                }).then((pngBlob) => createImageBitmap(pngBlob))
+                  .then((bmp) => { visionBusy = false; return bmp; })
+                  .catch(() => { visionMode = "off"; visionBusy = false; return null; });
+            });
+        }
+
         function drawPerson(w, h, mask) {
             if (!mask) {
                 ctx.drawImage(video, 0, 0, w, h);
@@ -469,7 +516,14 @@
         async function loop() {
             if (!running || !faceLandmarker) return;
             if (video.currentTime === 0) { rafId = requestAnimationFrame(loop); return; }
-            if (segReady && selfieSegmentation) {
+            if (visionMode === "on") {
+                // macOS Vision：节流轮询系统分割（GPU 加速），期间复用上一帧 mask
+                const now = performance.now();
+                if (!loop._nextVision || now >= loop._nextVision) {
+                    loop._nextVision = now + VISION_POLL_MS;
+                    visionMaskImage().then((bmp) => { if (bmp) lastMask = bmp; });
+                }
+            } else if (segReady && selfieSegmentation) {
                 try {
                     await selfieSegmentation.send({image: video});
                 } catch (e) {
@@ -634,6 +688,7 @@
             if (t) document.documentElement.setAttribute("data-theme", t);
         } catch {}
 
+        probeVision();
         initModel();
     </script>
 </body>
