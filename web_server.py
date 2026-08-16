@@ -19,6 +19,7 @@ web_server.py - MyWiki 统一本地服务器
 import json
 import os
 import sys
+import functools
 import threading
 import tempfile
 import subprocess
@@ -435,9 +436,15 @@ class Handler(SimpleHTTPRequestHandler):
         pass  # 静默
 
 
-def make_server(port=8082):
-    """构造但未启动服务器（供 GUI 在同一进程内线程启动，避免 chdir 影响主程序）。"""
-    return ThreadingHTTPServer(("0.0.0.0", port), Handler)
+def make_server(port=8082, root=None):
+    """构造但未启动服务器（供 GUI 在同一进程内线程启动，避免 chdir 影响主程序）。
+
+    显式指定 directory：打包(.app)模式经 make_server+serve_forever 启动时
+    不会执行 run_server 的 os.chdir，静态文件查找若依赖 CWD 将全部 404，
+    且 open_web_version 的 urlopen 探测会误判「服务器未启动」。
+    """
+    handler = functools.partial(Handler, directory=root or ROOT)
+    return ThreadingHTTPServer(("0.0.0.0", port), handler)
 
 
 def run_server(port=8082):
