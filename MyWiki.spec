@@ -9,6 +9,10 @@ import glob
 # 改为运行时按需从源码目录/用户目录加载（见 wiki_app 的 frozen 回退逻辑）。
 BASE_DIR = os.path.dirname(os.path.abspath('wiki_app.py'))
 
+# 面部情绪页默认背景图（assets/backgrounds/）
+BACKGROUND_IMAGES = [(f, 'assets/backgrounds')
+                     for f in glob.glob(os.path.join(BASE_DIR, 'assets', 'backgrounds', '*.jpg'))]
+
 # ===== 代码签名 / 公证配置（可选）=====
 # 默认留空 None：不签名，双击仍可能被 Gatekeeper 拦截（需右键"打开"或 run-mywiki.command）。
 # 填入开发者证书后，PyInstaller 会在打包时自动签名；再配合 xcrun notarytool 即可公证，
@@ -43,7 +47,7 @@ a = Analysis(
     binaries=[],
     datas=[(os.path.join(BASE_DIR, 'icon.ico'), '.'),
            (os.path.join(BASE_DIR, 'assets', 'AppIcon.icns'), 'assets')]
-          + WEB_PY + WEB_HTML + [KG] + SHARED_WIKI,
+          + WEB_PY + WEB_HTML + [KG] + SHARED_WIKI + BACKGROUND_IMAGES,
     hiddenimports=['agent_registry', 'obsidian_bridge', 'mcp_server',
                    'yaml', 'watchdog', 'watchdog.observers', 'watchdog.events',
                    'rag', 'voice_mood', 'vision_segment',

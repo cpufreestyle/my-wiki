@@ -362,6 +362,8 @@ class Handler(SimpleHTTPRequestHandler):
             self._handle_face_mood()
         elif path == "/api/vision/segment":
             self._handle_vision_segment()
+        elif path == "/api/vision/cutout":
+            self._handle_vision_cutout()
         else:
             self.send_error(404)
 
@@ -443,6 +445,28 @@ class Handler(SimpleHTTPRequestHandler):
         records.append(record)
         with open(fpath, "w", encoding="utf-8") as f:
             json.dump(records, f, ensure_ascii=False, indent=2)
+
+    def _handle_vision_cutout(self):
+        """接收一帧 JPEG，返回「人像透明背景」PNG（Accurate 档，原分辨率）。"""
+        body = self._read_body()
+        if not body:
+            self._send_json({"ok": False, "error": "缺少 JPEG 帧"}, status=400)
+            return
+        seg = _get_vision_segmenter()
+        if seg is None:
+            self._send_json({"ok": False, "error": "Vision 不可用"}, status=503)
+            return
+        try:
+            with _vision_lock:
+                png = seg.cutout_jpeg_to_png(body)
+            self.send_response(200)
+            self.send_header("Content-Type", "image/png")
+            self.send_header("Content-Length", str(len(png)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(png)
+        except Exception as e:
+            self._send_json({"ok": False, "error": str(e)}, status=500)
 
     def _handle_mood(self):
         try:

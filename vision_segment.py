@@ -56,10 +56,11 @@ class VisionSegmenter:
         self._cv.CVPixelBufferGetBaseAddress.restype = ctypes.c_void_p
         self._cv.CVPixelBufferGetBaseAddress.argtypes = [ctypes.c_void_p]
 
-    def segment_jpeg_to_png(self, jpeg_bytes):
+    def segment_jpeg_to_png(self, jpeg_bytes, quality="balanced"):
         """输入一帧 JPEG，返回人像 alpha mask 的 RGBA PNG 字节。
 
         RGB 通道恒为白、alpha=mask，前端 drawImage + destination-in 即得抠图。
+        quality: 'balanced'（实时，~14ms）| 'accurate'（单次高质量，边缘更准）。
         """
         from Quartz import (
             CVPixelBufferLockBaseAddress, CVPixelBufferUnlockBaseAddress,
@@ -72,8 +73,10 @@ class VisionSegmenter:
         data = self._NSData.dataWithBytes_length_(jpeg_bytes, len(jpeg_bytes))
         handler = V.VNImageRequestHandler.alloc().initWithData_options_(data, None)
         req = V.VNGeneratePersonSegmentationRequest.alloc().initWithCompletionHandler_(None)
-        # Balanced：约 10-20ms/帧（M 系列），精度接近 Accurate
-        req.setQualityLevel_(V.VNGeneratePersonSegmentationRequestQualityLevelBalanced)
+        if quality == "accurate":
+            req.setQualityLevel_(V.VNGeneratePersonSegmentationRequestQualityLevelAccurate)
+        else:
+            req.setQualityLevel_(V.VNGeneratePersonSegmentationRequestQualityLevelBalanced)
         ok, err = handler.performRequests_error_([req], None)
         if not ok:
             raise RuntimeError(f"Vision 请求失败: {err}")
@@ -97,4 +100,51 @@ class VisionSegmenter:
         rgba = Image.merge("RGBA", (mask.point(lambda v: 255),) * 3 + (mask,))
         out = io.BytesIO()
         rgba.save(out, "PNG")
+        return out.getvalue()
+
+    def cutout_jpeg_to_png(self, jpeg_bytes):
+        """输入一帧 JPEG，返回「人像透明背景」RGBA PNG（原始分辨率）。
+
+        用 Accurate 档分割 + 原帧像素合成：人像区域保留原图，
+        背景区域 alpha=0（透明），可直接作为 PNG 素材使用。
+        """
+        from Quartz import (
+            CVPixelBufferLockBaseAddress, CVPixelBufferUnlockBaseAddress,
+            CVPixelBufferGetBytesPerRow, CVPixelBufferGetWidth,
+            CVPixelBufferGetHeight,
+        )
+        from PIL import Image
+
+        V = self._Vision
+        # 1) 读原帧
+        frame = Image.open(io.BytesIO(jpeg_bytes)).convert("RGB")
+        # 2) Accurate 档分割
+        data = self._NSData.dataWithBytes_length_(jpeg_bytes, len(jpeg_bytes))
+        handler = V.VNImageRequestHandler.alloc().initWithData_options_(data, None)
+        req = V.VNGeneratePersonSegmentationRequest.alloc().initWithCompletionHandler_(None)
+        req.setQualityLevel_(V.VNGeneratePersonSegmentationRequestQualityLevelAccurate)
+        ok, err = handler.performRequests_error_([req], None)
+        if not ok:
+            raise RuntimeError(f"Vision 请求失败: {err}")
+        results = req.results()
+        if not results:
+            raise RuntimeError("Vision 未返回分割结果")
+        pb = results[0].pixelBuffer()
+        CVPixelBufferLockBaseAddress(pb, 0)
+        try:
+            mw = CVPixelBufferGetWidth(pb)
+            mh = CVPixelBufferGetHeight(pb)
+            bs = CVPixelBufferGetBytesPerRow(pb)
+            addr = self._cv.CVPixelBufferGetBaseAddress(pb.__c_void_p__())
+            arr = (ctypes.c_ubyte * (bs * mh)).from_address(addr)
+            lines = [bytes(arr[i * bs:i * bs + mw]) for i in range(mh)]
+            mask = Image.frombytes("L", (mw, mh), b"".join(lines))
+        finally:
+            CVPixelBufferUnlockBaseAddress(pb, 0)
+        # 3) mask 放大到原帧尺寸（双线性 → 软边缘），人像=原像素 / 背景=透明
+        mask = mask.resize(frame.size, Image.BILINEAR)
+        cut = frame.convert("RGBA")
+        cut.putalpha(mask)
+        out = io.BytesIO()
+        cut.save(out, "PNG")
         return out.getvalue()

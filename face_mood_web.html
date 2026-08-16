@@ -106,7 +106,8 @@
             </div>
             <div class="controls">
                 <button class="btn-secondary" id="bgBtn">上传背景图片</button>
-                <button class="btn-secondary" id="resetBgBtn">虚化背景</button>
+                <button class="btn-secondary" id="resetBgBtn">切换背景</button>
+                <button class="btn-secondary" id="cutoutBtn">📸 保存人像</button>
                 <input type="file" id="bgInput" accept="image/*" style="display:none">
             </div>
             <div class="status" id="status">模型加载中…</div>
@@ -155,6 +156,7 @@
         const bgBtn = document.getElementById("bgBtn");
         const resetBgBtn = document.getElementById("resetBgBtn");
         const bgInput = document.getElementById("bgInput");
+        const cutoutBtn = document.getElementById("cutoutBtn");
 
         const EMOTIONS = ["平静", "开心", "悲伤", "愤怒", "惊讶", "恐惧", "轻蔑"];
         // 特征顺序需与 FEATURE_KEYS 一致（含 8 个嘴部细粒度特征，提升表情区分度）
@@ -236,6 +238,28 @@
         // Vision 状态：'probe' 探测中 | 'on' 使用系统分割 | 'off' 降级 MediaPipe
         let visionMode = "probe";
         let visionBusy = false;
+
+        // ---- 背景模式：默认图片背景（代替虚化） ----
+        // 「切换背景」循环：影棚暖调 → 梦幻光斑 → 极简渐变 → 虚化 → 影棚…
+        const DEFAULT_BGS = [
+            { src: "assets/backgrounds/studio.jpg", name: "影棚暖调" },
+            { src: "assets/backgrounds/bokeh.jpg", name: "梦幻光斑" },
+            { src: "assets/backgrounds/minimal.jpg", name: "极简渐变" },
+        ];
+        let bgIndex = 0;        // 当前内置背景索引；-1 = 虚化模式
+        let bgBitmap = null;    // 预解码背景位图（避免每帧解码）
+
+        async function loadDefaultBg(i) {
+            if (i < 0 || i >= DEFAULT_BGS.length) return;
+            try {
+                const r = await fetch(DEFAULT_BGS[i].src);
+                if (!r.ok) throw new Error(r.status);
+                const blob = await r.blob();
+                bgBitmap = await createImageBitmap(blob);
+            } catch {
+                bgBitmap = null; // 图片缺失时 drawBackground 自动回退虚化
+            }
+        }
 
         function setStatus(msg, isErr = false) {
             statusEl.textContent = msg;
@@ -333,6 +357,7 @@
 
         function drawBackground(w, h) {
             if (bgImage && bgImage.complete && bgImage.naturalWidth > 0) {
+                // 用户上传的自定义背景（最高优先）
                 const ir = bgImage.width / bgImage.height;
                 const cr = w / h;
                 let dw, dh, dx, dy;
@@ -342,9 +367,20 @@
                     dw = w; dh = dw / ir; dx = 0; dy = (h - dh) / 2;
                 }
                 ctx.drawImage(bgImage, dx, dy, dw, dh);
+            } else if (bgBitmap) {
+                // 默认内置图片背景（cover 填满）
+                const ir = bgBitmap.width / bgBitmap.height;
+                const cr = w / h;
+                let dw, dh, dx, dy;
+                if (ir > cr) {
+                    dh = h; dw = dh * ir; dx = (w - dw) / 2; dy = 0;
+                } else {
+                    dw = w; dh = dw / ir; dx = 0; dy = (h - dh) / 2;
+                }
+                ctx.imageSmoothingEnabled = true;
+                ctx.drawImage(bgBitmap, dx, dy, dw, dh);
             } else if (video.videoWidth > 0) {
-                // 默认人像模式：两级降采样-上采样虚化背景（不依赖 ctx.filter，
-                // 规避 WebKit filter 状态泄漏；放大 1.12 倍绘制避免边缘露底）
+                // 兜底：内置图缺失或用户切到虚化模式时，降采样虚化背景
                 const w1 = Math.max(2, Math.round(w / 4));
                 const h1 = Math.max(2, Math.round(h / 4));
                 const w2 = Math.max(2, Math.round(w / BG_DOWNSCALE));
@@ -661,9 +697,54 @@
         saveBtn.addEventListener("click", save);
 
         bgBtn.addEventListener("click", () => bgInput.click());
+        cutoutBtn.addEventListener("click", saveCutout);
+
+        // 一键保存人像：当前帧送后端 Vision Accurate 档单次高质量分割，
+        // 下载透明背景 PNG。不依赖实时 mask（移动中也能抠准）。
+        async function saveCutout() {
+            if (video.videoWidth === 0) { toast("请先开启摄像头"); return; }
+            if (visionMode !== "on") { toast("系统分割不可用，无法导出"); return; }
+            cutoutBtn.disabled = true;
+            try {
+                const w = video.videoWidth, h = video.videoHeight;
+                if (frameCanvas.width !== w || frameCanvas.height !== h) {
+                    frameCanvas.width = w; frameCanvas.height = h;
+                }
+                frameCtx.drawImage(video, 0, 0, w, h);
+                const blob = await new Promise((res) => frameCanvas.toBlob(res, "image/jpeg", 0.92));
+                const r = await fetch("/api/vision/cutout", {
+                    method: "POST",
+                    headers: { "Content-Type": "image/jpeg" },
+                    body: blob
+                });
+                if (!r.ok) throw new Error("cutout " + r.status);
+                const pngBlob = await r.blob();
+                const url = URL.createObjectURL(pngBlob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = `mywiki-portrait-${new Date().toISOString().slice(0,19).replace(/[T:]/g,"-")}.png`;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                setTimeout(() => URL.revokeObjectURL(url), 2000);
+                toast("人像已保存（透明背景 PNG）");
+            } catch (e) {
+                toast("保存失败：" + (e?.message || e));
+            } finally {
+                cutoutBtn.disabled = false;
+            }
+        }
         resetBgBtn.addEventListener("click", () => {
+            // 循环：内置图1 → 图2 → 图3 → 虚化 → 图1；上传自定义图时先清掉
             bgImage = null;
-            toast("已恢复虚化背景");
+            bgIndex = (bgIndex + 1) % (DEFAULT_BGS.length + 1);
+            if (bgIndex < DEFAULT_BGS.length) {
+                loadDefaultBg(bgIndex);
+                toast("背景：" + DEFAULT_BGS[bgIndex].name);
+            } else {
+                bgBitmap = null;
+                toast("背景：虚化");
+            }
         });
         bgInput.addEventListener("change", (e) => {
             const file = e.target.files[0];
@@ -688,6 +769,7 @@
             if (t) document.documentElement.setAttribute("data-theme", t);
         } catch {}
 
+        loadDefaultBg(0);  // 默认图片背景（影棚暖调）
         probeVision();
         initModel();
     </script>
