@@ -233,12 +233,13 @@
         const frameCtx = frameCanvas.getContext("2d");
         const BG_DOWNSCALE = 16; // 背景虚化强度（降采样倍率，≈ f/1.8 人像观感）
         const MASK_FEATHER = 8;  // 人像边缘羽化强度
-        const VISION_POLL_MS = 80; // Vision mask 轮询间隔（推理 ~14ms + 抓帧/传输）
+        const VISION_POLL_MS = 50; // Vision mask 轮询间隔（推理 ~14ms + 网络/解码）
         const MAX_MASK_SHIFT = 0.18; // mask 允许的最大补偿位移（占画面比例），超出放弃补偿
 
         // Vision 状态：'probe' 探测中 | 'on' 使用系统分割 | 'off' 降级 MediaPipe
         let visionMode = "probe";
         let visionBusy = false;
+        let _visionSeq = 0; // 请求序号：丢弃过期的在途响应（人已移走）
 
         // ---- mask 运动补偿：用人脸关键点对齐滞后 mask ----
         // Vision mask 是抓帧时刻的（滞后数十毫秒），人移动时直接叠加会错位。
@@ -436,21 +437,22 @@
         }
 
         function visionMaskImage() {
-            // 返回 Promise<ImageBitmap|null>：送一帧给 Vision，拿回系统 mask
-            if (visionMode !== "on" || visionBusy || video.videoWidth === 0) {
+            // 返回 Promise<ImageBitmap|null>：送一帧给 Vision，拿回系统 mask。
+            // 每次调用都用「当前最新帧」——在途请求即使未完成，新帧照发
+            // （HTTP 并行），响应回来时带序号，旧的直接丢弃，mask 始终跟手。
+            if (visionMode !== "on" || video.videoWidth === 0) {
                 return Promise.resolve(null);
             }
-            visionBusy = true;
-            // 记录抓帧时刻的人脸度量，供渲染时做运动补偿对齐
+            const seq = ++_visionSeq;
             const capturedFace = curFace;
-            const w = 480, h = Math.round(480 * video.videoHeight / video.videoWidth) || 360;
+            const w = 320, h = Math.round(320 * video.videoHeight / video.videoWidth) || 240;
             if (frameCanvas.width !== w || frameCanvas.height !== h) {
                 frameCanvas.width = w; frameCanvas.height = h;
             }
             frameCtx.drawImage(video, w, 0, -w, h); // 镜像抓帧 → Vision mask 同源
-            const blobP = new Promise((res) => frameCanvas.toBlob(res, "image/jpeg", 0.7));
+            const blobP = new Promise((res) => frameCanvas.toBlob(res, "image/jpeg", 0.6));
             return blobP.then((blob) => {
-                if (!blob) { visionBusy = false; return null; }
+                if (!blob) return null;
                 return fetch("/api/vision/segment", {
                     method: "POST",
                     headers: { "Content-Type": "image/jpeg" },
@@ -460,11 +462,12 @@
                     return r.blob();
                 }).then((pngBlob) => createImageBitmap(pngBlob))
                   .then((bmp) => {
-                      lastMaskFace = capturedFace; // mask 与抓帧时刻的人脸对齐
-                      visionBusy = false;
+                      // 只采纳最新请求的响应，过期 mask 丢弃（人已移走）
+                      if (seq !== _visionSeq) return null;
+                      lastMaskFace = capturedFace;
                       return bmp;
                   })
-                  .catch(() => { visionMode = "off"; visionBusy = false; return null; });
+                  .catch(() => { visionMode = "off"; return null; });
             });
         }
 
@@ -599,7 +602,7 @@
             if (!running || !faceLandmarker) return;
             if (video.currentTime === 0) { rafId = requestAnimationFrame(loop); return; }
             if (visionMode === "on") {
-                // macOS Vision：节流轮询系统分割（GPU 加速），期间复用上一帧 mask
+                // macOS Vision：无锁流水线（在途请求可并行，过期响应丢弃）
                 const now = performance.now();
                 if (!loop._nextVision || now >= loop._nextVision) {
                     loop._nextVision = now + VISION_POLL_MS;
