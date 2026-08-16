@@ -8,7 +8,7 @@ test_mood_web.py 一致：守住 JS 引用的元素 id 不存在、关键 DOM / 
 
 前端约定（face_mood_web.html）：
   - 摄像头经浏览器 getUserMedia 取流，MediaPipe FaceLandmarker（CDN ESM）本地推理
-  - 由 19 维 blendshape 线性权重推断 7 类情绪（平静/开心/悲伤/愤怒/惊讶/恐惧/轻蔑）
+  - 由 27 维 blendshape 线性权重推断 7 类情绪（平静/开心/悲伤/愤怒/惊讶/恐惧/轻蔑）
   - 结果 POST 到 /api/face_mood，由 web_server.py 落盘到 mood/<date>.json(source="face")
 """
 import re
@@ -95,10 +95,10 @@ class TestFaceMoodWebStructure(unittest.TestCase):
         m = re.search(r'const FEATURE_KEYS = \[(.*?)\];', self.script, re.DOTALL)
         self.assertIsNotNone(m, "脚本应定义 FEATURE_KEYS 数组")
         keys = re.findall(r'"([^"]+)"', m.group(1))
-        self.assertEqual(len(keys), 19, f"FEATURE_KEYS 应为 19 维，实际 {len(keys)}")
+        self.assertEqual(len(keys), 27, f"FEATURE_KEYS 应为 27 维，实际 {len(keys)}")
 
     def test_weights_dimension_consistency(self):
-        # 每个情绪的权重向量长度需与 FEATURE_KEYS(19) 一致，且情绪数需与 EMOTIONS(7) 一致
+        # 每个情绪的权重向量长度需与 FEATURE_KEYS(27) 一致，且情绪数需与 EMOTIONS(7) 一致
         wm = re.search(r'const WEIGHTS = \{(.*?)\n\s*\};', self.script, re.DOTALL)
         self.assertIsNotNone(wm, "脚本应定义 WEIGHTS 字典")
         block = wm.group(1)
@@ -107,8 +107,8 @@ class TestFaceMoodWebStructure(unittest.TestCase):
         for i, arr in enumerate(arrays):
             nums = re.findall(r'-?\d+\.?\d*', arr)
             self.assertEqual(
-                len(nums), 19,
-                f"WEIGHTS 第 {i} 个向量应为 19 维，实际 {len(nums)}",
+                len(nums), 27,
+                f"WEIGHTS 第 {i} 个向量应为 27 维，实际 {len(nums)}",
             )
 
     def test_classify_function_defined(self):

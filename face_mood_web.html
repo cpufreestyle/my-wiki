@@ -106,7 +106,7 @@
             </div>
             <div class="controls">
                 <button class="btn-secondary" id="bgBtn">上传背景图片</button>
-                <button class="btn-secondary" id="resetBgBtn">默认背景</button>
+                <button class="btn-secondary" id="resetBgBtn">虚化背景</button>
                 <input type="file" id="bgInput" accept="image/*" style="display:none">
             </div>
             <div class="status" id="status">模型加载中…</div>
@@ -157,30 +157,40 @@
         const bgInput = document.getElementById("bgInput");
 
         const EMOTIONS = ["平静", "开心", "悲伤", "愤怒", "惊讶", "恐惧", "轻蔑"];
-        // 特征顺序需与 FEATURE_KEYS 一致
+        // 特征顺序需与 FEATURE_KEYS 一致（含 8 个嘴部细粒度特征，提升表情区分度）
         const FEATURE_KEYS = [
             "mouthSmileLeft", "mouthSmileRight", "mouthFrownLeft", "mouthFrownRight",
             "jawOpen", "browDownLeft", "browDownRight", "browInnerUp",
             "eyeWideLeft", "eyeWideRight", "eyeBlinkLeft", "eyeBlinkRight",
             "noseSneerLeft", "noseSneerRight", "cheekSquintLeft", "cheekSquintRight",
-            "mouthPucker", "mouthStretchLeft", "mouthStretchRight"
+            "mouthPucker", "mouthStretchLeft", "mouthStretchRight",
+            "mouthFunnel", "mouthPressLeft", "mouthPressRight",
+            "mouthLeft", "mouthRight", "mouthShrugUpper",
+            "mouthRollLower", "mouthRollUpper"
         ];
         // 各情绪对特征的线性权重（启发式，范围约 -1..1）
         const WEIGHTS = {
             "平静": [ 0.00, 0.00, 0.00, 0.00, -0.30, -0.30, -0.30, -0.40,
-                     -0.35, -0.35,  0.20,  0.20, -0.30, -0.30, -0.30, -0.30, -0.20, -0.20, -0.20],
+                     -0.35, -0.35,  0.20,  0.20, -0.30, -0.30, -0.30, -0.30, -0.20, -0.20, -0.20,
+                     -0.20, -0.15, -0.15, -0.10, -0.10, -0.15, -0.05, -0.05],
             "开心": [ 1.00, 1.00,-0.50,-0.50,  0.10, -0.30, -0.30,  0.00,
-                      0.10,  0.10, -0.20, -0.20,  0.10,  0.10,  0.20,  0.20, -0.20,  0.20,  0.20],
+                      0.10,  0.10, -0.20, -0.20,  0.10,  0.10,  0.20,  0.20, -0.20,  0.20,  0.20,
+                     -0.20, -0.30, -0.30, -0.10, -0.10, -0.10, -0.10, -0.10],
             "悲伤": [-0.40,-0.40, 0.80, 0.80,  0.00, -0.10, -0.10,  0.50,
-                     -0.30, -0.30,  0.00,  0.00, -0.10, -0.10,  0.00,  0.00,  0.00,  0.10,  0.10],
+                     -0.30, -0.30,  0.00,  0.00, -0.10, -0.10,  0.00,  0.00,  0.00,  0.10,  0.10,
+                     -0.10,  0.20,  0.20,  0.00,  0.00,  0.10,  0.15,  0.10],
             "愤怒": [-0.30,-0.30,-0.10,-0.10, -0.10,  1.00,  1.00,  0.20,
-                     -0.40, -0.40, -0.30, -0.30,  0.60,  0.60,  0.30,  0.30, -0.10, -0.20, -0.20],
+                     -0.40, -0.40, -0.30, -0.30,  0.60,  0.60,  0.30,  0.30, -0.10, -0.20, -0.20,
+                     -0.20,  0.45,  0.45, -0.10, -0.10,  0.20,  0.00,  0.00],
             "惊讶": [ 0.00, 0.00,-0.30,-0.30,  1.00, -0.20, -0.20,  0.80,
-                      1.00,  1.00, -0.20, -0.20, -0.20, -0.20,  0.00,  0.00, -0.20,  0.00,  0.00],
+                      1.00,  1.00, -0.20, -0.20, -0.20, -0.20,  0.00,  0.00, -0.20,  0.00,  0.00,
+                      0.55, -0.30, -0.30,  0.00,  0.00, -0.10, -0.10, -0.10],
             "恐惧": [-0.30,-0.30, 0.10, 0.10,  0.40,  0.50,  0.50,  0.80,
-                      0.90,  0.90,  0.00,  0.00,  0.00,  0.00,  0.20,  0.20,  0.00, -0.10, -0.10],
+                      0.90,  0.90,  0.00,  0.00,  0.00,  0.00,  0.20,  0.20,  0.00, -0.10, -0.10,
+                      0.40, -0.10, -0.10,  0.00,  0.00,  0.15,  0.00,  0.00],
             "轻蔑":[ 0.30, 0.30,-0.20,-0.20, -0.10,  0.20,  0.20, -0.10,
-                     -0.20, -0.20, -0.10, -0.10,  1.00,  1.00,  0.40,  0.40,  0.00,  0.30,  0.30]
+                     -0.20, -0.20, -0.10, -0.10,  1.00,  1.00,  0.40,  0.40,  0.00,  0.30,  0.30,
+                     -0.10,  0.25,  0.25,  0.40,  0.40,  0.30,  0.00,  0.00]
         };
         const NEUTRAL_BIAS = 0.18; // 平静的基线偏置，放松表情默认归于平静
 
@@ -193,6 +203,21 @@
         let running = false;
         let rafId = null;
         let latest = null; // 最近一次情绪结果
+
+        // ---- 时序平滑与稳定（抑制抖动，提高识别稳定性） ----
+        const SMOOTH_ALPHA = 0.55; // 新帧权重，越小越平滑
+        const VOTE_WINDOW = 9;     // 标签多数投票窗口（约 0.3s @30fps）
+        let smoothedFeatures = null;
+        let labelVotes = [];
+
+        // ---- 嘴部运动轨迹（相对鼻尖的偏移，仅反映嘴部动作） ----
+        const TRAIL_MAX = 36; // 保留约 1.2s 的轨迹点
+        let mouthTrail = [];
+
+        // ---- 人像离屏合成画布（避免 destination-in 擦除背景） ----
+        const personCanvas = document.createElement("canvas");
+        const pctx = personCanvas.getContext("2d");
+        const BLUR_PX = 16; // 背景虚化强度
 
         function setStatus(msg, isErr = false) {
             statusEl.textContent = msg;
@@ -299,6 +324,13 @@
                     dw = w; dh = dw / ir; dx = 0; dy = (h - dh) / 2;
                 }
                 ctx.drawImage(bgImage, dx, dy, dw, dh);
+            } else if (video.videoWidth > 0) {
+                // 默认人像模式：背景虚化（放大绘制避免模糊后边缘露底）
+                ctx.save();
+                try { ctx.filter = `blur(${BLUR_PX}px)`; } catch {}
+                const s = 1.12, dw = w * s, dh = h * s;
+                ctx.drawImage(video, (w - dw) / 2, (h - dh) / 2, dw, dh);
+                ctx.restore();
             } else {
                 const grad = ctx.createLinearGradient(0, 0, w, h);
                 grad.addColorStop(0, "#0f172a");
@@ -313,11 +345,18 @@
                 ctx.drawImage(video, 0, 0, w, h);
                 return;
             }
-            ctx.save();
-            ctx.drawImage(video, 0, 0, w, h);
-            ctx.globalCompositeOperation = "destination-in";
-            ctx.drawImage(mask, 0, 0, w, h);
-            ctx.restore();
+            // 在离屏画布上完成抠图，再叠回主画布，防止 destination-in 误擦背景
+            if (personCanvas.width !== w || personCanvas.height !== h) {
+                personCanvas.width = w;
+                personCanvas.height = h;
+            }
+            pctx.globalCompositeOperation = "source-over";
+            pctx.clearRect(0, 0, w, h);
+            pctx.drawImage(video, 0, 0, w, h);
+            pctx.globalCompositeOperation = "destination-in";
+            pctx.drawImage(mask, 0, 0, w, h);
+            pctx.globalCompositeOperation = "source-over";
+            ctx.drawImage(personCanvas, 0, 0);
         }
 
         function drawGroup(lm, connections, radius, color, glow, w, h) {
@@ -339,19 +378,32 @@
             }
         }
 
+        // 嘴部运动轨迹：越新的点越亮，锚定当前鼻尖位置，只显示嘴部自身动作
+        function drawMouthTrail(lm, w, h) {
+            if (!lm || mouthTrail.length < 2) return;
+            const nose = lm[1];
+            if (!nose) return;
+            for (let i = 0; i < mouthTrail.length; i++) {
+                const t = i / (mouthTrail.length - 1);
+                const p = mouthTrail[i];
+                ctx.beginPath();
+                ctx.fillStyle = `rgba(64,224,255,${(0.06 + 0.38 * t).toFixed(3)})`;
+                ctx.arc((nose.x + p.dx) * w, (nose.y + p.dy) * h, 0.7 + 0.9 * t, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+
         function drawLandmarks(lm, w, h) {
             if (!lm) return;
             ctx.save();
-            // 更小、更精致的青色霓虹点：脸型轮廓 + 嘴部轮廓 + 鼻尖焦点
-            drawGroup(lm, FaceLandmarker.FACE_LANDMARKS_FACE_OVAL, 1.4, "rgba(64,224,255,0.82)", 3, w, h);
-            drawGroup(lm, FaceLandmarker.FACE_LANDMARKS_LIPS, 1.4, "rgba(64,224,255,0.85)", 3, w, h);
+            // 弱化的青色细点：仅作动作提示，不抢画面
+            drawGroup(lm, FaceLandmarker.FACE_LANDMARKS_FACE_OVAL, 0.9, "rgba(64,224,255,0.32)", 0, w, h);
+            drawGroup(lm, FaceLandmarker.FACE_LANDMARKS_LIPS, 0.9, "rgba(64,224,255,0.35)", 0, w, h);
             const nose = lm[1];
             if (nose) {
-                ctx.fillStyle = "rgba(64,224,255,0.95)";
-                ctx.shadowColor = "rgba(64,224,255,0.9)";
-                ctx.shadowBlur = 4;
+                ctx.fillStyle = "rgba(64,224,255,0.5)";
                 ctx.beginPath();
-                ctx.arc(nose.x * w, nose.y * h, 2.0, 0, Math.PI * 2);
+                ctx.arc(nose.x * w, nose.y * h, 1.2, 0, Math.PI * 2);
                 ctx.fill();
             }
             ctx.restore();
@@ -363,6 +415,7 @@
             drawBackground(w, h);
             drawPerson(w, h, mask);
             const lm = result && result.faceLandmarks && result.faceLandmarks[0];
+            drawMouthTrail(lm, w, h);
             drawLandmarks(lm, w, h);
         }
 
@@ -392,16 +445,43 @@
             const result = faceLandmarker.detectForVideo(video, performance.now());
             drawFrame(result, lastMask);
             if (result.faceLandmarks && result.faceLandmarks.length > 0) {
-                const features = extractFeatures(result.faceBlendshapes[0]);
-                const r = classify(features);
+                const lm = result.faceLandmarks[0];
+                // 嘴部轨迹采样：上下唇中点相对鼻尖的偏移（归一化坐标）
+                const nose = lm[1], up = lm[13], lo = lm[14];
+                if (nose && up && lo) {
+                    mouthTrail.push({
+                        dx: (up.x + lo.x) / 2 - nose.x,
+                        dy: (up.y + lo.y) / 2 - nose.y
+                    });
+                    if (mouthTrail.length > TRAIL_MAX) mouthTrail.shift();
+                }
+                // 特征 EMA 平滑，抑制单帧抖动
+                const raw = extractFeatures(result.faceBlendshapes[0]);
+                if (!smoothedFeatures || smoothedFeatures.length !== raw.length) {
+                    smoothedFeatures = raw.slice();
+                } else {
+                    smoothedFeatures = smoothedFeatures.map(
+                        (v, i) => v * (1 - SMOOTH_ALPHA) + raw[i] * SMOOTH_ALPHA
+                    );
+                }
+                const r = classify(smoothedFeatures);
+                // 标签多数投票，避免结果在相邻情绪间闪烁
+                labelVotes.push(r.label);
+                if (labelVotes.length > VOTE_WINDOW) labelVotes.shift();
+                const counts = {};
+                for (const l of labelVotes) counts[l] = (counts[l] || 0) + 1;
+                let stable = r.label;
+                for (const [l, c] of Object.entries(counts)) {
+                    if (c > (counts[stable] || 0)) stable = l;
+                }
                 latest = {
-                    label: r.label,
+                    label: stable,
                     confidence: r.confidence,
                     features: topFeatures(result.faceBlendshapes[0]),
                     reason: Object.entries(topFeatures(result.faceBlendshapes[0]))
                         .map(([k, v]) => `${k}=${v}`).join(", ")
                 };
-                emoLabel.textContent = r.label;
+                emoLabel.textContent = stable;
                 emoConf.textContent = "置信度 " + Math.round(r.confidence * 100) + "%";
                 renderBars(r.probs);
                 saveBtn.disabled = false;
@@ -412,6 +492,9 @@
                 renderBars(EMOTIONS.map(() => 0));
                 latest = null;
                 saveBtn.disabled = true;
+                smoothedFeatures = null;
+                labelVotes = [];
+                mouthTrail = [];
                 setStatus("未检测到人脸，请正对摄像头。");
             }
             rafId = requestAnimationFrame(loop);
@@ -450,6 +533,9 @@
             video.srcObject = null;
             ctx.clearRect(0, 0, canvas.width, canvas.height);
             lastMask = null;
+            mouthTrail = [];
+            smoothedFeatures = null;
+            labelVotes = [];
             placeholder.style.display = "flex";
             startBtn.disabled = false;
             stopBtn.disabled = true;
@@ -489,7 +575,7 @@
         bgBtn.addEventListener("click", () => bgInput.click());
         resetBgBtn.addEventListener("click", () => {
             bgImage = null;
-            toast("已恢复默认背景");
+            toast("已恢复虚化背景");
         });
         bgInput.addEventListener("change", (e) => {
             const file = e.target.files[0];
