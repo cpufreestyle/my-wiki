@@ -233,11 +233,28 @@
         const frameCtx = frameCanvas.getContext("2d");
         const BG_DOWNSCALE = 16; // 背景虚化强度（降采样倍率，≈ f/1.8 人像观感）
         const MASK_FEATHER = 8;  // 人像边缘羽化强度
-        const VISION_POLL_MS = 120; // Vision mask 轮询间隔（GPU 推理 ~15ms，留余量）
+        const VISION_POLL_MS = 80; // Vision mask 轮询间隔（推理 ~14ms + 抓帧/传输）
+        const MAX_MASK_SHIFT = 0.18; // mask 允许的最大补偿位移（占画面比例），超出放弃补偿
 
         // Vision 状态：'probe' 探测中 | 'on' 使用系统分割 | 'off' 降级 MediaPipe
         let visionMode = "probe";
         let visionBusy = false;
+
+        // ---- mask 运动补偿：用人脸关键点对齐滞后 mask ----
+        // Vision mask 是抓帧时刻的（滞后数十毫秒），人移动时直接叠加会错位。
+        // 以「双眼中心」为锚点：记录抓帧时的人脸位置/瞳距，渲染时按当前
+        // 人脸位置平移 + 按瞳距比例缩放 mask，使边缘贴合人物当前位置。
+        let curFace = null;      // 当前帧人脸度量 {x, y, eye}
+        let lastMaskFace = null; // 抓帧时刻的人脸度量（对应 lastMask）
+
+        function faceMetrics(lm) {
+            if (!lm) return null;
+            const L = lm[33], R = lm[263]; // 左右眼外角
+            if (!L || !R) return null;
+            const eye = Math.hypot(R.x - L.x, R.y - L.y);
+            if (eye <= 0.01) return null; // 关键点异常
+            return { x: (L.x + R.x) / 2, y: (L.y + R.y) / 2, eye };
+        }
 
         // ---- 背景模式：默认图片背景（代替虚化） ----
         // 「切换背景」循环：影棚暖调 → 梦幻光斑 → 极简渐变 → 虚化 → 影棚…
@@ -424,6 +441,8 @@
                 return Promise.resolve(null);
             }
             visionBusy = true;
+            // 记录抓帧时刻的人脸度量，供渲染时做运动补偿对齐
+            const capturedFace = curFace;
             const w = 480, h = Math.round(480 * video.videoHeight / video.videoWidth) || 360;
             if (frameCanvas.width !== w || frameCanvas.height !== h) {
                 frameCanvas.width = w; frameCanvas.height = h;
@@ -440,7 +459,11 @@
                     if (!r.ok) throw new Error("vision " + r.status);
                     return r.blob();
                 }).then((pngBlob) => createImageBitmap(pngBlob))
-                  .then((bmp) => { visionBusy = false; return bmp; })
+                  .then((bmp) => {
+                      lastMaskFace = capturedFace; // mask 与抓帧时刻的人脸对齐
+                      visionBusy = false;
+                      return bmp;
+                  })
                   .catch(() => { visionMode = "off"; visionBusy = false; return null; });
             });
         }
@@ -471,7 +494,30 @@
             pctx.drawImage(video, 0, 0, w, h);
             pctx.globalCompositeOperation = "destination-in";
             pctx.imageSmoothingEnabled = true;
-            pctx.drawImage(maskSmall, 0, 0, w, h);
+
+            // ---- 运动补偿：把滞后的 mask 对齐到当前人脸位置 ----
+            // 平移 = 当前人脸 - 抓帧时人脸；缩放 = 瞳距比（人前后移动）。
+            // 变换锚点取抓帧时的人脸中心，mask 随人脸一起移动缩放。
+            let applied = false;
+            if (lastMaskFace && curFace) {
+                let dx = (curFace.x - lastMaskFace.x) * w;
+                let dy = (curFace.y - lastMaskFace.y) * h;
+                const sc = Math.min(1.18, Math.max(0.85, curFace.eye / lastMaskFace.eye));
+                if (Math.abs(dx) <= MAX_MASK_SHIFT * w && Math.abs(dy) <= MAX_MASK_SHIFT * h) {
+                    const ax = lastMaskFace.x * w, ay = lastMaskFace.y * h;
+                    pctx.setTransform(sc, 0, 0, sc, ax + dx - sc * ax, ay + dy - sc * ay);
+                    pctx.drawImage(maskSmall, 0, 0, w, h);
+                    pctx.setTransform(1, 0, 0, 1, 0, 0);
+                    applied = true;
+                } else {
+                    // 位移过大（快速移动/检测跳变）：mask 已无参考价值，
+                    // 立即触发新一轮分割，本轮不抠（直接显示原帧避免错位残影）
+                    loop._nextVision = 0;
+                }
+            }
+            if (!applied) {
+                pctx.drawImage(maskSmall, 0, 0, w, h);
+            }
             pctx.globalCompositeOperation = "source-over";
             ctx.drawImage(personCanvas, 0, 0);
         }
@@ -562,11 +608,15 @@
             } else if (segReady && selfieSegmentation) {
                 try {
                     await selfieSegmentation.send({image: video});
+                    lastMaskFace = null; // MediaPipe mask 逐帧生成，无需补偿
                 } catch (e) {
                     console.error("segmentation send error", e);
                 }
             }
             const result = faceLandmarker.detectForVideo(video, performance.now());
+            // 当前帧人脸度量（供下一轮抓帧/渲染补偿使用）
+            curFace = (result.faceLandmarks && result.faceLandmarks.length > 0)
+                ? faceMetrics(result.faceLandmarks[0]) : null;
             drawFrame(result, lastMask);
             if (result.faceLandmarks && result.faceLandmarks.length > 0) {
                 const lm = result.faceLandmarks[0];
