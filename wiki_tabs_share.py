@@ -38,35 +38,50 @@ def _resolve_shared_dir():
     def has_core(d):
         return os.path.isfile(os.path.join(d, "wiki_core.py"))
 
-    # 1) 源码模式：仓库根目录
-    src = os.path.join(_SCRIPT_DIR, "modules", "shared-wiki")
-    if has_core(src):
-        return src
-    # 2) 环境变量指定源仓库
-    env_repo = os.environ.get("MYWIKI_SOURCE_DIR")
-    if env_repo:
-        cand = os.path.join(os.path.expanduser(env_repo), "modules", "shared-wiki")
-        if has_core(cand):
-            return cand
-    # 3) 用户级可写副本
     if sys.platform == "win32":
         app_support = os.path.expanduser("~/AppData/Local/MyWiki")
     else:
         app_support = os.path.expanduser("~/Library/Application Support/MyWiki")
     user_copy = os.path.join(app_support, "shared-wiki")
+
+    if getattr(sys, "frozen", False):
+        # 打包模式：优先用户可写副本；没有则从包内只读资源拷贝一份，
+        # 保证 registry.json 等运行时写入发生在包外（不破坏代码签名）。
+        if has_core(user_copy):
+            return user_copy
+        meip = getattr(sys, "_MEIPASS", None)
+        if meip:
+            bundled = os.path.join(meip, "modules", "shared-wiki")
+            if has_core(bundled):
+                try:
+                    shutil.copytree(bundled, user_copy, dirs_exist_ok=True)
+                    return user_copy
+                except Exception:
+                    return bundled  # 拷贝失败退化为包内只读
+        env_repo = os.environ.get("MYWIKI_SOURCE_DIR")
+        if env_repo:
+            cand = os.path.join(os.path.expanduser(env_repo), "modules", "shared-wiki")
+            if has_core(cand):
+                return cand
+        dev_cand = os.path.expanduser("~/AI Shared/repo/my-wiki/modules/shared-wiki")
+        if has_core(dev_cand):
+            return dev_cand
+        return os.path.join(getattr(sys, "_MEIPASS", _SCRIPT_DIR), "modules", "shared-wiki")
+
+    # 源码模式：仓库根目录
+    src = os.path.join(_SCRIPT_DIR, "modules", "shared-wiki")
+    if has_core(src):
+        return src
+    # 环境变量指定源仓库
+    env_repo = os.environ.get("MYWIKI_SOURCE_DIR")
+    if env_repo:
+        cand = os.path.join(os.path.expanduser(env_repo), "modules", "shared-wiki")
+        if has_core(cand):
+            return cand
+    # 用户级可写副本
     if has_core(user_copy):
         return user_copy
-    # 4) 打包资源：拷贝到用户目录后使用（对齐 web_server._graph_path 的做法）
-    meip = getattr(sys, "_MEIPASS", None)
-    if meip:
-        bundled = os.path.join(meip, "modules", "shared-wiki")
-        if has_core(bundled):
-            try:
-                shutil.copytree(bundled, user_copy, dirs_exist_ok=True)
-                return user_copy
-            except Exception:
-                pass
-    # 5) 常见开发机源码位置兜底
+    # 开发机常见源码位置兜底
     dev_cand = os.path.expanduser("~/AI Shared/repo/my-wiki/modules/shared-wiki")
     if has_core(dev_cand):
         return dev_cand
