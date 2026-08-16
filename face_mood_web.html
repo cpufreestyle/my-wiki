@@ -214,10 +214,19 @@
         const TRAIL_MAX = 36; // 保留约 1.2s 的轨迹点
         let mouthTrail = [];
 
-        // ---- 人像离屏合成画布（避免 destination-in 擦除背景） ----
+        // ---- 人像合成画布组（Apple 人像模式思路，Safari 兼容） ----
+        // 不用 ctx.filter：WebKit 在 save/restore 中有 filter 状态泄漏 bug，
+        // 会把后续人像层一并虚化。改为降采样-上采样实现平滑背景虚化。
         const personCanvas = document.createElement("canvas");
         const pctx = personCanvas.getContext("2d");
-        const BLUR_PX = 16; // 背景虚化强度
+        const bgSmall1 = document.createElement("canvas"); // 两级降采样 → 高斯感虚化
+        const bgSmall1Ctx = bgSmall1.getContext("2d");
+        const bgSmall2 = document.createElement("canvas");
+        const bgSmall2Ctx = bgSmall2.getContext("2d");
+        const maskSmall = document.createElement("canvas"); // mask 降采样 → 软边缘羽化
+        const maskSmallCtx = maskSmall.getContext("2d");
+        const BG_DOWNSCALE = 16; // 背景虚化强度（降采样倍率，≈ f/1.8 人像观感）
+        const MASK_FEATHER = 8;  // 人像边缘羽化强度
 
         function setStatus(msg, isErr = false) {
             statusEl.textContent = msg;
@@ -325,12 +334,25 @@
                 }
                 ctx.drawImage(bgImage, dx, dy, dw, dh);
             } else if (video.videoWidth > 0) {
-                // 默认人像模式：背景虚化（放大绘制避免模糊后边缘露底）
-                ctx.save();
-                try { ctx.filter = `blur(${BLUR_PX}px)`; } catch {}
+                // 默认人像模式：两级降采样-上采样虚化背景（不依赖 ctx.filter，
+                // 规避 WebKit filter 状态泄漏；放大 1.12 倍绘制避免边缘露底）
+                const w1 = Math.max(2, Math.round(w / 4));
+                const h1 = Math.max(2, Math.round(h / 4));
+                const w2 = Math.max(2, Math.round(w / BG_DOWNSCALE));
+                const h2 = Math.max(2, Math.round(h / BG_DOWNSCALE));
+                if (bgSmall1.width !== w1 || bgSmall1.height !== h1) {
+                    bgSmall1.width = w1; bgSmall1.height = h1;
+                }
+                if (bgSmall2.width !== w2 || bgSmall2.height !== h2) {
+                    bgSmall2.width = w2; bgSmall2.height = h2;
+                }
+                bgSmall1Ctx.imageSmoothingEnabled = true;
+                bgSmall1Ctx.drawImage(video, 0, 0, w1, h1);
+                bgSmall2Ctx.imageSmoothingEnabled = true;
+                bgSmall2Ctx.drawImage(bgSmall1, 0, 0, w2, h2);
+                ctx.imageSmoothingEnabled = true;
                 const s = 1.12, dw = w * s, dh = h * s;
-                ctx.drawImage(video, (w - dw) / 2, (h - dh) / 2, dw, dh);
-                ctx.restore();
+                ctx.drawImage(bgSmall2, (w - dw) / 2, (h - dh) / 2, dw, dh);
             } else {
                 const grad = ctx.createLinearGradient(0, 0, w, h);
                 grad.addColorStop(0, "#0f172a");
@@ -345,6 +367,17 @@
                 ctx.drawImage(video, 0, 0, w, h);
                 return;
             }
+            // mask 先降采样再上采样：边缘经双线性插值天然羽化，
+            // 得到 Apple 人像模式的柔和抠图过渡（无生硬切割线）
+            const mw = Math.max(2, Math.round(w / MASK_FEATHER));
+            const mh = Math.max(2, Math.round(h / MASK_FEATHER));
+            if (maskSmall.width !== mw || maskSmall.height !== mh) {
+                maskSmall.width = mw; maskSmall.height = mh;
+            }
+            maskSmallCtx.clearRect(0, 0, mw, mh);
+            maskSmallCtx.imageSmoothingEnabled = true;
+            maskSmallCtx.drawImage(mask, 0, 0, mw, mh);
+
             // 在离屏画布上完成抠图，再叠回主画布，防止 destination-in 误擦背景
             if (personCanvas.width !== w || personCanvas.height !== h) {
                 personCanvas.width = w;
@@ -354,7 +387,8 @@
             pctx.clearRect(0, 0, w, h);
             pctx.drawImage(video, 0, 0, w, h);
             pctx.globalCompositeOperation = "destination-in";
-            pctx.drawImage(mask, 0, 0, w, h);
+            pctx.imageSmoothingEnabled = true;
+            pctx.drawImage(maskSmall, 0, 0, w, h);
             pctx.globalCompositeOperation = "source-over";
             ctx.drawImage(personCanvas, 0, 0);
         }
