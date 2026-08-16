@@ -409,7 +409,7 @@
                     bgSmall2.width = w2; bgSmall2.height = h2;
                 }
                 bgSmall1Ctx.imageSmoothingEnabled = true;
-                bgSmall1Ctx.drawImage(video, 0, 0, w1, h1);
+                bgSmall1Ctx.drawImage(video, w1, 0, -w1, h1); // 镜像（自拍惯例）
                 bgSmall2Ctx.imageSmoothingEnabled = true;
                 bgSmall2Ctx.drawImage(bgSmall1, 0, 0, w2, h2);
                 ctx.imageSmoothingEnabled = true;
@@ -447,7 +447,7 @@
             if (frameCanvas.width !== w || frameCanvas.height !== h) {
                 frameCanvas.width = w; frameCanvas.height = h;
             }
-            frameCtx.drawImage(video, 0, 0, w, h);
+            frameCtx.drawImage(video, w, 0, -w, h); // 镜像抓帧 → Vision mask 同源
             const blobP = new Promise((res) => frameCanvas.toBlob(res, "image/jpeg", 0.7));
             return blobP.then((blob) => {
                 if (!blob) { visionBusy = false; return null; }
@@ -470,7 +470,7 @@
 
         function drawPerson(w, h, mask) {
             if (!mask) {
-                ctx.drawImage(video, 0, 0, w, h);
+                ctx.drawImage(video, w, 0, -w, h); // 镜像（自拍惯例）
                 return;
             }
             // mask 先降采样再上采样：边缘经双线性插值天然羽化，
@@ -491,7 +491,7 @@
             }
             pctx.globalCompositeOperation = "source-over";
             pctx.clearRect(0, 0, w, h);
-            pctx.drawImage(video, 0, 0, w, h);
+            pctx.drawImage(video, w, 0, -w, h); // 镜像：与 mask/landmark 同源
             pctx.globalCompositeOperation = "destination-in";
             pctx.imageSmoothingEnabled = true;
 
@@ -614,6 +614,12 @@
                 }
             }
             const result = faceLandmarker.detectForVideo(video, performance.now());
+            // 前置摄像头自拍惯例：水平镜像 landmark 坐标（x → 1-x），
+            // 与下方镜像绘制的视频/mask 同源，运动补偿方向一致
+            if (result.faceLandmarks && result.faceLandmarks.length > 0) {
+                result.faceLandmarks = result.faceLandmarks.map((pts) =>
+                    pts.map((p) => ({ ...p, x: 1 - p.x })));
+            }
             // 当前帧人脸度量（供下一轮抓帧/渲染补偿使用）
             curFace = (result.faceLandmarks && result.faceLandmarks.length > 0)
                 ? faceMetrics(result.faceLandmarks[0]) : null;
@@ -760,7 +766,7 @@
                 if (frameCanvas.width !== w || frameCanvas.height !== h) {
                     frameCanvas.width = w; frameCanvas.height = h;
                 }
-                frameCtx.drawImage(video, 0, 0, w, h);
+                frameCtx.drawImage(video, w, 0, -w, h); // 镜像抓帧，输出自拍方向
                 const blob = await new Promise((res) => frameCanvas.toBlob(res, "image/jpeg", 0.92));
                 const r = await fetch("/api/vision/cutout", {
                     method: "POST",
