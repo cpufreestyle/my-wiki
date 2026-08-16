@@ -30,14 +30,20 @@ WEB_HTML.append((os.path.join(BASE_DIR, 'index.html'), '.'))
 # 知识图谱数据也一并打包，使图谱页开箱即用
 KG = (os.path.join(BASE_DIR, 'knowledge_graph.json'), '.')
 
+# shared-wiki 源码以只读资源打包；运行时（wiki_tabs_share._resolve_shared_dir）
+# 首次使用会拷贝到 ~/Library/Application Support/MyWiki/shared-wiki 再加载，
+# registry.json 等运行时写入发生在用户目录，不会破坏 .app 代码签名。
+SHARED_WIKI = [(f, os.path.join('modules', 'shared-wiki'))
+               for f in glob.glob(os.path.join(BASE_DIR, 'modules', 'shared-wiki', '*.py'))]
+
 a = Analysis(
     ['wiki_app.py'],
     pathex=[],
     binaries=[],
     datas=[(os.path.join(BASE_DIR, 'icon.ico'), '.'),
            (os.path.join(BASE_DIR, 'assets', 'AppIcon.icns'), 'assets')]
-          + WEB_PY + WEB_HTML + [KG],
-    hiddenimports=['wiki_core', 'agent_registry', 'obsidian_bridge', 'mcp_server',
+          + WEB_PY + WEB_HTML + [KG] + SHARED_WIKI,
+    hiddenimports=['agent_registry', 'obsidian_bridge', 'mcp_server',
                    'yaml', 'watchdog', 'watchdog.observers', 'watchdog.events',
                    'rag', 'voice_mood'],
     hookspath=[],

@@ -6,6 +6,7 @@
 由 WikiApp 通过多继承组合。
 """
 import os
+import shutil
 import sys
 import subprocess
 from datetime import datetime
@@ -21,13 +22,64 @@ from wiki_theme import get_theme_colors, mono_font
 from wiki_i18n import t
 
 
+def _resolve_shared_dir():
+    """定位 shared-wiki 模块目录（wiki_core / agent_registry / obsidian_bridge）。
+
+    查找顺序：
+      1. 源码模式：仓库根 modules/shared-wiki（wiki_paths 所在目录）
+      2. 环境变量 MYWIKI_SOURCE_DIR 指定的源码仓库
+      3. 用户级可写副本：~/Library/Application Support/MyWiki/shared-wiki
+         （打包 .app 模式下首次运行时从包内只读资源拷贝过去，
+          避免 registry.json 等运行时写入破坏 .app 代码签名）
+      4. 打包资源 sys._MEIPASS/modules/shared-wiki（只读，拷贝到 3 后使用）
+      5. 常见开发机源码位置兜底
+    找不到含 wiki_core.py 的目录时返回第一候选（供报错定位）。
+    """
+    def has_core(d):
+        return os.path.isfile(os.path.join(d, "wiki_core.py"))
+
+    # 1) 源码模式：仓库根目录
+    src = os.path.join(_SCRIPT_DIR, "modules", "shared-wiki")
+    if has_core(src):
+        return src
+    # 2) 环境变量指定源仓库
+    env_repo = os.environ.get("MYWIKI_SOURCE_DIR")
+    if env_repo:
+        cand = os.path.join(os.path.expanduser(env_repo), "modules", "shared-wiki")
+        if has_core(cand):
+            return cand
+    # 3) 用户级可写副本
+    if sys.platform == "win32":
+        app_support = os.path.expanduser("~/AppData/Local/MyWiki")
+    else:
+        app_support = os.path.expanduser("~/Library/Application Support/MyWiki")
+    user_copy = os.path.join(app_support, "shared-wiki")
+    if has_core(user_copy):
+        return user_copy
+    # 4) 打包资源：拷贝到用户目录后使用（对齐 web_server._graph_path 的做法）
+    meip = getattr(sys, "_MEIPASS", None)
+    if meip:
+        bundled = os.path.join(meip, "modules", "shared-wiki")
+        if has_core(bundled):
+            try:
+                shutil.copytree(bundled, user_copy, dirs_exist_ok=True)
+                return user_copy
+            except Exception:
+                pass
+    # 5) 常见开发机源码位置兜底
+    dev_cand = os.path.expanduser("~/AI Shared/repo/my-wiki/modules/shared-wiki")
+    if has_core(dev_cand):
+        return dev_cand
+    return src
+
+
 class ShareTabMixin:
     """共享标签页：状态总览 + MCP Server + Obsidian + Agent 广播。"""
 
     def _shared_modules(self):
         """惰性加载 shared-wiki 三件套（wiki_core / agent_registry / obsidian_bridge）。"""
         try:
-            shared = os.path.join(_SCRIPT_DIR, "modules", "shared-wiki")
+            shared = _resolve_shared_dir()
             if shared not in sys.path:
                 sys.path.insert(0, shared)
             import wiki_core as _wc
@@ -36,7 +88,11 @@ class ShareTabMixin:
             return _wc, _ar, _ob
         except Exception as e:
             QMessageBox.critical(self, "Shared module error",
-                                 "无法加载共享 Wiki 模块:\n{}".format(e))
+                                 "无法加载共享 Wiki 模块:\n{}\n\n"
+                                 "若在使用打包版 MyWiki.app：\n"
+                                 "  · 终端执行 export MYWIKI_SOURCE_DIR=/path/to/my-wiki 后重启\n"
+                                 "  · 或把仓库 modules/shared-wiki 拷贝到\n"
+                                 "    ~/Library/Application Support/MyWiki/shared-wiki".format(e))
             return None
 
     def _build_share_tab(self):
@@ -128,7 +184,7 @@ class ShareTabMixin:
         mods = self._shared_modules()
         if not mods:
             return
-        server_py = os.path.join(_SCRIPT_DIR, "modules", "shared-wiki", "mcp_server.py")
+        server_py = os.path.join(_resolve_shared_dir(), "mcp_server.py")
         if not os.path.exists(server_py):
             QMessageBox.critical(self, "Error", "找不到 mcp_server.py")
             return
