@@ -24,8 +24,8 @@ jobs:
         with:
           node-version: "20"
 
-      - name: Python 单元测试（reminder_web 结构 / 选择器一致性）
-        run: python -m unittest discover -s tests -p "test_*.py" -v
+      - name: Python 单元测试（run_all.py 全套 8 模块）
+        run: python tests/run_all.py
 
       - name: Node 单元测试（reminder_web 纯日期逻辑）
         run: node --test "tests/**/*.test.mjs"
