@@ -19,6 +19,7 @@ Agent Card 约定 (兼容 Google A2A 协议):
 import json
 import sys
 import urllib.request
+import urllib.parse
 import urllib.error
 import subprocess
 from pathlib import Path
@@ -52,7 +53,17 @@ PROCESS_NAMES = {
 }
 
 
+def _safe_url(url):
+    """URL 白名单校验：只允许 http/https 且带主机名，防协议注入 / SSRF。"""
+    try:
+        parsed = urllib.parse.urlparse(str(url or ""))
+        return parsed.scheme in ("http", "https") and bool(parsed.netloc)
+    except Exception:
+        return False
+
 def _http_get(url, timeout=0.6):
+    if not _safe_url(url):
+        return None
     try:
         req = urllib.request.Request(url, headers={"Accept": "application/json"})
         with urllib.request.urlopen(req, timeout=timeout) as r:
@@ -232,6 +243,9 @@ def broadcast(event: str, payload: dict = None, only_capable: str = None) -> dic
             skipped.append(a["name"] + "(api)")
             continue
         url = a.get("url", "")
+        if not _safe_url(url):
+            skipped.append(a["name"] + "(bad-url)")
+            continue
         if not url or url.startswith("vault://") or url.startswith("file://"):
             # Obsidian 等基于文件的 Agent 无需网络广播
             skipped.append(a["name"] + "(file-based)")

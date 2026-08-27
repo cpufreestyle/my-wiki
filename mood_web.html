@@ -335,6 +335,7 @@
             <textarea class="mood-input" id="moodInput" placeholder="写下此刻的感受…" aria-label="心情输入"></textarea>
             <div class="voice-row">
                 <button class="tool-btn" id="voiceBtn">🎤 语音</button>
+                <button class="tool-btn" id="faceBtn">📷 面部</button>
                 <span class="voice-status" id="voiceStatus"></span>
                 <label class="autosave">
                     <input type="checkbox" id="autosave" />
@@ -520,9 +521,9 @@
             }
         }
 
-        function analyzeMoodUi(acouResult) {
+        function analyzeMoodUi(acouResult, faceResult) {
             const text = $("#moodInput").value.trim();
-            if (!text && !acouResult) {
+            if (!text && !acouResult && !faceResult) {
                 $("#moodResult").textContent = "请先输入内容！";
                 $("#moodInput").focus();
                 return;
@@ -533,30 +534,31 @@
             // 声学分析
             let acouMood = null, acouConf = 0, acouDetail = "";
             if (acouResult) { acouMood = acouResult.mood; acouConf = acouResult.conf; acouDetail = acouResult.detail; }
-            // 融合
-            let bestMood, bestConf, reason;
-            if (acouMood && text) {
-                const scores = { "开心": 0, "平静": 0, "低落": 0, "兴奋": 0, "焦虑": 0 };
-                scores[textMood] += textConf * 0.6;
-                scores[acouMood] += acouConf * 0.4;
-                bestMood = Object.keys(scores).reduce((a, b) => scores[a] > scores[b] ? a : b);
-                bestConf = Math.min(scores[bestMood], 1);
-                const parts = [];
-                if (textReason && textReason !== "未检测到明显情绪词") parts.push(`文本: ${textReason}`);
-                if (acouDetail) parts.push(`声音: ${acouDetail}`);
-                reason = parts.join(" | ");
-            } else if (acouMood) {
-                bestMood = acouMood; bestConf = acouConf; reason = `声音分析: ${acouDetail}`;
-            } else {
-                bestMood = textMood; bestConf = textConf; reason = textReason;
+            // 面部分析
+            let faceMood = null, faceConf = 0, faceDetail = "";
+            if (faceResult) { faceMood = faceResult.mood; faceConf = faceResult.confidence; faceDetail = faceResult.detail; }
+            // 融合：按可用信号数动态分配权重（文本 > 面部 > 声学）
+            const signals = [];
+            if (text) signals.push({ mood: textMood, conf: textConf, w: 0.6, label: `文本: ${textReason}` });
+            if (faceMood) signals.push({ mood: faceMood, conf: faceConf, w: 0.5, label: `面部: ${faceDetail}` });
+            if (acouMood) signals.push({ mood: acouMood, conf: acouConf, w: 0.35, label: `声音: ${acouDetail}` });
+            const scores = { "开心": 0, "平静": 0, "低落": 0, "兴奋": 0, "焦虑": 0 };
+            for (const s of signals) scores[s.mood] += s.conf * s.w;
+            let bestMood = "平静";
+            for (const m of Object.keys(scores)) {
+                if (scores[m] > scores[bestMood]) bestMood = m;
             }
-            const rec = { time: nowTime(), mood: bestMood, text: (text || `(语音: ${acouDetail})`.slice(0, 50)), confidence: bestConf, reason };
+            const bestConf = Math.min(scores[bestMood], 1);
+            const parts = signals.filter((s) => s.label && !s.label.endsWith("未检测到明显情绪词")).map((s) => s.label);
+            const reason = parts.join(" | ");
+            const rec = { time: nowTime(), mood: bestMood, text: (text || `(多信号: ${parts.join("; ")})`).slice(0, 50), confidence: bestConf, reason };
             saveMoodRecord(today, rec);
             apiSaveMood(today, bestMood, text, bestConf, reason);
             const emoji = MOOD_EMOJI[bestMood] || "";
             const pct = Math.round(bestConf * 100);
+            const others = signals.filter((s) => s.mood !== bestMood).map((s) => s.mood);
             let detail = "";
-            if (acouMood && textMood && acouMood !== textMood) detail = ` (文本→${textMood} 声音→${acouMood})`;
+            if (others.length) detail = ` (${signals.map((s) => s.mood).join("→")} )`;
             else if (reason && reason !== "未检测到明显情绪词") detail = `（${reason.slice(0, 30)}）`;
             $("#moodResult").textContent = `${emoji} ${bestMood} (${pct}%)${detail}`;
             $("#moodInput").value = "";
@@ -578,6 +580,55 @@
             $("#history").textContent = lines.join("\n");
         }
 
+        // ---------- 面部情绪识别（MediaPipe FaceMesh + 摄像头） ----------
+        // 缓存最近一次面部分析结果，供自动分析使用
+        let lastFaceResult = null;
+
+        (async function checkFaceDeps() {
+            try {
+                const r = await fetch("/api/face/deps");
+                const d = await r.json();
+                if (!d.mediapipe || !d.cv2) {
+                    const missing = [];
+                    if (!d.mediapipe) missing.push("mediapipe");
+                    if (!d.cv2) missing.push("opencv-python");
+                    $("#faceBtn").title = "缺少依赖：" + missing.join(", ");
+                    // 不禁用按钮，允许触发（后端会返回有意义的错误提示）
+                }
+            } catch {}
+        })();
+
+        $("#faceBtn").addEventListener("click", async () => {
+            const btn = $("#faceBtn");
+            if (btn.disabled) return;
+            btn.disabled = true;
+            btn.classList.add("recording");
+            btn.textContent = "📷 识别中…";
+            setStatus("正在打开摄像头，请正对镜头…");
+            try {
+                const r = await fetch("/api/face/mood", { method: "POST" });
+                const d = await r.json();
+                if (!d.ok) {
+                    toast(d.error || "面部识别失败");
+                    setStatus(d.error || "面部识别失败");
+                    return;
+                }
+                const f = d.face;
+                lastFaceResult = f;
+                $("#voiceStatus").textContent = "面部→" + f.mood + " (" + f.detail.slice(0, 20) + ")";
+                setStatus("面部情绪：" + f.mood + "（" + f.detail + "）");
+                // 自动保存
+                if ($("#autosave").checked) analyzeMoodUi(null, f);
+            } catch (e) {
+                toast("面部识别请求失败：" + e.message);
+                setStatus("面部识别失败");
+            } finally {
+                btn.disabled = false;
+                btn.classList.remove("recording");
+                btn.textContent = "📷 面部";
+            }
+        });
+
         // ---------- 语音输入（复用共享模块 voice-controller.js） ----------
         // 麦克风一次性授权、声学分析、识别器生命周期均由共享模块管理；
         // 此处仅保留页面特有逻辑（auto-save 开关 + 识别结果处理）。
@@ -594,8 +645,8 @@
                 $("#voiceStatus").textContent = "声音→" + acou.mood + " (" + acou.detail.slice(0, 20) + ")";
                 setStatus("声音分析：" + acou.mood);
             }
-            // 自动保存：把识别结果交给心情分析（识别文字已追加到 #moodInput）
-            if ($("#autosave").checked) analyzeMoodUi(acou);
+            // 自动保存：把识别结果交给心情分析
+            if ($("#autosave").checked) analyzeMoodUi(acou, null);
         }
 
         const voice = new VoiceController({
@@ -608,7 +659,7 @@
         // ---------- 初始化 ----------
         renderMoodGrid();
         refreshHistory();
-        $("#analyzeBtn").addEventListener("click", () => analyzeMoodUi());
+        $("#analyzeBtn").addEventListener("click", () => analyzeMoodUi(null, lastFaceResult));
     </script>
 </body>
 </html>

@@ -26,3 +26,13 @@ PySide6>=6.5.0
 
 # OpenClaw 集成
 # openclaw-client>=0.1.0  # 如果有的话
+
+# ---- 面部情绪识别（face_mood.py，可选） ----
+# MediaPipe FaceMesh 面部关键点检测 + 几何特征 → 心情映射
+# 安装后 mood_web.html 的「📷 面部」按钮可用
+# mediapipe>=0.10.0       # 首次约 50MB，内置 FaceMesh 模型，离线可用
+# opencv-python>=4.8.0    # 摄像头采样
+
+# ---- 语音识别（voice_mood.py，可选） ----
+# SpeechRecognition>=3.10  # Google Web Speech API（需联网）
+# static-ffmpeg            # 无系统 ffmpeg 时的纯 pip 替代

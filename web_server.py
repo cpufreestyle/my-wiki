@@ -18,6 +18,7 @@ web_server.py - MyWiki 统一本地服务器
 """
 import json
 import os
+import re
 import sys
 import threading
 import tempfile
@@ -29,6 +30,7 @@ from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 ROOT = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, ROOT)
 import voice_mood
+import face_mood
 
 # 网页端 RAG 检索 / 知识图谱所需模块（缺失时接口优雅降级）
 try:
@@ -45,6 +47,9 @@ _voice_lock = threading.Lock()
 _voice_proc = None
 _voice_running = False
 _voice_result = None  # dict
+
+# ---- 摄像头状态（全局锁，保证同一时刻只采样一次；采样约 2 秒阻塞请求） ----
+_face_lock = threading.Lock()
 
 
 def _record_worker(duration):
@@ -144,6 +149,9 @@ class Handler(SimpleHTTPRequestHandler):
             return
         if self.path == "/api/modules" or self.path.startswith("/api/modules?"):
             self._handle_modules()
+            return
+        if self.path.split("?")[0] == "/api/face/deps":
+            self._handle_face_deps()
             return
         return super().do_GET()
 
@@ -272,6 +280,8 @@ class Handler(SimpleHTTPRequestHandler):
             self._handle_voice_stop()
         elif path == "/api/mood":
             self._handle_mood()
+        elif path == "/api/face/mood":
+            self._handle_face_mood()
         else:
             self.send_error(404)
 
@@ -310,6 +320,25 @@ class Handler(SimpleHTTPRequestHandler):
             waited += 0.2
         self._send_json(_voice_result or {"ok": False, "error": "未获取到识别结果。"})
 
+    # ---- 面部情绪识别（face_mood：MediaPipe FaceMesh + 摄像头） ----
+    def _handle_face_deps(self):
+        mp_ok, cv_ok = face_mood.deps_status()
+        self._send_json({"ok": True, "mediapipe": mp_ok, "cv2": cv_ok})
+
+    def _handle_face_mood(self):
+        """摄像头采样约 2 秒 → 返回面部情绪。同一时刻只允许一次采样。"""
+        if not _face_lock.acquire(blocking=False):
+            self._send_json({"ok": False, "error": "正在识别中，请稍候。"}, status=400)
+            return
+        try:
+            result = face_mood.capture_and_analyze()
+        finally:
+            _face_lock.release()
+        if "error" in result:
+            self._send_json({"ok": False, "error": result["error"]}, status=400)
+            return
+        self._send_json({"ok": True, "face": result})
+
     def _handle_mood(self):
         try:
             data = json.loads(self._read_body() or b"{}")
@@ -317,6 +346,10 @@ class Handler(SimpleHTTPRequestHandler):
             self._send_json({"ok": False, "error": "无效 JSON"}, status=400)
             return
         date = data.get("date") or datetime.now().strftime("%Y-%m-%d")
+        # date 拼入文件路径前先校验，防止 ../ 路径穿越
+        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", str(date)):
+            self._send_json({"ok": False, "error": "date 需为 YYYY-MM-DD"}, status=400)
+            return
         mood_dir = os.path.join(ROOT, "mood")
         os.makedirs(mood_dir, exist_ok=True)
         fpath = os.path.join(mood_dir, date + ".json")
@@ -356,6 +389,7 @@ def run_server(port=8080):
     print("  图谱页:   <INTERNAL_LINK_REMOVED>")
     print("接口:     GET /api/rag?q=...   |   GET /api/graph")
     print("语音接口:   POST /api/voice/start  |  POST /api/voice/stop")
+    print("面部接口:   GET  /api/face/deps    |  POST /api/face/mood（需安装 mediapipe + opencv-python）")
     print("（首次使用请允许终端/应用的麦克风权限；语音识别需联网）")
     try:
         server.serve_forever()

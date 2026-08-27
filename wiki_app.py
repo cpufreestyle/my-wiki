@@ -635,16 +635,29 @@ def get_today():
 def get_now():
     return datetime.now().strftime("%H:%M:%S")
 
+def _safe_date(date):
+    """date 会拼入文件路径：先取 basename 去目录成分，再做 YYYY-MM-DD 白名单校验。"""
+    date = os.path.basename(str(date or "").strip())
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", date):
+        return date
+    return get_today()
+
 def load_daily(date):
-    path = os.path.join(DAILY_DIR, f"{date}.md")
+    date = _safe_date(date)
+    path = os.path.join(DAILY_DIR, date + ".md")
     if os.path.exists(path):
         with open(path, "r", encoding="utf-8") as f:
             return f.read()
     return f"# {date} Diary\n\n"
 
 def save_daily(date, content):
+    date = _safe_date(date)
     os.makedirs(DAILY_DIR, exist_ok=True)
-    path = os.path.join(DAILY_DIR, f"{date}.md")
+    # 规范化并校验路径仍在 DAILY_DIR 内，拒绝越界写入
+    base = os.path.realpath(DAILY_DIR)
+    path = os.path.realpath(os.path.join(DAILY_DIR, date + ".md"))
+    if os.path.commonpath([base, path]) != base:
+        return
     with open(path, "w", encoding="utf-8") as f:
         f.write(content)
 
@@ -666,6 +679,7 @@ def analyze_mood(text):
     return best[0], conf, ", ".join(matched[best[0]])
 
 def save_mood(date, mood, text, confidence, reason):
+    date = _safe_date(date)
     os.makedirs(MOOD_DIR, exist_ok=True)
     path = os.path.join(MOOD_DIR, f"{date}.json")
     records = []
@@ -680,6 +694,7 @@ def save_mood(date, mood, text, confidence, reason):
         json.dump(records, f, ensure_ascii=False, indent=2)
 
 def load_moods(date):
+    date = _safe_date(date)
     path = os.path.join(MOOD_DIR, f"{date}.json")
     if os.path.exists(path):
         with open(path, "r", encoding="utf-8") as f:
