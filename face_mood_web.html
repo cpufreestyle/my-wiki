@@ -126,6 +126,7 @@
         </div>
     </div>
     <div class="toast" id="toast"></div>
+    <script src="assets/web/theme.js"></script>
 
     <!-- MediaPipe Tasks Vision（ES Module，CDN） -->
     <script type="importmap">
@@ -822,11 +823,6 @@
             img.src = url;
         });
 
-        // 主题跟随首页设置
-        try {
-            const t = localStorage.getItem("mywiki-theme");
-            if (t) document.documentElement.setAttribute("data-theme", t);
-        } catch {}
 
         loadDefaultBg(0);  // 默认图片背景（影棚暖调）
         probeVision();

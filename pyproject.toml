@@ -43,15 +43,12 @@ mywiki-server = "web_server:main"
 [tool.setuptools]
 # 根目录单文件模块（不迁移到子包时，显式列出）
 py-modules = [
-    "daily_ui",
-    "mood_analyzer",
     "rag",
     "reminder_manager",
-    "reminder_server",
     "reminder_ui",
     "send_reminder",
-    "tag_extractor",
     "theme",
+    "vision_segment",
     "voice_mood",
     "web_server",
     "wiki_app",

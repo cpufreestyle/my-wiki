@@ -116,6 +116,7 @@
             svg { height: 420px; }
         }
     </style>
+    <script src="assets/web/theme.js"></script>
 </head>
 <body>
     <main class="app">
@@ -154,22 +155,6 @@
             return rel.pathname.endsWith("/api/graph") ? rel.pathname.replace(/\/api\/graph$/, "") : "/";
         }
 
-        // ---------- 主题 ----------
-        const themeToggle = $("#themeToggle");
-        function applyTheme(t) {
-            document.documentElement.setAttribute("data-theme", t);
-            themeToggle.textContent = t === "dark" ? "☀️" : "🌙";
-            try { localStorage.setItem("mywiki-theme", t); } catch {}
-        }
-        (function initTheme() {
-            let t = "light";
-            try { t = localStorage.getItem("mywiki-theme") || "light"; } catch {}
-            applyTheme(t);
-        })();
-        themeToggle.addEventListener("click", () => {
-            const cur = document.documentElement.getAttribute("data-theme");
-            applyTheme(cur === "dark" ? "light" : "dark");
-        });
 
         function toast(msg) {
             const el = $("#toast");

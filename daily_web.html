@@ -295,6 +295,7 @@
             textarea.editor { min-height: var(--editor-h); }
         }
     </style>
+    <script src="assets/web/theme.js"></script>
 </head>
 <body>
     <main class="app">
@@ -349,22 +350,6 @@
 
         const $ = (sel) => document.querySelector(sel);
 
-        // ---------- 主题（深色 / 浅色，与桌面版及 reminder_web.html 一致） ----------
-        const themeToggle = $("#themeToggle");
-        function applyTheme(t) {
-            document.documentElement.setAttribute("data-theme", t);
-            themeToggle.textContent = t === "dark" ? "☀️" : "🌙";
-            try { localStorage.setItem("mywiki-theme", t); } catch {}
-        }
-        (function initTheme() {
-            let t = "light";
-            try { t = localStorage.getItem("mywiki-theme") || "light"; } catch {}
-            applyTheme(t);
-        })();
-        themeToggle.addEventListener("click", () => {
-            const cur = document.documentElement.getAttribute("data-theme");
-            applyTheme(cur === "dark" ? "light" : "dark");
-        });
 
         // ---------- 卡片高度调节（按钮用 --card-h，编辑器用 --editor-h，持久化） ----------
         const LS_CARD_H = "mywiki-card-h";

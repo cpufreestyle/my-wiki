@@ -160,7 +160,8 @@ class TestFaceMoodWebStructure(unittest.TestCase):
     # ---------- 主题与可访问性 ----------
     def test_dark_mode_support(self):
         self.assertIn('[data-theme="dark"]', self.text, "缺少深色模式样式")
-        self.assertIn("data-theme", self.script, "脚本缺少 data-theme 切换逻辑")
+        self.assertIn("assets/web/theme.js", self.text,
+                      "缺少共享主题脚本 theme.js（data-theme 切换逻辑所在）")
 
     def test_toast_role_status(self):
         toast = next((d for t, d in self.p.tags if d.get("id") == "toast"), None)

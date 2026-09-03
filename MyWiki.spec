@@ -32,6 +32,8 @@ WEB_PY = [(os.path.join(BASE_DIR, 'web_server.py'), '.'),
           (os.path.join(BASE_DIR, 'vision_segment.py'), '.')]
 WEB_HTML = [(f, '.') for f in glob.glob(os.path.join(BASE_DIR, '*_web.html'))]
 WEB_HTML.append((os.path.join(BASE_DIR, 'index.html'), '.'))
+# 共享网页主题脚本（所有 *_web.html 引用）
+WEB_THEME = [(os.path.join(BASE_DIR, 'assets', 'web', 'theme.js'), 'assets/web')]
 # 知识图谱数据也一并打包，使图谱页开箱即用
 KG = (os.path.join(BASE_DIR, 'knowledge_graph.json'), '.')
 
@@ -47,7 +49,7 @@ a = Analysis(
     binaries=[],
     datas=[(os.path.join(BASE_DIR, 'icon.ico'), '.'),
            (os.path.join(BASE_DIR, 'assets', 'AppIcon.icns'), 'assets')]
-          + WEB_PY + WEB_HTML + [KG] + SHARED_WIKI + BACKGROUND_IMAGES,
+          + WEB_PY + WEB_HTML + WEB_THEME + [KG] + SHARED_WIKI + BACKGROUND_IMAGES,
     hiddenimports=['agent_registry', 'obsidian_bridge', 'mcp_server',
                    'yaml', 'watchdog', 'watchdog.observers', 'watchdog.events',
                    'rag', 'voice_mood', 'vision_segment',
