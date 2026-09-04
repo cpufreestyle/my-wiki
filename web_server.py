@@ -90,6 +90,40 @@ def _get_rag_engine():
 # ---- 知识图谱响应缓存（文件 mtime 未变则直接复用上次结果） ----
 _graph_cache = {"path": None, "mtime": None, "payload": None}
 
+# ---- mood 按日聚合缓存（签名 = mood/ 目录 mtime；写入新记录即失效） ----
+_mood_cache = {"sig": None, "days_data": []}
+
+
+def _mood_range_cache_get():
+    """返回全量按日聚合（按日期升序）。签名未变直接命中，避免每次全量 IO。"""
+    global _mood_cache
+    mood_dir = os.path.join(ROOT, "mood")
+    try:
+        sig = os.stat(mood_dir).st_mtime if os.path.isdir(mood_dir) else None
+    except OSError:
+        sig = None
+    if _mood_cache["sig"] == sig:
+        return _mood_cache["days_data"]
+    by_day = {}
+    if sig is not None:
+        for fn in os.listdir(mood_dir):
+            if not fn.endswith(".json"):
+                continue
+            day = fn[:-5]
+            try:
+                with open(os.path.join(mood_dir, fn), "r", encoding="utf-8") as f:
+                    records = json.load(f)
+            except Exception:
+                continue
+            agg = by_day.setdefault(day, {"date": day, "count": 0, "moods": {}})
+            for r in records if isinstance(records, list) else []:
+                mood = str(r.get("mood") or "未知")
+                agg["moods"][mood] = agg["moods"].get(mood, 0) + 1
+                agg["count"] += 1
+    days_data = [by_day[k] for k in sorted(by_day)]
+    _mood_cache = {"sig": sig, "days_data": days_data}
+    return days_data
+
 # ---- macOS Vision 人物分割器（懒加载单例 + 锁串行化） ----
 _vision_seg = None
 _vision_lock = threading.Lock()
@@ -224,6 +258,8 @@ class Handler(SimpleHTTPRequestHandler):
 
         按日聚合 mood/<date>.json，返回 [{date, count, moods:{情绪:次数}}]，
         供情绪报表页绘制周/月曲线。
+        数据层缓存：目录 mtime 签名未变时直接复用上次的按日聚合（当天的
+        mood/<date>.json 写入会改变目录 mtime，自动失效）。
         """
         from urllib.parse import urlparse, parse_qs
         from datetime import datetime, timedelta
@@ -232,31 +268,10 @@ class Handler(SimpleHTTPRequestHandler):
             days = max(1, min(int((qs.get("days") or ["30"])[0]), 365))
         except Exception:
             days = 30
-        mood_dir = os.path.join(ROOT, "mood")
+        by_day = _mood_range_cache_get()
         start = datetime.now() - timedelta(days=days)
-        by_day = {}
-        if os.path.isdir(mood_dir):
-            for fn in os.listdir(mood_dir):
-                if not fn.endswith(".json"):
-                    continue
-                day = fn[:-5]
-                try:
-                    if datetime.strptime(day, "%Y-%m-%d") < start:
-                        continue
-                except ValueError:
-                    continue
-                try:
-                    with open(os.path.join(mood_dir, fn), "r", encoding="utf-8") as f:
-                        records = json.load(f)
-                except Exception:
-                    continue
-                agg = by_day.setdefault(day, {"date": day, "count": 0, "moods": {}})
-                for r in records if isinstance(records, list) else []:
-                    mood = str(r.get("mood") or "未知")
-                    agg["moods"][mood] = agg["moods"].get(mood, 0) + 1
-                    agg["count"] += 1
-        self._send_json({"ok": True, "days": days,
-                         "days_data": [by_day[k] for k in sorted(by_day)]})
+        result = [row for row in by_day if row["date"] >= start.strftime("%Y-%m-%d")]
+        self._send_json({"ok": True, "days": days, "days_data": result})
 
     def _handle_vision_status(self):
         """报告 macOS Vision 人物分割是否可用（前端据此选择抠图引擎）。"""
