@@ -211,10 +211,52 @@ class Handler(SimpleHTTPRequestHandler):
         if self.path == "/api/modules" or self.path.startswith("/api/modules?"):
             self._handle_modules()
             return
+        if self.path.startswith("/api/mood/range"):
+            self._handle_mood_range()
+            return
         if self.path.startswith("/api/vision/status"):
             self._handle_vision_status()
             return
         return super().do_GET()
+
+    def _handle_mood_range(self):
+        """情绪历史聚合：GET /api/mood/range?days=30
+
+        按日聚合 mood/<date>.json，返回 [{date, count, moods:{情绪:次数}}]，
+        供情绪报表页绘制周/月曲线。
+        """
+        from urllib.parse import urlparse, parse_qs
+        from datetime import datetime, timedelta
+        qs = parse_qs(urlparse(self.path).query)
+        try:
+            days = max(1, min(int((qs.get("days") or ["30"])[0]), 365))
+        except Exception:
+            days = 30
+        mood_dir = os.path.join(ROOT, "mood")
+        start = datetime.now() - timedelta(days=days)
+        by_day = {}
+        if os.path.isdir(mood_dir):
+            for fn in os.listdir(mood_dir):
+                if not fn.endswith(".json"):
+                    continue
+                day = fn[:-5]
+                try:
+                    if datetime.strptime(day, "%Y-%m-%d") < start:
+                        continue
+                except ValueError:
+                    continue
+                try:
+                    with open(os.path.join(mood_dir, fn), "r", encoding="utf-8") as f:
+                        records = json.load(f)
+                except Exception:
+                    continue
+                agg = by_day.setdefault(day, {"date": day, "count": 0, "moods": {}})
+                for r in records if isinstance(records, list) else []:
+                    mood = str(r.get("mood") or "未知")
+                    agg["moods"][mood] = agg["moods"].get(mood, 0) + 1
+                    agg["count"] += 1
+        self._send_json({"ok": True, "days": days,
+                         "days_data": [by_day[k] for k in sorted(by_day)]})
 
     def _handle_vision_status(self):
         """报告 macOS Vision 人物分割是否可用（前端据此选择抠图引擎）。"""
@@ -231,6 +273,8 @@ class Handler(SimpleHTTPRequestHandler):
          "hint": "记录当日随笔与心情", "emoji": "📝", "color": "green"},
         {"id": "mood", "file": "mood_web.html", "label": "心情记录",
          "hint": "语音 / 文字记录情绪", "emoji": "💡", "color": "orange"},
+        {"id": "mood_report", "file": "mood_report_web.html", "label": "情绪报表",
+         "hint": "周 / 月情绪曲线与统计", "emoji": "📈", "color": "green"},
         {"id": "face_mood", "file": "face_mood_web.html", "label": "面部情绪",
          "hint": "摄像头 + MediaPipe 人脸情绪识别", "emoji": "😊", "color": "pink"},
         {"id": "rag", "file": "rag_web.html", "label": "语义检索",

@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MyWiki 情绪报表</title>
+    <style>
+        :root {
+            --bg: #f5f5f7; --surface: #ffffff; --text: #1d1d1f; --text-secondary: #86868b;
+            --accent: #ff2d7e; --border: #e5e5ea; --radius-card: 14px;
+            --shadow-sm: 0 1px 3px rgba(0,0,0,0.08);
+            --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC",
+                "Helvetica Neue", "Microsoft YaHei", sans-serif;
+        }
+        [data-theme="dark"] {
+            --bg: #1c1c1e; --surface: #2c2c2e; --text: #f5f5f7; --text-secondary: #98989d;
+            --accent: #ff375f; --border: #3a3a3c;
+            --shadow-sm: 0 1px 3px rgba(0,0,0,0.4);
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: var(--font); background: var(--bg); color: var(--text);
+               -webkit-font-smoothing: antialiased; line-height: 1.45; }
+        .app { max-width: 720px; margin: 0 auto; padding: 28px 20px 56px; }
+        .app-header { text-align: center; margin-bottom: 18px; }
+        .app-header h1 { font-size: 24px; font-weight: 700; letter-spacing: -0.02em; }
+        .app-header p { color: var(--text-secondary); font-size: 14px; margin-top: 4px; }
+        .card { background: var(--surface); border: 1px solid var(--border);
+                border-radius: var(--radius-card); padding: 18px;
+                box-shadow: var(--shadow-sm); margin-bottom: 16px; }
+        .controls { display: flex; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
+        .chip { border: 1px solid var(--border); background: transparent; color: var(--text);
+                border-radius: 999px; padding: 6px 14px; font-size: 13px; cursor: pointer;
+                font-family: var(--font); }
+        .chip.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+        .summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+                   gap: 10px; margin-bottom: 14px; }
+        .stat { background: var(--bg); border-radius: 10px; padding: 12px; text-align: center; }
+        .stat .num { font-size: 24px; font-weight: 700; }
+        .stat .lbl { font-size: 12px; color: var(--text-secondary); margin-top: 2px; }
+        canvas { width: 100%; height: 260px; display: block; }
+        .legend { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 10px;
+                  font-size: 12px; color: var(--text-secondary); }
+        .legend span::before { content: "■ "; }
+        .empty { text-align: center; color: var(--text-secondary); padding: 40px 0; font-size: 14px; }
+        .back-link { display: inline-block; margin-bottom: 14px; color: var(--accent);
+                     text-decoration: none; font-size: 14px; }
+    </style>
+</head>
+<body>
+    <div class="app">
+        <a class="back-link" href="index.html">← 返回首页</a>
+        <div class="app-header">
+            <h1>📈 情绪报表</h1>
+            <p>心情与面部情绪的历史曲线（数据来自 mood/）</p>
+        </div>
+
+        <div class="card">
+            <div class="controls">
+                <button class="chip" data-days="7">最近 7 天</button>
+                <button class="chip active" data-days="30">最近 30 天</button>
+                <button class="chip" data-days="90">最近 90 天</button>
+            </div>
+            <div class="summary" id="summary"></div>
+            <canvas id="chart" width="720" height="260"></canvas>
+            <div class="legend" id="legend"></div>
+            <div class="empty" id="empty" style="display:none">暂无情绪数据 — 去「面部情绪」或「心情记录」页记录几条吧</div>
+        </div>
+    </div>
+    <script src="assets/web/theme.js"></script>
+    <script>
+        // 情绪 → 颜色（与 mood_web.html 的卡片色系呼应）
+        const MOOD_COLORS = {
+            "开心": "#34c759", "平静": "#8e8e93", "低落": "#5e5ce6",
+            "兴奋": "#ff9f0a", "焦虑": "#ff3b30", "愤怒": "#ff3b30",
+            "惊讶": "#64d2ff", "恐惧": "#bf5af2", "轻蔑": "#8e8e93",
+            "未知": "#c7c7cc",
+        };
+        let days = 30;
+        let cache = {}; // days -> data
+
+        const chartCv = document.getElementById("chart");
+        const cctx = chartCv.getContext("2d");
+
+        function cssVar(name) {
+            return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+        }
+
+        async function load(d) {
+            days = d;
+            document.querySelectorAll(".chip").forEach(c =>
+                c.classList.toggle("active", +c.dataset.days === d));
+            if (!cache[d]) {
+                const r = await fetch(`/api/mood/range?days=${d}`);
+                const data = await r.json();
+                cache[d] = data.days_data || [];
+            }
+            render(cache[d]);
+        }
+
+        function render(rows) {
+            const summary = document.getElementById("summary");
+            const legend = document.getElementById("legend");
+            const empty = document.getElementById("empty");
+            const total = rows.reduce((s, r) => s + r.count, 0);
+            empty.style.display = total ? "none" : "block";
+            chartCv.style.display = total ? "block" : "none";
+
+            // 汇总卡片
+            const moodTotals = {};
+            for (const r of rows) for (const [m, c] of Object.entries(r.moods))
+                moodTotals[m] = (moodTotals[m] || 0) + c;
+            const top = Object.entries(moodTotals).sort((a, b) => b[1] - a[1]);
+            const activeDays = rows.filter(r => r.count > 0).length;
+            summary.innerHTML = `
+                <div class="stat"><div class="num">${total}</div><div class="lbl">记录总数</div></div>
+                <div class="stat"><div class="num">${activeDays}</div><div class="lbl">有记录天数</div></div>
+                <div class="stat"><div class="num">${top[0] ? top[0][0] : "—"}</div><div class="lbl">最常见情绪</div></div>`;
+
+            // 图例
+            legend.innerHTML = top.slice(0, 8).map(([m]) =>
+                `<span style="color:${MOOD_COLORS[m] || MOOD_COLORS["未知"]}">${m}</span>`).join("");
+
+            // 堆叠柱状图
+            const W = chartCv.width = chartCv.clientWidth * 2; // 2x 清晰度
+            const H = chartCv.height = 520;
+            cctx.clearRect(0, 0, W, H);
+            if (!total) return;
+            const pad = { l: 40, r: 16, t: 20, b: 44 };
+            const iw = W - pad.l - pad.r, ih = H - pad.t - pad.b;
+            const maxCount = Math.max(4, ...rows.map(r => r.count));
+            const bw = Math.max(3, iw / Math.max(rows.length, 1) - 6);
+
+            // 网格与 Y 轴
+            cctx.strokeStyle = cssVar("--border") || "#ccc";
+            cctx.fillStyle = cssVar("--text-secondary") || "#888";
+            cctx.font = "20px -apple-system";
+            cctx.lineWidth = 1;
+            for (let i = 0; i <= 4; i++) {
+                const y = pad.t + ih * i / 4;
+                cctx.beginPath();
+                cctx.moveTo(pad.l, y); cctx.lineTo(W - pad.r, y); cctx.stroke();
+                cctx.fillText(String(Math.round(maxCount * (1 - i / 4))), 6, y + 6);
+            }
+
+            // 每天堆叠柱
+            rows.forEach((r, i) => {
+                const x = pad.l + iw * (i + 0.5) / rows.length - bw / 2;
+                let y = pad.t + ih;
+                for (const [m, c] of Object.entries(r.moods)) {
+                    const hgt = ih * c / maxCount;
+                    cctx.fillStyle = MOOD_COLORS[m] || MOOD_COLORS["未知"];
+                    cctx.fillRect(x, y - hgt, bw, hgt);
+                    y -= hgt;
+                }
+                // 日期标签（稀疏标注防重叠）
+                if (rows.length <= 14 || i % Math.ceil(rows.length / 14) === 0) {
+                    cctx.fillStyle = cssVar("--text-secondary") || "#888";
+                    cctx.save();
+                    cctx.translate(x + bw / 2, H - pad.b + 26);
+                    cctx.rotate(-Math.PI / 4);
+                    cctx.fillText(r.date.slice(5), 0, 0);
+                    cctx.restore();
+                }
+            });
+        }
+
+        document.querySelectorAll(".chip").forEach(c =>
+            c.addEventListener("click", () => load(+c.dataset.days)));
+        window.addEventListener("resize", () => render(cache[days] || []));
+        load(30);
+    </script>
+</body>
+</html>

@@ -142,6 +142,16 @@ TOOLS = [
         "description": "重建 Wiki 的 INDEX.md 统一索引",
         "inputSchema": {"type": "object", "properties": {}},
     },
+    {
+        "name": "wiki_daily_briefing",
+        "description": "获取今日简报：聚合当日日记、心情记录、待办提醒、最近 RSS 摘要，一次调用掌握全天状态",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "date": {"type": "string", "description": "YYYY-MM-DD，默认今天"},
+            },
+        },
+    },
 ]
 
 
@@ -183,9 +193,92 @@ def _dispatch(name: str, args: dict) -> str:
             return json.dumps(hits, ensure_ascii=False, indent=2)
         if name == "wiki_index":
             return update_index()
+        if name == "wiki_daily_briefing":
+            return _daily_briefing(args.get("date"))
         return f"[ERROR] 未知工具: {name}"
     except Exception as e:
         return f"[ERROR] {name} 执行失败: {e}"
+
+
+def _daily_briefing(date: str | None = None) -> str:
+    """聚合今日简报：日记 + 心情 + 待办提醒 + 最近 RSS，Markdown 输出。"""
+    from datetime import datetime as _dt
+    from pathlib import Path as _P
+    import re as _re
+
+    d = date or _dt.now().strftime("%Y-%m-%d")
+    root = _P(__file__).parent
+    # wiki 根：环境变量 > 仓库根（与 rag.find_wiki_root 一致的宽松策略）
+    wiki_root = root.parent
+    lines = [f"# MyWiki 今日简报 — {d}", ""]
+
+    # 1) 当日日记
+    diary = None
+    for base in (wiki_root, wiki_root / "daily"):
+        cand = base / "daily" / f"{d}.md" if (base / "daily").is_dir() else base / f"{d}.md"
+        if cand.exists():
+            diary = cand
+            break
+    lines.append("## 📝 日记")
+    if diary:
+        body = diary.read_text(encoding="utf-8", errors="ignore").strip()
+        lines.append(body[:1500] + ("\n…（已截断）" if len(body) > 1500 else ""))
+    else:
+        lines.append("（今日尚无日记）")
+    lines.append("")
+
+    # 2) 心情记录
+    lines.append("## 💡 心情")
+    mood_file = wiki_root / "mood" / f"{d}.json"
+    if mood_file.exists():
+        try:
+            records = json.loads(mood_file.read_text(encoding="utf-8"))
+            for r in records[:10]:
+                lines.append(f"- [{r.get('time', '?')}] {r.get('mood', '?')} "
+                             f"({float(r.get('confidence', 0)):.0%}) {r.get('text', '')[:50]}")
+        except Exception as e:
+            lines.append(f"（读取失败: {e}）")
+    else:
+        lines.append("（今日无心情记录）")
+    lines.append("")
+
+    # 3) 待办提醒
+    lines.append("## ⏰ 待办提醒")
+    rem_file = wiki_root / "reminders" / "reminders.json"
+    now = _dt.now()
+    pending = []
+    if rem_file.exists():
+        try:
+            for r in json.loads(rem_file.read_text(encoding="utf-8")):
+                if r.get("status") != "pending":
+                    continue
+                ra = r.get("remind_at", "")
+                due = _dt.strptime(ra, "%Y-%m-%d %H:%M:%S") if ra else None
+                if due and due < now:
+                    pending.append(f"- [已过期] #{r['id']} {ra} {r.get('message', '')}")
+                else:
+                    pending.append(f"- #{r['id']} {ra} {r.get('message', '')}")
+        except Exception as e:
+            lines.append(f"（读取失败: {e}）")
+    lines.extend(pending[:15] or ["（无待办）"])
+    lines.append("")
+
+    # 4) 最近 RSS 摘要（daily/rss/ 下最新 3 篇标题）
+    lines.append("## 📡 最近 RSS")
+    rss_dir = wiki_root / "daily" / "rss"
+    recent = []
+    if rss_dir.is_dir():
+        files = sorted(rss_dir.glob("*.md"), reverse=True)[:3]
+        for f in files:
+            try:
+                head = f.read_text(encoding="utf-8", errors="ignore")
+                title = _re.search(r"^#\s+(.+)$", head, _re.M)
+                recent.append(f"- {f.name}: {title.group(1).strip() if title else f.stem}")
+            except Exception:
+                pass
+    lines.extend(recent or ["（无 RSS 内容）"])
+
+    return "\n".join(lines)
 
 
 # ---------------------------------------------------------------------------

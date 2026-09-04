@@ -43,6 +43,7 @@ mywiki-server = "web_server:main"
 [tool.setuptools]
 # 根目录单文件模块（不迁移到子包时，显式列出）
 py-modules = [
+    "backup_snapshots",
     "rag",
     "reminder_manager",
     "reminder_ui",

@@ -122,6 +122,11 @@
             <textarea class="note-area" id="note" placeholder="可选：为这次情绪记录加一句备注…"></textarea>
             <div class="controls">
                 <button class="btn-primary" id="saveBtn" disabled>保存这次记录</button>
+                <label style="display:flex; align-items:center; gap:6px; font-size:13px;
+                              color:var(--text-secondary); margin-left:auto;">
+                    <input type="checkbox" id="autoReportChk">
+                    自动记录（每60秒）
+                </label>
             </div>
         </div>
     </div>
@@ -755,6 +760,42 @@
         startBtn.addEventListener("click", start);
         stopBtn.addEventListener("click", stop);
         saveBtn.addEventListener("click", save);
+
+        // ---- 情绪自动记录：开启后每 60s 把当前识别结果静默写入 mood/ ----
+        // （复用每帧已有的 classify 结果，source="auto"；偏好持久化 localStorage）
+        const AUTO_REPORT_MS = 60_000;
+        let autoReportLast = 0;
+        const autoReportChk = document.getElementById("autoReportChk");
+        try { autoReportChk.checked = localStorage.getItem("mywiki-auto-mood") === "1"; } catch {}
+        autoReportChk.addEventListener("change", () => {
+            try { localStorage.setItem("mywiki-auto-mood", autoReportChk.checked ? "1" : "0"); } catch {}
+            toast(autoReportChk.checked ? "自动记录已开启（每60秒）" : "自动记录已关闭");
+        });
+
+        async function autoReport() {
+            if (!autoReportChk.checked || !latest || !running) return;
+            const now = Date.now();
+            if (now - autoReportLast < AUTO_REPORT_MS) return;
+            autoReportLast = now;
+            const d = new Date();
+            try {
+                await fetch("/api/face_mood", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        date: d.toISOString().slice(0, 10),
+                        time: d.toTimeString().slice(0, 8),
+                        emotion: latest.label,
+                        confidence: Math.round(latest.confidence * 1000) / 1000,
+                        note: "",
+                        features: latest.features,
+                        reason: latest.reason,
+                        source: "auto",
+                    })
+                });
+            } catch { /* 静默：自动记录失败不打扰 */ }
+        }
+        setInterval(autoReport, 5000); // 高频检查，内部按 60s 节流
 
         bgBtn.addEventListener("click", () => bgInput.click());
         cutoutBtn.addEventListener("click", saveCutout);

@@ -30,8 +30,9 @@ from PySide6.QtCore import Qt, QObject, QTimer, Signal
 from PySide6.QtGui import QIcon, QShortcut, QKeySequence, QColor
 from PySide6.QtWidgets import (
     QApplication, QDialog, QFrame, QHBoxLayout, QLabel, QMainWindow,
-    QMessageBox, QProgressDialog, QPushButton, QSpinBox, QTabWidget,
-    QVBoxLayout, QWidget, QGraphicsDropShadowEffect,
+    QMessageBox, QProgressDialog, QPlainTextEdit, QPushButton, QSpinBox,
+    QSystemTrayIcon, QTabWidget, QVBoxLayout, QWidget,
+    QGraphicsDropShadowEffect,
 )
 
 # ==================== DEPENDENCY CHECK ====================
@@ -63,13 +64,14 @@ except ModuleNotFoundError as e:
     sys.exit(1)
 
 import voice_mood
+from backup_snapshots import create_snapshot
 from wiki_paths import ICON_PATH, WIKI_DIR, _SCRIPT_DIR
 from wiki_theme import (
     FONT_SCALE, apply_qss, get_mode, get_theme_colors, get_ui_pref,
     is_dark, reload_ui_prefs, set_mode, set_ui_pref,
 )
 from wiki_i18n import get_lang, set_lang, t
-from wiki_data import get_now, get_today
+from wiki_data import get_now, get_today, load_daily, save_daily
 from wiki_tabs_daily import DailyTabMixin
 from wiki_tabs_mood import MoodTabMixin
 from wiki_tabs_reminder import ReminderTabMixin
@@ -211,6 +213,126 @@ class WikiApp(QMainWindow, DailyTabMixin, MoodTabMixin, ReminderTabMixin, ShareT
         # 自动拉起网页版服务器（知识图谱 / 语义检索），关闭 App 时自动停止
         self._web_proc = None
         QTimer.singleShot(300, self._start_web_server)
+
+        # 自动备份快照：启动后 30s 一次 + 每 24h 一次（后台线程，不卡 UI）
+        QTimer.singleShot(30_000, self._run_backup)
+        self._backup_timer = QTimer(self)
+        self._backup_timer.setInterval(24 * 3600 * 1000)
+        self._backup_timer.timeout.connect(self._run_backup)
+        self._backup_timer.start()
+
+        # 菜单栏常驻（macOS 状态栏 / Win 托盘）：速记 + 显示主窗 + 退出
+        self._build_tray()
+
+    # ==================== 菜单栏速记 ====================
+    def _build_tray(self):
+        """系统托盘/菜单栏图标：快速速记、显示主窗口、退出。"""
+        from PySide6.QtWidgets import QSystemTrayIcon, QMenu
+        self._tray = QSystemTrayIcon(QIcon(ICON_PATH) if ICON_PATH else QIcon(), self)
+        menu = QMenu()
+        act_quick = menu.addAction("✍️ 快速速记")
+        act_show = menu.addAction("窗 显示主窗口")
+        menu.addSeparator()
+        act_quit = menu.addAction("退出")
+        act_quick.triggered.connect(self.show_quick_note)
+        act_show.triggered.connect(self._show_main_window)
+        act_quit.triggered.connect(QApplication.instance().quit)
+        self._tray.setContextMenu(menu)
+        self._tray.setToolTip("MyWiki — 点击图标速记")
+        self._tray.activated.connect(
+            lambda reason: self.show_quick_note()
+            if reason == QSystemTrayIcon.ActivationReason.Trigger else None)
+        self._tray.show()
+
+    def show_quick_note(self):
+        """弹出无边框速记窗：一句话写入今日日记末尾，Enter 保存 / Esc 关闭。"""
+        from PySide6.QtCore import Qt as _Qt
+        if getattr(self, "_quick_win", None) is not None:
+            self._quick_win.activateWindow()
+            self._quick_win.raise_()
+            return
+        win = QDialog(self, _Qt.WindowType.FramelessWindowHint | _Qt.WindowType.WindowStaysOnTopHint)
+        win.setFixedSize(420, 130)
+        win.setStyleSheet(f"""
+            QDialog {{ background: {get_theme_colors()['SURFACE']};
+                       border-radius: 12px; border: 1px solid {get_theme_colors()['BORDER']}; }}
+        """)
+        layout = QVBoxLayout(win)
+        layout.setContentsMargins(14, 12, 14, 12)
+        hint = QLabel("✍️ 速记一句话（Enter 保存 → 今日日记）")
+        hint.setStyleSheet(f"color: {get_theme_colors()['TEXT2']}; font-size: 12px;")
+        layout.addWidget(hint)
+        edit = QPlainTextEdit()
+        edit.setPlaceholderText("想到什么写什么…")
+        edit.setStyleSheet(
+            f"background: {get_theme_colors()['BG']}; color: {get_theme_colors()['TEXT']};"
+            "border-radius: 8px; padding: 8px; font-size: 14px;")
+        layout.addWidget(edit)
+
+        def save_and_close():
+            text = edit.toPlainText().strip()
+            if text:
+                content = load_daily(get_today())
+                stamp = get_now()
+                save_daily(get_today(), content.rstrip() + f"\n\n> 💭 {stamp} {text}\n")
+                self.daily_text.setPlainText(load_daily(get_today()))
+                self._notify("MyWiki 速记", "已写入今日日记 ✅")
+            win.deleteLater()
+            if self._quick_win is win:
+                self._quick_win = None
+
+        def key_filter(obj, ev):
+            from PySide6.QtGui import QKeyEvent
+            if isinstance(ev, QKeyEvent):
+                if ev.key() == _Qt.Key.Key_Return and not ev.modifiers():
+                    save_and_close(); return True
+                if ev.key() == _Qt.Key.Key_Escape:
+                    win.deleteLater()
+                    if self._quick_win is win:
+                        self._quick_win = None
+                    return True
+            return False
+
+        edit.installEventFilter(win)
+        win.eventFilter = key_filter  # 简易按键处理（QDialog 子类化省略）
+        # 屏幕顶部居中弹出
+        screen = QApplication.primaryScreen().availableGeometry()
+        win.move((screen.width() - win.width()) // 2, 80)
+        self._quick_win = win
+        win.show()
+        edit.setFocus()
+
+    def _notify(self, title, msg):
+        """macOS 通知中心推送；其他平台走托盘气泡。"""
+        if sys.platform == "darwin":
+            try:
+                subprocess.run([
+                    "osascript", "-e",
+                    'display notification "{}" with title "{}"'.format(
+                        msg.replace('"', '\\"'), title.replace('"', '\\"')),
+                ], check=False, timeout=5)
+                return
+            except Exception:
+                pass
+        try:
+            self._tray.showMessage(title, msg,
+                                   QSystemTrayIcon.MessageIcon.Information, 3000)
+        except Exception:
+            pass
+
+    def _show_main_window(self):
+        self.showNormal()
+        self.raise_()
+        self.activateWindow()
+
+    def _run_backup(self):
+        """执行一次自动备份（后台线程，异常静默不打扰用户）。"""
+        def work():
+            try:
+                create_snapshot()
+            except Exception as e:
+                print(f"[backup] 快照失败: {e}", file=sys.stderr)
+        threading.Thread(target=work, daemon=True).start()
 
     # ==================== UI 构建 ====================
     def _build_ui(self):

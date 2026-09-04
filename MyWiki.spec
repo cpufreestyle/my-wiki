@@ -29,7 +29,8 @@ entitlements_file = os.path.join(BASE_DIR, 'MyWiki.entitlements') if codesign_id
 WEB_PY = [(os.path.join(BASE_DIR, 'web_server.py'), '.'),
           (os.path.join(BASE_DIR, 'rag.py'), '.'),
           (os.path.join(BASE_DIR, 'voice_mood.py'), '.'),
-          (os.path.join(BASE_DIR, 'vision_segment.py'), '.')]
+          (os.path.join(BASE_DIR, 'vision_segment.py'), '.'),
+          (os.path.join(BASE_DIR, 'backup_snapshots.py'), '.')]
 WEB_HTML = [(f, '.') for f in glob.glob(os.path.join(BASE_DIR, '*_web.html'))]
 WEB_HTML.append((os.path.join(BASE_DIR, 'index.html'), '.'))
 # 共享网页主题脚本（所有 *_web.html 引用）
