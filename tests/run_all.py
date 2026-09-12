@@ -21,6 +21,7 @@ SUITES = [
     "test_rag",
     "test_reminder_manager",
     "test_face_mood_web",
+    "test_collect_context",
 ]
 
 

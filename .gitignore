@@ -147,8 +147,8 @@ generated-images/
 # Qoder 工具缓存（本机运行态，非仓库产物）
 .qoder/
 
-# 采集器退避状态（本机运行态，非仓库产物）
-config/.collect_backoff.json
+# 采集器本机运行态（退避状态 / dedup 索引 / 运行日志，非仓库产物）
+config/.collect_*
 
 # 自动备份快照（运行时产物，不入库）
 backups/
