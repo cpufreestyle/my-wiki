@@ -3,23 +3,29 @@
 # HTTP 请求（用于 RSS 抓取和 GitHub API）
 requests>=2.28.0
 
-# HTML 解析（用于 RSS 抓取）
-beautifulsoup4>=4.11.0
-
-# Markdown 处理
-markdown>=3.4.0
-
 # YAML 处理（用于 frontmatter）
 pyyaml>=6.0
 
-# 日期时间处理
-python-dateutil>=2.8.0
+# 图像处理（vision_segment 人像分割/抠图）
+Pillow>=9.0.0
+
+# RSS 抓取（scripts/fetch_rss*.py、scripts/auto_fetch.py）
+feedparser>=6.0.0
 
 # 可选：用于更高级的 Markdown 处理
 # mistune>=2.0.0
 
 # 可选：MCP 协议完整支持（未安装时 mcp_server.py 自动降级为 JSON-RPC stdio）
 # mcp>=1.0.0
+
+# 可选：语音识别（voice_mood.py，未安装时语音接口降级）
+# SpeechRecognition>=3.10.0
+
+# 可选：Obsidian 文件监听（obsidian_bridge.py，未安装退化为轮询）
+# watchdog>=3.0.0
+
+# 可选：ffmpeg 自动分发（voice_mood.py 回退方案）
+# static-ffmpeg>=0.4.0
 
 # 可选：用于 Obsidian dataview 查询
 # dataclasses-json>=0.5.0

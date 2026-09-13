@@ -135,7 +135,7 @@ def check_openclaw():
             r"C:\Program Files (x86)\QClaw\openclaw.exe",
         ]
     try:
-        out = subprocess.run(["npm", "prefix", "-g"], capture_output=True, text=True, timeout=10)
+        out = subprocess.run(["npm", "prefix", "-g"], capture_output=True, text=True, timeout=3)
         if out.returncode == 0:
             candidates.append(os.path.join(out.stdout.strip(), "bin", "openclaw"))
     except Exception:
@@ -497,12 +497,15 @@ class WikiApp(QMainWindow, DailyTabMixin, MoodTabMixin, ReminderTabMixin, ShareT
             # 服务未起：尝试自动拉起（用完即弃，不强制用户手动跑脚本）
             if not getattr(self, "_web_started", False):
                 self._start_web_server(port)
-                # 给子进程 / 线程一点启动时间
+                # 给子进程 / 线程一点启动时间。
+                # 在等待循环里让出事件循环，避免主线程 sleep 期间界面假死。
                 for _ in range(10):
                     try:
                         urllib.request.urlopen(url, timeout=1.0)
                         break
                     except Exception:
+                        from PySide6.QtWidgets import QApplication
+                        QApplication.instance().processEvents()
                         import time as _t
                         _t.sleep(0.4)
             try:

@@ -30,6 +30,15 @@ from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 ROOT = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, ROOT)
 
+# 数据根目录（mood 等）跟随统一解析：环境变量 MYWIKI_ROOT > config/obsidian.json
+# vault > 仓库根。静态文件仍托管在 ROOT（仓库根），仅数据目录用 WIKI_DIR，
+# 避免配置 vault 后网页端把 mood 写到/读到错误位置（此前一直读 ROOT/mood）。
+try:
+    from wiki_paths import _resolve_wiki_dir
+    WIKI_DIR = _resolve_wiki_dir()
+except Exception:  # noqa: BLE001
+    WIKI_DIR = ROOT
+
 # 语音模块（ffmpeg / SpeechRecognition）缺失时仅语音接口降级，不阻断整个服务器
 try:
     import voice_mood
@@ -66,11 +75,35 @@ _RAG_TTL = 60.0
 _rag_engine = None
 _rag_indexed_at = 0.0
 _rag_lock = threading.Lock()
+_rag_sig = None
+
+
+def _vault_signature():
+    """知识库变更签名：(.md 文件数, 最新 mtime)。
+
+    只走 os.stat 不读文件内容，成本远低于全量重建（后者要读完所有笔记并分词）。
+    """
+    count = 0
+    latest = 0.0
+    skip = {".git", ".obsidian", "__pycache__", "node_modules", ".trash", "attachments"}
+    for dirpath, dirnames, filenames in os.walk(WIKI_DIR):
+        dirnames[:] = [d for d in dirnames if d not in skip]
+        for fn in filenames:
+            if not fn.endswith(".md"):
+                continue
+            count += 1
+            try:
+                m = os.stat(os.path.join(dirpath, fn)).st_mtime
+            except OSError:
+                continue
+            if m > latest:
+                latest = m
+    return count, latest
 
 
 def _get_rag_engine():
-    """获取 RAGEngine 单例（线程安全），刷新失败时沿用旧索引。"""
-    global _rag_engine, _rag_indexed_at
+    """获取 RAGEngine 单例（线程安全）；知识库无变化时跳过全量重建。"""
+    global _rag_engine, _rag_indexed_at, _rag_sig
     if RAGEngine is None:
         return None
     with _rag_lock:
@@ -79,9 +112,14 @@ def _get_rag_engine():
             eng.index()
             _rag_engine = eng
             _rag_indexed_at = time.time()
+            _rag_sig = _vault_signature()
         elif time.time() - _rag_indexed_at > _RAG_TTL:
             try:
-                _rag_engine.index()
+                # TTL 到期先比对签名，笔记没动就不重建（此前每 60s 无条件全量重建）
+                sig = _vault_signature()
+                if sig != _rag_sig:
+                    _rag_engine.index()
+                    _rag_sig = sig
             except Exception:
                 pass  # 刷新失败沿用旧索引
             _rag_indexed_at = time.time()
@@ -97,7 +135,7 @@ _mood_cache = {"sig": None, "days_data": []}
 def _mood_range_cache_get():
     """返回全量按日聚合（按日期升序）。签名未变直接命中，避免每次全量 IO。"""
     global _mood_cache
-    mood_dir = os.path.join(ROOT, "mood")
+    mood_dir = os.path.join(WIKI_DIR, "mood")
     try:
         sig = os.stat(mood_dir).st_mtime if os.path.isdir(mood_dir) else None
     except OSError:
@@ -491,7 +529,7 @@ class Handler(SimpleHTTPRequestHandler):
     @staticmethod
     def _append_mood_record(date, record):
         """向 mood/<date>.json 追加一条记录（文件不存在或损坏时重建列表）。"""
-        mood_dir = os.path.join(ROOT, "mood")
+        mood_dir = os.path.join(WIKI_DIR, "mood")
         os.makedirs(mood_dir, exist_ok=True)
         fpath = os.path.join(mood_dir, date + ".json")
         records = []

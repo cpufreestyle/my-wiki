@@ -8,9 +8,15 @@ import json
 import os
 from datetime import datetime
 
-REMINDER_DIR = r"D:\Users\michael\MyWiki\reminders"
-REMINDER_FILE = f"{REMINDER_DIR}\\reminders.json"
-PENDING_FILE = f"{REMINDER_DIR}\\pending_notifications.json"
+# 数据目录跟随统一解析（环境变量 MYWIKI_ROOT > vault > 仓库根），
+# 避免 macOS/Linux 上把 Windows 硬编码路径当成相对目录而创建垃圾文件夹。
+try:
+    from wiki_paths import WIKI_DIR
+except Exception:  # noqa: BLE001
+    WIKI_DIR = os.path.dirname(os.path.abspath(__file__))
+REMINDER_DIR = os.path.join(WIKI_DIR, "reminders")
+REMINDER_FILE = os.path.join(REMINDER_DIR, "reminders.json")
+PENDING_FILE = os.path.join(REMINDER_DIR, "pending_notifications.json")
 
 def load_reminders():
     """加载所有提醒"""

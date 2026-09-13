@@ -34,7 +34,7 @@ sys.stderr.reconfigure(encoding="utf-8")
 sys.path.insert(0, str(Path(__file__).parent))
 from wiki_core import (  # noqa: E402
     search, read_note, write_note, list_notes,
-    create_daily_note, search_by_tag, update_index, semantic_search,
+    create_daily_note, search_by_tag, update_index, semantic_search, WIKI_ROOT,
 )
 from agent_registry import discover, list_agents  # noqa: E402
 
@@ -207,9 +207,9 @@ def _daily_briefing(date: str | None = None) -> str:
     import re as _re
 
     d = date or _dt.now().strftime("%Y-%m-%d")
-    root = _P(__file__).parent
-    # wiki 根：环境变量 > 仓库根（与 rag.find_wiki_root 一致的宽松策略）
-    wiki_root = root.parent
+    # wiki 根：复用 wiki_core 统一解析（环境变量 > vault > 仓库根），
+    # 不再用 __file__ 推算，避免落到 modules/ 导致日记/心情/提醒读取错位。
+    wiki_root = WIKI_ROOT
     lines = [f"# MyWiki 今日简报 — {d}", ""]
 
     # 1) 当日日记

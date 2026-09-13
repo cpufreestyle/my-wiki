@@ -23,7 +23,9 @@ def _resolve_wiki_dir():
     cfg = os.path.join(_SCRIPT_DIR, "config", "obsidian.json")
     if os.path.exists(cfg):
         try:
-            vp = json.load(open(cfg, encoding="utf-8")).get("vault_path", "")
+            # 用 with 确保文件句柄关闭（本函数会被多处调用，裸 open() 会持续泄漏句柄）
+            with open(cfg, encoding="utf-8") as _f:
+                vp = json.load(_f).get("vault_path", "")
             if vp and os.path.isdir(os.path.expanduser(vp)):
                 return os.path.expanduser(vp)
         except Exception:
