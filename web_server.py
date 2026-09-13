@@ -67,6 +67,8 @@ _voice_lock = threading.Lock()
 _voice_proc = None
 _voice_running = False
 _voice_result = None  # dict
+# 录音/识别完成信号：stop 接口靠它等待，避免 sleep 轮询忙等（原实现最多阻塞 30s）
+_voice_done = threading.Event()
 
 # ---- RAG 引擎单例 ----
 # 索引构建需扫描整个知识库（O(corpus)），此前每个请求都新建引擎并重建索引；
@@ -241,6 +243,7 @@ def _record_worker(duration):
     finally:
         _voice_result = result
         _voice_running = False
+        _voice_done.set()
 
 
 class Handler(SimpleHTTPRequestHandler):
@@ -505,6 +508,7 @@ class Handler(SimpleHTTPRequestHandler):
         with _voice_lock:
             _voice_result = None
             _voice_running = True
+            _voice_done.clear()
             threading.Thread(target=_record_worker, args=(duration,), daemon=True).start()
         self._send_json({"ok": True, "started": True, "duration": duration})
 
@@ -519,11 +523,8 @@ class Handler(SimpleHTTPRequestHandler):
                 proc.terminate()
             except Exception:
                 pass
-        # 等待识别完成（最多 ~30s）
-        waited = 0.0
-        while _voice_running and waited < 30:
-            time.sleep(0.2)
-            waited += 0.2
+        # 等待识别完成（最多 30s）。用事件等待替代 sleep 轮询，避免忙等占着请求线程。
+        _voice_done.wait(timeout=30)
         self._send_json(_voice_result or {"ok": False, "error": "未获取到识别结果。"})
 
     @staticmethod

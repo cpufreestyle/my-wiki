@@ -172,6 +172,62 @@ class RAGEngine:
             json.dumps(self.cache, ensure_ascii=False), encoding="utf-8"
         )
 
+    def _corpus_signature(self):
+        """知识库内容签名：所有 .md 的 (rel, mtime) 排序后取 md5。
+
+        只 stat 不读文件内容，成本远低于全量重读 + 重分词。
+        """
+        items = []
+        for cat in CATEGORIES:
+            root = self.root / cat
+            if not root.exists():
+                continue
+            for f in root.rglob("*.md"):
+                if any(part in SKIP_DIRS for part in f.parts):
+                    continue
+                if f.name in ("INDEX.md", "README.md"):
+                    continue
+                try:
+                    items.append((f.relative_to(self.root).as_posix(), f.stat().st_mtime))
+                except OSError:
+                    continue
+        items.sort()
+        h = hashlib.md5()
+        for rel, mt in items:
+            h.update("{}:{}\n".format(rel, mt).encode("utf-8"))
+        return h.hexdigest()
+
+    def _restore_bm25(self, cached):
+        """从缓存恢复 BM25 预处理结果（跳过读文件与分词）。"""
+        self.blocks = cached.get("blocks") or []
+        self.N = cached.get("N", len(self.blocks))
+        self.df = cached.get("df", {}) or {}
+        self.avgdl = cached.get("avgdl", 0.0) or 0.0
+
+    def _save_bm25(self, sig):
+        """把 BM25 预处理结果落盘，避免每次冷启动全量重读 + 重分词。"""
+        try:
+            self.cache["bm25"] = {
+                "sig": sig,
+                "N": self.N,
+                "df": self.df,
+                "avgdl": self.avgdl,
+                "blocks": [
+                    {
+                        "rel": b.get("rel"),
+                        "title": b.get("title"),
+                        "text": b.get("text"),
+                        "tf": b.get("tf", {}),
+                        "dl": b.get("dl", 0),
+                        "mtime": b.get("mtime"),
+                    }
+                    for b in self.blocks
+                ],
+            }
+            self._save_cache()
+        except Exception:
+            pass  # 缓存写失败不影响检索正确性
+
     # --- 收集与分块 ---
     def _collect_blocks(self):
         blocks = []
@@ -204,6 +260,15 @@ class RAGEngine:
 
     # --- 索引 ---
     def index(self, force=False):
+        # 语料未变化时直接复用上次的 BM25 预处理结果（跳过全量读文件与分词）。
+        # 此前每次冷启动都要重新读完整个知识库并重新分词。
+        sig = self._corpus_signature()
+        cached = self.cache.get("bm25") if isinstance(self.cache, dict) else None
+        if not force and cached and cached.get("sig") == sig and cached.get("blocks"):
+            self._restore_bm25(cached)
+            if self.mode == "ollama":
+                self._embed_blocks(force=force)
+            return self
         self.blocks = self._collect_blocks()
         # BM25 预处理
         for b in self.blocks:
@@ -220,6 +285,7 @@ class RAGEngine:
                 df[t] = df.get(t, 0) + 1
         self.df = df
         self.avgdl = (sum(b["dl"] for b in self.blocks) / self.N) if self.N else 0
+        self._save_bm25(sig)
         # 可选 embedding
         if self.mode == "ollama":
             self._embed_blocks(force=force)
