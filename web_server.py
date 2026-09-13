@@ -18,6 +18,7 @@ web_server.py - MyWiki 统一本地服务器
 """
 import json
 import os
+import re
 import sys
 import functools
 import threading
@@ -44,6 +45,12 @@ try:
     import voice_mood
 except Exception:  # noqa: BLE001
     voice_mood = None
+
+# 面部情绪识别（face_mood：MediaPipe）；缺失时 /api/face* 接口优雅降级
+try:
+    import face_mood
+except Exception:  # noqa: BLE001
+    face_mood = None
 
 # 网页端 RAG 检索 / 知识图谱所需模块（缺失时接口优雅降级）
 try:
@@ -183,6 +190,9 @@ def _get_vision_segmenter():
                     return None
     return _vision_seg
 
+# ---- 摄像头状态（全局锁，保证同一时刻只采样一次；采样约 2 秒阻塞请求） ----
+_face_lock = threading.Lock()
+
 
 def _record_worker(duration):
     """后台线程：ffmpeg 录音 → 声学分析 → 文字识别，结果存入 _voice_result。"""
@@ -291,6 +301,9 @@ class Handler(SimpleHTTPRequestHandler):
             return
         if self.path.startswith("/api/vision/status"):
             self._handle_vision_status()
+            return
+        if self.path.split("?")[0] == "/api/face/deps":
+            self._handle_face_deps()
             return
         return super().do_GET()
 
@@ -464,6 +477,8 @@ class Handler(SimpleHTTPRequestHandler):
             self._handle_vision_segment()
         elif path == "/api/vision/cutout":
             self._handle_vision_cutout()
+        elif path == "/api/face/mood":
+            self._handle_face_mood_capture()
         else:
             self.send_error(404)
 
@@ -617,6 +632,37 @@ class Handler(SimpleHTTPRequestHandler):
         except Exception as e:
             self._send_json({"ok": False, "error": str(e)}, status=500)
 
+    # ---- 面部情绪识别（服务端采样版：face_mood 模块 + 摄像头） ----
+    # 与上面的 /api/face_mood（浏览器端识别后落盘）是两条独立路径；
+    # 两者若同名会互相覆盖，故此处命名为 _capture。
+    def _handle_face_deps(self):
+        """GET /api/face/deps：反馈 mediapipe / cv2 依赖是否可用。"""
+        if face_mood is None:
+            self._send_json({"ok": False, "error": "face_mood 模块不可用"}, status=503)
+            return
+        mp_ok, cv_ok = face_mood.deps_status()
+        self._send_json({"ok": True, "mediapipe": mp_ok, "cv2": cv_ok})
+
+    def _handle_face_mood_capture(self):
+        """POST /api/face/mood：服务端摄像头采样约 2 秒 → 返回面部情绪。
+
+        同一时刻只允许一次采样。
+        """
+        if face_mood is None:
+            self._send_json({"ok": False, "error": "face_mood 模块不可用"}, status=503)
+            return
+        if not _face_lock.acquire(blocking=False):
+            self._send_json({"ok": False, "error": "正在识别中，请稍候。"}, status=400)
+            return
+        try:
+            result = face_mood.capture_and_analyze()
+        finally:
+            _face_lock.release()
+        if "error" in result:
+            self._send_json({"ok": False, "error": result["error"]}, status=400)
+            return
+        self._send_json({"ok": True, "face": result})
+
     def log_message(self, fmt, *args):
         pass  # 静默
 
@@ -644,6 +690,7 @@ def run_server(port=8082):
     print("  图谱页:   <INTERNAL_LINK_REMOVED>")
     print("接口:     GET /api/rag?q=...   |   GET /api/graph")
     print("语音接口:   POST /api/voice/start  |  POST /api/voice/stop")
+    print("面部接口:   GET  /api/face/deps    |  POST /api/face/mood（需安装 mediapipe + opencv-python）")
     print("（首次使用请允许终端/应用的麦克风权限；语音识别需联网）")
     try:
         server.serve_forever()
