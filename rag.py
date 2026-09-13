@@ -53,17 +53,36 @@ def _resolve_vault_path(repo_root) -> "Path | None":
     return None
 
 
+def _canonical_wiki_root(here: Path) -> "Path | None":
+    """复用 wiki_paths 的统一解析（与桌面端 / 网页端同一套），不可用时返回 None。"""
+    try:
+        from wiki_paths import _resolve_wiki_dir
+        return Path(_resolve_wiki_dir(str(here)))
+    except Exception:
+        return None
+
+
+def _looks_like_wiki(p: Path) -> bool:
+    """粗判目录是否为 wiki 根（含 INDEX.md / daily / README.md 之一）。"""
+    return (p / "INDEX.md").exists() or (p / "daily").exists() or (p / "README.md").exists()
+
+
 def find_wiki_root() -> Path:
     """智能定位 wiki 根目录。
 
     优先级: 环境变量 MYWIKI_ROOT > config/obsidian.json 的 vault_path (Obsidian vault) > 仓库根。
+    统一复用 wiki_paths 的解析，仅在结果不像 wiki 目录时回退原有启发式。
     """
+    here = Path(__file__).resolve().parent  # rag.py 位于仓库根
+    canon = _canonical_wiki_root(here)
+    if canon is not None and _looks_like_wiki(canon):
+        return canon
+    # 兜底：统一解析不可用、或其结果不像 wiki 目录时，沿用原有启发式
     env = os.environ.get("MYWIKI_ROOT")
     if env:
         p = Path(env).expanduser()
         if p.exists():
             return p
-    here = Path(__file__).resolve().parent  # rag.py 位于仓库根
     vp = _resolve_vault_path(here)
     if vp:
         return vp

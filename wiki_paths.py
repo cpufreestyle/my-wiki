@@ -12,15 +12,19 @@ from pathlib import Path as _Path
 _SCRIPT_DIR = _Path(__file__).parent
 
 
-def _resolve_wiki_dir():
+def _resolve_wiki_dir(base=None):
     """wiki 数据根目录。
 
-    优先级: 环境变量 MYWIKI_ROOT > config/obsidian.json 的 vault_path (Obsidian vault) > 仓库根(_SCRIPT_DIR)。
+    优先级: 环境变量 MYWIKI_ROOT > config/obsidian.json 的 vault_path (Obsidian vault) > 仓库根。
+
+    base: 仓库根目录，默认本文件所在目录。rag / wiki_core 等调用方显式传入自己的
+          仓库根，以便与桌面端 / 网页端共用同一套解析，避免多套实现各自漂移。
     """
+    base = base or _SCRIPT_DIR
     env = os.environ.get("MYWIKI_ROOT")
     if env and os.path.isdir(os.path.expanduser(env)):
         return os.path.expanduser(env)
-    cfg = os.path.join(_SCRIPT_DIR, "config", "obsidian.json")
+    cfg = os.path.join(base, "config", "obsidian.json")
     if os.path.exists(cfg):
         try:
             # 用 with 确保文件句柄关闭（本函数会被多处调用，裸 open() 会持续泄漏句柄）
@@ -30,7 +34,7 @@ def _resolve_wiki_dir():
                 return os.path.expanduser(vp)
         except Exception:
             pass
-    return str(_SCRIPT_DIR)
+    return str(base)
 
 
 def _resolve_app_icon():
