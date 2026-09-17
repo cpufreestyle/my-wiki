@@ -352,18 +352,25 @@ class RAGEngine:
 
     def _search_bm25(self, q_tokens, limit):
         k1, b = 1.5, 0.75
+        # 去重一次 + 预计算 idf：此前在每个 block 内都重建 set(q_tokens)
+        # 并对每个 token 重算一次 math.log，属于 O(blocks × tokens) 的重复计算。
+        q_set = set(q_tokens)
+        idf = {}
+        for qt in q_set:
+            df_t = self.df.get(qt, 0)
+            idf[qt] = math.log((self.N - df_t + 0.5) / (df_t + 0.5) + 1)
+        avgdl = self.avgdl
         scored = []
         for blk in self.blocks:
+            tf_map = blk["tf"]
+            # 同一 block 内 dl 固定，分母中这部分是常量，提到内层循环外
+            denom_base = k1 * (1 - b + b * blk["dl"] / avgdl) if avgdl else k1
             score = 0.0
-            for qt in set(q_tokens):
-                tf = blk["tf"].get(qt)
+            for qt in q_set:
+                tf = tf_map.get(qt)
                 if not tf:
                     continue
-                df_t = self.df.get(qt, 0)
-                idf = math.log((self.N - df_t + 0.5) / (df_t + 0.5) + 1)
-                score += idf * (tf * (k1 + 1)) / (
-                    tf + k1 * (1 - b + b * blk["dl"] / self.avgdl)
-                )
+                score += idf[qt] * (tf * (k1 + 1)) / (tf + denom_base)
             if score > 0:
                 scored.append((score, blk))
         scored.sort(key=lambda x: x[0], reverse=True)

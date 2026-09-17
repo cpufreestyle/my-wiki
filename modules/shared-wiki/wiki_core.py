@@ -20,6 +20,7 @@ import re
 import sys
 import json
 import shutil
+import hashlib
 from pathlib import Path
 from datetime import datetime
 
@@ -158,12 +159,48 @@ def build_frontmatter(meta: dict) -> str:
 # 读取 / 写入
 # ---------------------------------------------------------------------------
 
+# ---- 笔记列表缓存：按语料签名失效 ----
+# search / query_links / update_index 都要读全部正文，MCP 每次工具调用都重复
+# 全量读盘 + 解析 frontmatter；笔记未变动时直接复用上次结果。
+_notes_cache = {"sig": None, "payload": {}}
+
+
+def _corpus_signature() -> str:
+    """知识库变更签名：所有 .md 的 (rel, mtime) 排序后取 md5。只 stat 不读内容。"""
+    items = []
+    for root in [WIKI_ROOT / c for c in CATEGORIES]:
+        if not root.exists():
+            continue
+        for f in root.rglob("*.md"):
+            if any(part in SKIP_DIRS for part in f.parts):
+                continue
+            if f.name in ("INDEX.md", "README.md"):
+                continue
+            try:
+                items.append((f.relative_to(WIKI_ROOT).as_posix(), f.stat().st_mtime))
+            except OSError:
+                continue
+    items.sort()
+    h = hashlib.md5()
+    for rel, mt in items:
+        h.update("{}:{}\n".format(rel, mt).encode("utf-8"))
+    return h.hexdigest()
+
+
 def list_notes(category: str = None, include_body: bool = False):
     """
     列出 wiki 中的笔记。
     category: 指定分类 (daily/projects/...) 或 None 表示全部
     返回 [ {path, rel, title, tags, type, date, mtime, body?} ]
+
+    结果按语料签名缓存；笔记未变动时直接复用，避免每次调用都全量读盘。
     """
+    # root 纳入 key：测试等场景会动态改 WIKI_ROOT，避免跨根目录命中旧缓存
+    key = (str(WIKI_ROOT), category, bool(include_body))
+    sig = _corpus_signature()
+    if _notes_cache["sig"] == sig and key in _notes_cache["payload"]:
+        return list(_notes_cache["payload"][key])
+
     results = []
     roots = [WIKI_ROOT / c for c in (CATEGORIES if not category else [category])]
     if category and category not in CATEGORIES:
@@ -192,6 +229,10 @@ def list_notes(category: str = None, include_body: bool = False):
                 item["body"] = body
             results.append(item)
     results.sort(key=lambda x: x["mtime"], reverse=True)
+    if _notes_cache["sig"] != sig:
+        _notes_cache["payload"] = {}  # 语料变了，旧缓存整体失效
+    _notes_cache["sig"] = sig
+    _notes_cache["payload"][key] = results
     return results
 
 
