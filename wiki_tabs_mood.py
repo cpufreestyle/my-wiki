@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (
 )
 
 import voice_mood
-from wiki_theme import get_theme_colors, is_dark, ui_font, mono_font
+from wiki_theme import get_theme_colors, is_dark, ui_font, mono_font, apply_card_shadow
 from wiki_i18n import get_lang, t
 from wiki_data import (
     get_today, load_moods, save_mood, analyze_mood, MOOD_EMOJI,
@@ -140,11 +140,7 @@ class MoodTabMixin:
         card_layout.addWidget(label)
         card_layout.addStretch()
         # 阴影
-        shadow = QGraphicsDropShadowEffect(card)
-        shadow.setBlurRadius(20)
-        shadow.setOffset(0, 1)
-        shadow.setColor(QColor(0, 0, 0, 50 if dark else 20))
-        card.setGraphicsEffect(shadow)
+        apply_card_shadow(card, dark)
         return card
 
     def quick_mood(self, mood):

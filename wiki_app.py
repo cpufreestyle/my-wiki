@@ -66,7 +66,7 @@ import voice_mood
 from backup_snapshots import create_snapshot
 from wiki_paths import ICON_PATH, WIKI_DIR, _SCRIPT_DIR
 from wiki_theme import (
-    FONT_SCALE, apply_qss, get_mode, get_theme_colors, get_ui_pref,
+    FONT_SCALE, apply_card_shadow, apply_qss, get_mode, get_theme_colors, get_ui_pref,
     is_dark, reload_ui_prefs, set_mode, set_ui_pref,
 )
 from wiki_i18n import get_lang, set_lang, t
@@ -531,15 +531,9 @@ class WikiApp(QMainWindow, DailyTabMixin, MoodTabMixin, ReminderTabMixin, ShareT
         """卡片容器（对齐网页 .card：圆角 14px + 阴影，无边框）。
         QSS 无法直接设阴影，用 QGraphicsDropShadowEffect 补上。
         """
-        dark = is_dark()
         card = QFrame()
         card.setProperty("card", True)
-        # 阴影效果（QSS 不支持 box-shadow，用 effect 替代）
-        shadow = QGraphicsDropShadowEffect(card)
-        shadow.setBlurRadius(20)
-        shadow.setOffset(0, 1)
-        shadow.setColor(QColor(0, 0, 0, 50 if dark else 20))
-        card.setGraphicsEffect(shadow)
+        apply_card_shadow(card)  # QSS 不支持 box-shadow，用 effect 替代
         return card
 
     def _primary_btn(self, text, callback):

@@ -7,7 +7,8 @@ MODE / UI_PREFS 是运行时可切换的全局状态（主题切换、设置面�
 """
 import sys
 
-from PySide6.QtGui import QFont
+from PySide6.QtGui import QFont, QColor
+from PySide6.QtWidgets import QGraphicsDropShadowEffect
 
 from theme import (
     get_tokens, load_theme_pref, save_theme_pref,
@@ -50,6 +51,22 @@ def reload_ui_prefs():
     """放弃内存中的偏好修改，重新从磁盘加载。"""
     global UI_PREFS
     UI_PREFS = load_ui_prefs()
+
+
+def apply_card_shadow(widget, dark=None):
+    """给卡片容器加与网页 .card 对齐的阴影（QSS 不支持 box-shadow，用 effect 替代）。
+
+    原先在 wiki_app / wiki_tabs_mood / wiki_tabs_reminder 重复了 4 份相同样板，
+    统一到这里；dark 省略时按当前主题判断。
+    """
+    if dark is None:
+        dark = is_dark()
+    shadow = QGraphicsDropShadowEffect(widget)
+    shadow.setBlurRadius(20)
+    shadow.setOffset(0, 1)
+    shadow.setColor(QColor(0, 0, 0, 50 if dark else 20))
+    widget.setGraphicsEffect(shadow)
+    return shadow
 
 
 def get_theme_colors(mode=None):

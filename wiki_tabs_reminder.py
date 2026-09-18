@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (
     QScrollArea, QVBoxLayout, QWidget, QGraphicsDropShadowEffect,
 )
 
-from wiki_theme import get_theme_colors, get_ui_pref, set_ui_pref, is_dark
+from wiki_theme import get_theme_colors, get_ui_pref, set_ui_pref, is_dark, apply_card_shadow
 from wiki_i18n import t
 from wiki_data import load_reminders, add_reminder, cancel_reminder
 
@@ -191,11 +191,7 @@ class ReminderTabMixin:
         handle.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, False)
         card_layout.addWidget(handle, alignment=Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignBottom)
         # 阴影
-        shadow = QGraphicsDropShadowEffect(card)
-        shadow.setBlurRadius(20)
-        shadow.setOffset(0, 1)
-        shadow.setColor(QColor(0, 0, 0, 50 if dark else 20))
-        card.setGraphicsEffect(shadow)
+        apply_card_shadow(card, dark)
         return card
 
     def _on_card_resized(self, new_height):
@@ -270,11 +266,7 @@ class ReminderTabMixin:
             for r in pending:
                 card = QFrame()
                 card.setProperty("card", True)
-                shadow = QGraphicsDropShadowEffect(card)
-                shadow.setBlurRadius(20)
-                shadow.setOffset(0, 1)
-                shadow.setColor(QColor(0, 0, 0, 50 if dark else 20))
-                card.setGraphicsEffect(shadow)
+                apply_card_shadow(card, dark)
                 cl = QVBoxLayout(card)
                 cl.setContentsMargins(16, 14, 16, 14)
                 cl.setSpacing(4)
