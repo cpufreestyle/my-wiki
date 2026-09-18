@@ -52,6 +52,27 @@ I18N = {
         "share_title": "🌐 共享知识库 — Obsidian × 所有 Agent",
         "refresh": "刷新", "start_server": "▶ 启动 MCP 服务",
         "open_obsidian": "🔭 在 Obsidian 打开", "broadcast": "🔔 通知 Agent",
+        # 新增标签页
+        "tab_todo": "  待办  ", "tab_search": "  搜索  ",
+        "tab_tags": "  标签  ", "tab_report": "  报告  ",
+        # 待办
+        "todo_add": "  新增待办", "todo_list": "  待办清单",
+        "todo_ph": "要做什么…", "todo_due_ph": "截止 YYYY-MM-DD",
+        "todo_empty": "  暂无待办，添加一条吧。",
+        "todo_need_text": "请先输入待办内容！", "todo_added": "待办已添加",
+        "pri_high": "高", "pri_medium": "中", "pri_low": "低",
+        # 搜索
+        "search_ph": "搜索笔记…", "search_btn": "  搜索  ",
+        "search_no_result": "  没有找到匹配的笔记。",
+        "search_results": "  找到 {n} 条结果", "search_need_kw": "请输入搜索关键词！",
+        # 标签
+        "tags_title": "  标签云", "tags_empty": "  暂无标签。",
+        "tags_notes": "  含标签「{tag}」的笔记", "tags_count": "{n} 篇",
+        # 报告
+        "report_title": "  周报 / 月报", "report_weekly": "周报（近 7 天）",
+        "report_monthly": "月报（本月）", "report_generate": "  生成报告  ",
+        "report_save": "  保存到知识库  ", "report_saved": "报告已保存：{p}",
+        "report_copy": "  复制  ", "report_copied": "报告已复制到剪贴板",
     },
     "en": {
         "app_title": "My Wiki",
@@ -96,6 +117,27 @@ I18N = {
         "share_title": "🌐 Shared Wiki — Obsidian × All Agents",
         "refresh": "Refresh", "start_server": "▶ Start MCP Server",
         "open_obsidian": "🔭 Open in Obsidian", "broadcast": "🔔 Notify Agents",
+        # New tabs
+        "tab_todo": "  Todo  ", "tab_search": "  Search  ",
+        "tab_tags": "  Tags  ", "tab_report": "  Report  ",
+        # Todo
+        "todo_add": "  Add Todo", "todo_list": "  Todo List",
+        "todo_ph": "What to do…", "todo_due_ph": "Due YYYY-MM-DD",
+        "todo_empty": "  No todos yet. Add one!",
+        "todo_need_text": "Enter todo text first!", "todo_added": "Todo added",
+        "pri_high": "High", "pri_medium": "Medium", "pri_low": "Low",
+        # Search
+        "search_ph": "Search notes…", "search_btn": "  Search  ",
+        "search_no_result": "  No matching notes found.",
+        "search_results": "  {n} result(s)", "search_need_kw": "Enter a keyword!",
+        # Tags
+        "tags_title": "  Tag Cloud", "tags_empty": "  No tags yet.",
+        "tags_notes": "  Notes tagged “{tag}”", "tags_count": "{n} notes",
+        # Report
+        "report_title": "  Weekly / Monthly", "report_weekly": "Weekly (last 7 days)",
+        "report_monthly": "Monthly (this month)", "report_generate": "  Generate  ",
+        "report_save": "  Save to Vault  ", "report_saved": "Report saved: {p}",
+        "report_copy": "  Copy  ", "report_copied": "Report copied to clipboard",
     },
 }
 

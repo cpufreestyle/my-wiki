@@ -13,7 +13,7 @@ import re
 from collections import Counter
 from datetime import datetime
 
-from wiki_paths import DAILY_DIR, MOOD_DIR, REMINDER_DIR, REMINDER_FILE
+from wiki_paths import DAILY_DIR, MOOD_DIR, REMINDER_DIR, REMINDER_FILE, TODO_FILE, WIKI_DIR
 
 # ==================== MOOD KEYWORDS ====================
 MOOD_KEYWORDS = {
@@ -172,3 +172,132 @@ def cancel_reminder(rid):
             save_reminders(reminders)
             return True
     return False
+
+
+# ==================== TODO / 待办清单 ====================
+PRIORITY_ORDER = {"high": 0, "medium": 1, "low": 2}
+
+
+def load_todos():
+    """读取待办列表（文件缺失或损坏时返回空列表）。"""
+    if os.path.exists(TODO_FILE):
+        try:
+            with open(TODO_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            return data if isinstance(data, list) else []
+        except Exception:
+            return []
+    return []
+
+
+def save_todos(todos):
+    """保存待办列表。"""
+    os.makedirs(os.path.dirname(TODO_FILE), exist_ok=True)
+    with open(TODO_FILE, "w", encoding="utf-8") as f:
+        json.dump(todos, f, ensure_ascii=False, indent=2)
+
+
+def normalize_priority(priority):
+    """把任意输入归一为 high / medium / low。"""
+    p = str(priority or "").strip().lower()
+    return p if p in PRIORITY_ORDER else "medium"
+
+
+def add_todo(text, priority="medium", due=""):
+    """新增一条待办并落盘，返回新建的 dict。text 为空时抛 ValueError。"""
+    text = (text or "").strip()
+    if not text:
+        raise ValueError("待办内容不能为空")
+    todos = load_todos()
+    tid = max([t.get("id", 0) for t in todos], default=0) + 1
+    todo = {
+        "id": tid,
+        "text": text,
+        "priority": normalize_priority(priority),
+        "due": (due or "").strip(),
+        "done": False,
+        "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "done_at": "",
+    }
+    todos.append(todo)
+    save_todos(todos)
+    return todo
+
+
+def toggle_todo(tid):
+    """切换待办的完成状态，返回更新后的 dict；找不到返回 None。"""
+    todos = load_todos()
+    for t in todos:
+        if t.get("id") == tid:
+            t["done"] = not bool(t.get("done"))
+            t["done_at"] = (datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                            if t["done"] else "")
+            save_todos(todos)
+            return t
+    return None
+
+
+def delete_todo(tid):
+    """删除一条待办，返回是否删除成功。"""
+    todos = load_todos()
+    kept = [t for t in todos if t.get("id") != tid]
+    if len(kept) != len(todos):
+        save_todos(kept)
+        return True
+    return False
+
+
+def sort_todos(todos):
+    """排序：未完成优先 → 优先级 → 截止日期（空的排最后）→ id。"""
+    return sorted(
+        todos,
+        key=lambda t: (
+            1 if t.get("done") else 0,
+            PRIORITY_ORDER.get(t.get("priority", "medium"), 1),
+            t.get("due") or "9999-99-99",
+            t.get("id", 0),
+        ),
+    )
+
+
+def pending_todos():
+    """未完成的待办（已排序），供桌面/网页端展示。"""
+    return [t for t in sort_todos(load_todos()) if not t.get("done")]
+
+
+# ==================== vault 遍历 / 标签解析（搜索、标签页共用） ====================
+VAULT_SKIP_DIRS = {".git", ".obsidian", "__pycache__", "node_modules", ".trash", "attachments"}
+
+
+def iter_vault_md():
+    """遍历 vault 下的所有 .md 文件绝对路径（跳过 .git/.obsidian 等）。"""
+    for dirpath, dirnames, filenames in os.walk(WIKI_DIR):
+        dirnames[:] = [d for d in dirnames if d not in VAULT_SKIP_DIRS]
+        for fn in filenames:
+            if fn.endswith(".md"):
+                yield os.path.join(dirpath, fn)
+
+
+def read_text_safe(path):
+    """读取文本文件，失败返回空串。"""
+    try:
+        with open(path, "r", encoding="utf-8", errors="ignore") as f:
+            return f.read()
+    except Exception:
+        return ""
+
+
+def parse_frontmatter_tags(text):
+    """从 Markdown 前言（frontmatter）解析 tags 列表。
+
+    支持 `tags: [a, b]` 与 `tags: a, b` 两种写法。
+    """
+    m = re.match(r"^---\s*\n(.*?)\n---", text, re.DOTALL)
+    if not m:
+        return []
+    for line in m.group(1).splitlines():
+        s = line.strip()
+        if s.startswith("tags:"):
+            val = s.split(":", 1)[1].strip().strip("[]")
+            return [x.strip().strip("\"'") for x in val.split(",") if x.strip()]
+    return []

@@ -75,6 +75,10 @@ from wiki_tabs_daily import DailyTabMixin
 from wiki_tabs_mood import MoodTabMixin
 from wiki_tabs_reminder import ReminderTabMixin
 from wiki_tabs_share import ShareTabMixin
+from wiki_tabs_todo import TodoTabMixin
+from wiki_tabs_search import SearchTabMixin
+from wiki_tabs_tags import TagsTabMixin
+from wiki_tabs_report import ReportTabMixin
 
 
 def _proc_running(name):
@@ -251,8 +255,9 @@ class VoiceSignals(QObject):
 
 
 # ==================== GUI APP ====================
-class WikiApp(QMainWindow, DailyTabMixin, MoodTabMixin, ReminderTabMixin, ShareTabMixin):
-    """主窗口：组合四个标签页 Mixin，负责顶栏、状态栏与生命周期。"""
+class WikiApp(QMainWindow, DailyTabMixin, MoodTabMixin, ReminderTabMixin, ShareTabMixin,
+              TodoTabMixin, SearchTabMixin, TagsTabMixin, ReportTabMixin):
+    """主窗口：组合各标签页 Mixin，负责顶栏、状态栏与生命周期。"""
 
     def __init__(self):
         super().__init__()
@@ -438,6 +443,10 @@ class WikiApp(QMainWindow, DailyTabMixin, MoodTabMixin, ReminderTabMixin, ShareT
         self._build_daily_tab()
         self._build_mood_tab()
         self._build_reminder_tab()
+        self._build_todo_tab()
+        self._build_search_tab()
+        self._build_tags_tab()
+        self._build_report_tab()
         self._build_share_tab()
 
         # 状态栏

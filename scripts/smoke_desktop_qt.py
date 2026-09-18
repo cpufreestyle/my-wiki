@@ -45,8 +45,8 @@ def main():
     window = w.WikiApp()
     window.show()
     pump()
-    print("OK 2: WikiApp 构建并显示（日记/心情/提醒/Share 四个标签页）")
-    assert window.nb.count() == 4, "标签页数量应为 4, 实际 {}".format(window.nb.count())
+    print("OK 2: WikiApp 构建并显示（日记/心情/提醒/待办/搜索/标签/报告/Share 八个标签页）")
+    assert window.nb.count() == 8, "标签页数量应为 8, 实际 {}".format(window.nb.count())
 
     # 语音信号槽已连接（线程安全核心）
     assert window.voice_signals is not None
@@ -92,6 +92,40 @@ def main():
             raise
         except Exception as e:
             raise AssertionError("share_start_server 抛异常: {}".format(e))
+
+    # 新增功能 1：待办清单（用临时文件，避免污染真实 vault）
+    import tempfile
+    import wiki_data as wd
+    _orig_todo = wd.TODO_FILE
+    wd.TODO_FILE = os.path.join(tempfile.mkdtemp(), "todos.json")
+    try:
+        window.todo_input.setText("写单元测试")
+        window.add_todo_ui()
+        pump()
+        assert len(wd.load_todos()) == 1, "待办应新增 1 条"
+        tid = wd.load_todos()[0]["id"]
+        window._toggle_todo(tid)
+        pump()
+        assert wd.load_todos()[0]["done"] is True, "待办应标记完成"
+        window._delete_todo(tid)
+        pump()
+        assert wd.load_todos() == [], "待办应被删除"
+        print("OK 8: 待办新增/完成/删除 正常")
+    finally:
+        wd.TODO_FILE = _orig_todo
+        window.refresh_todo_list()
+
+    # 新增功能 2/3/4：搜索 / 标签云 / 报告
+    window.search_input.setText("的")
+    window.do_search()
+    pump()
+    print("OK 9: 全文搜索执行无异常")
+
+    window.refresh_tags_cloud()
+    window.generate_report("monthly")
+    pump()
+    assert window._report_text, "报告不应为空"
+    print("OK 10: 标签云刷新 + 周报/月报生成正常")
 
     # 收尾：关闭窗口与对话框，清理事件循环
     dlg.reject()
