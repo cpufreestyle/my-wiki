@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MyWiki 待办</title>
+    <style>
+        :root {
+            --bg: #f5f5f7;
+            --surface: #ffffff;
+            --text: #1d1d1f;
+            --text-secondary: #86868b;
+            --accent: #0a84ff;
+            --accent-hover: #0070e0;
+            --orange: #ff9f0a;
+            --green: #34c759;
+            --border: #e5e5ea;
+            --radius-card: 14px;
+            --radius-btn: 10px;
+            --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.08);
+            --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC",
+                "Helvetica Neue", "Microsoft YaHei", sans-serif;
+        }
+
+        [data-theme="dark"] {
+            --bg: #1c1c1e;
+            --surface: #2c2c2e;
+            --text: #f5f5f7;
+            --text-secondary: #98989d;
+            --accent: #0a84ff;
+            --accent-hover: #409cff;
+            --green: #30d158;
+            --border: #3a3a3c;
+            --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4);
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: var(--font);
+            background: var(--bg);
+            color: var(--text);
+            -webkit-font-smoothing: antialiased;
+            line-height: 1.45;
+            transition: background 0.2s ease, color 0.2s ease;
+        }
+
+        .app { max-width: 720px; margin: 0 auto; padding: 24px 20px 40px; }
+
+        .app-header {
+            display: flex; align-items: center; gap: 12px; margin-bottom: 18px;
+        }
+        .app-header h1 { font-size: 20px; font-weight: 600; letter-spacing: -0.01em; }
+        .theme-toggle {
+            margin-left: auto; width: 38px; height: 38px; border: none;
+            border-radius: 19px; background: var(--surface); cursor: pointer;
+            font-size: 17px; box-shadow: var(--shadow-sm);
+        }
+        .theme-toggle:hover { background: var(--border); }
+
+        .card {
+            background: var(--surface); border-radius: var(--radius-card);
+            box-shadow: var(--shadow-sm); padding: 16px; margin-bottom: 14px;
+        }
+
+        .add-row { display: flex; gap: 8px; flex-wrap: wrap; }
+        input, select {
+            font-family: inherit; font-size: 14px; padding: 9px 11px;
+            border: 1px solid var(--border); border-radius: var(--radius-btn);
+            background: var(--bg); color: var(--text);
+        }
+        #todoText { flex: 1; min-width: 160px; }
+        #todoDue { width: 140px; }
+        button.primary {
+            background: var(--accent); color: #fff; border: none;
+            border-radius: var(--radius-btn); padding: 9px 18px; font-size: 14px;
+            cursor: pointer; font-family: inherit;
+        }
+        button.primary:hover { background: var(--accent-hover); }
+
+        .todo {
+            display: flex; align-items: center; gap: 10px; padding: 11px 13px;
+            border-radius: 12px; background: var(--surface);
+            box-shadow: var(--shadow-sm); margin-bottom: 8px;
+        }
+        .check {
+            width: 22px; height: 22px; border-radius: 11px; flex: 0 0 auto;
+            border: 2px solid var(--border); cursor: pointer;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 12px; color: transparent; user-select: none;
+        }
+        .check.done { background: var(--green); border-color: var(--green); color: #fff; }
+        .todo-text { flex: 1; font-size: 14px; word-break: break-word; }
+        .todo-text.done { text-decoration: line-through; color: var(--text-secondary); }
+        .meta { font-size: 12px; color: var(--text-secondary); white-space: nowrap; }
+        .del {
+            border: none; background: transparent; cursor: pointer;
+            font-size: 13px; color: var(--text-secondary);
+        }
+        .del:hover { color: var(--orange); }
+        .empty { text-align: center; color: var(--text-secondary); padding: 28px; }
+    </style>
+</head>
+<body>
+    <div class="app">
+        <div class="app-header">
+            <h1>✅ MyWiki 待办</h1>
+            <button class="theme-toggle" id="themeToggle">🌙</button>
+        </div>
+
+        <div class="card">
+            <div class="add-row">
+                <input type="text" id="todoText" placeholder="要做什么…" />
+                <select id="todoPriority">
+                    <option value="high">高</option>
+                    <option value="medium" selected>中</option>
+                    <option value="low">低</option>
+                </select>
+                <input type="text" id="todoDue" placeholder="截止 YYYY-MM-DD" />
+                <button class="primary" id="addBtn">添加</button>
+            </div>
+        </div>
+
+        <div id="list"></div>
+    </div>
+
+    <script>
+        // 主题切换（与其它网页端共用同一 localStorage key）
+        const themeToggle = document.getElementById("themeToggle");
+        function applyTheme(t) {
+            document.documentElement.setAttribute("data-theme", t);
+            themeToggle.textContent = t === "dark" ? "☀️" : "🌙";
+            try { localStorage.setItem("mywiki-theme", t); } catch {}
+        }
+        (function initTheme() {
+            let t = "light";
+            try { t = localStorage.getItem("mywiki-theme") || "light"; } catch {}
+            applyTheme(t);
+        })();
+        themeToggle.addEventListener("click", () => {
+            const cur = document.documentElement.getAttribute("data-theme");
+            applyTheme(cur === "dark" ? "light" : "dark");
+        });
+
+        const API = "/api/todos";
+        const list = document.getElementById("list");
+        const PRI = { high: "高", medium: "中", low: "低" };
+
+        async function load() {
+            const res = await fetch(API).then((r) => r.json()).catch(() => ({ todos: [] }));
+            render(res.todos || []);
+        }
+
+        function render(todos) {
+            if (!todos.length) {
+                list.innerHTML = '<div class="empty">暂无待办，添加一条吧。</div>';
+                return;
+            }
+            list.innerHTML = "";
+            for (const t of todos) {
+                const el = document.createElement("div");
+                el.className = "todo";
+
+                const check = document.createElement("div");
+                check.className = "check" + (t.done ? " done" : "");
+                check.textContent = t.done ? "✓" : "";
+                check.onclick = () => act("toggle", t.id);
+
+                const text = document.createElement("div");
+                text.className = "todo-text" + (t.done ? " done" : "");
+                text.textContent = t.text;
+
+                const meta = document.createElement("div");
+                meta.className = "meta";
+                meta.textContent = PRI[t.priority] || "中";
+                if (t.due) meta.textContent += " · " + t.due;
+
+                const del = document.createElement("button");
+                del.className = "del";
+                del.textContent = "🗑";
+                del.onclick = () => act("delete", t.id);
+
+                el.append(check, text, meta, del);
+                list.appendChild(el);
+            }
+        }
+
+        async function act(action, id) {
+            await fetch(API, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ action, id }),
+            });
+            load();
+        }
+
+        async function add() {
+            const text = document.getElementById("todoText").value.trim();
+            if (!text) return;
+            await fetch(API, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    action: "add",
+                    text,
+                    priority: document.getElementById("todoPriority").value,
+                    due: document.getElementById("todoDue").value.trim(),
+                }),
+            });
+            document.getElementById("todoText").value = "";
+            document.getElementById("todoDue").value = "";
+            load();
+        }
+
+        document.getElementById("addBtn").onclick = add;
+        document.getElementById("todoText").addEventListener("keydown", (e) => {
+            if (e.key === "Enter") add();
+        });
+
+        load();
+    </script>
+</body>
+</html>

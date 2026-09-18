@@ -52,6 +52,12 @@ try:
 except Exception:  # noqa: BLE001
     face_mood = None
 
+# 待办数据层（与桌面端共用同一份 vault/todos.json）
+try:
+    import wiki_data
+except Exception:  # noqa: BLE001
+    wiki_data = None
+
 # 网页端 RAG 检索 / 知识图谱所需模块（缺失时接口优雅降级）
 try:
     from rag import RAGEngine
@@ -305,6 +311,9 @@ class Handler(SimpleHTTPRequestHandler):
         if self.path.split("?")[0] == "/api/face/deps":
             self._handle_face_deps()
             return
+        if self.path.split("?")[0] == "/api/todos":
+            self._handle_todos_get()
+            return
         return super().do_GET()
 
     def _handle_mood_range(self):
@@ -350,6 +359,8 @@ class Handler(SimpleHTTPRequestHandler):
          "hint": "本地知识库问答", "emoji": "🔍", "color": "accent"},
         {"id": "graph", "file": "graph_web.html", "label": "知识图谱",
          "hint": "笔记关联网络", "emoji": "🕸️", "color": "green"},
+        {"id": "todo", "file": "todo_web.html", "label": "待办清单",
+         "hint": "任务优先级与截止日期", "emoji": "✅", "color": "accent"},
     ]
 
     def _handle_modules(self):
@@ -479,6 +490,8 @@ class Handler(SimpleHTTPRequestHandler):
             self._handle_vision_cutout()
         elif path == "/api/face/mood":
             self._handle_face_mood_capture()
+        elif path == "/api/todos":
+            self._handle_todos_post()
         else:
             self.send_error(404)
 
@@ -662,6 +675,40 @@ class Handler(SimpleHTTPRequestHandler):
             self._send_json({"ok": False, "error": result["error"]}, status=400)
             return
         self._send_json({"ok": True, "face": result})
+
+    # ---- 待办清单（复用桌面端 wiki_data，落盘同一份 vault/todos.json） ----
+    def _handle_todos_get(self):
+        """GET /api/todos：返回排序后的全部待办。"""
+        if wiki_data is None:
+            self._send_json({"ok": False, "error": "wiki_data 不可用"}, status=503)
+            return
+        self._send_json({"ok": True, "todos": wiki_data.sort_todos(wiki_data.load_todos())})
+
+    def _handle_todos_post(self):
+        """POST /api/todos：action = add / toggle / delete。"""
+        if wiki_data is None:
+            self._send_json({"ok": False, "error": "wiki_data 不可用"}, status=503)
+            return
+        try:
+            data = json.loads(self._read_body() or b"{}")
+        except Exception:
+            self._send_json({"ok": False, "error": "无效 JSON"}, status=400)
+            return
+        action = data.get("action")
+        try:
+            if action == "add":
+                todo = wiki_data.add_todo(
+                    data.get("text", ""), data.get("priority", "medium"), data.get("due", ""))
+                self._send_json({"ok": True, "todo": todo})
+            elif action == "toggle":
+                todo = wiki_data.toggle_todo(int(data.get("id")))
+                self._send_json({"ok": bool(todo), "todo": todo})
+            elif action == "delete":
+                self._send_json({"ok": wiki_data.delete_todo(int(data.get("id")))})
+            else:
+                self._send_json({"ok": False, "error": "未知 action"}, status=400)
+        except (ValueError, TypeError) as e:
+            self._send_json({"ok": False, "error": str(e)}, status=400)
 
     def log_message(self, fmt, *args):
         pass  # 静默
