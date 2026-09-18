@@ -350,7 +350,13 @@ graph TD
 my-wiki/
 ├── README.md                      # 本文件 (v2.10.1)
 ├── INDEX.md                       # 知识索引（自动生成）
-├── wiki_app.py                    # 桌面端主程序（PySide6 GUI：日记 / 心情 / 提醒 / Share）
+├── wiki_app.py                    # 桌面端主程序（PySide6 GUI：日记/心情/提醒/待办/搜索/标签/报告/Share）
+├── wiki_tabs_todo.py              # 待办清单标签页 🆕
+├── wiki_tabs_search.py            # 全文搜索标签页 🆕
+├── wiki_tabs_tags.py              # 标签浏览标签页 🆕
+├── wiki_tabs_report.py            # 周报 / 月报标签页 🆕
+├── wiki_data.py                   # 数据层（日记/心情/提醒/待办，无 GUI 依赖）
+├── wiki_report.py                 # 周报 / 月报生成器 🆕
 ├── wiki_tool.py                   # 统一工具入口 (v2.8.0)
 ├── rag.py                         # 语义 RAG 检索引擎 (BM25 / Ollama embedding)
 ├── voice_mood.py                  # 语音心情（ffmpeg 录音 + SpeechRecognition 在线识别）🆕
@@ -360,6 +366,7 @@ my-wiki/
 ├── reminder_web.html              # 提醒 Web UI（支持深色模式）🆕
 ├── daily_web.html                  # 日记 Web UI（模板 / 标签提取 / 深色模式）🆕
 ├── mood_web.html                   # 心情 Web UI（心情分析 / 语音 / 深色模式）🆕
+├── todo_web.html                   # 待办 Web UI（优先级 / 截止日期，接 /api/todos）🆕
 ├── FIGMA_DESIGN_SPEC.md           # Figma 设计规格文档 🆕
 ├── modules/                       # 功能模块 🆕
 │   ├── video-analysis/            # 视频分析
@@ -627,6 +634,13 @@ MYWIKI_RAG_MODE=ollama python rag.py "你的问题" --rebuild
 - ✅ **卡片高度可调**：三个网页版的卡片均保证高度高于字体（`--card-h` 变量兜底），并提供「卡片高度」滑块手动统一调节，偏好持久化到 `localStorage`（daily 的编辑器高度随滑块联动）
 - ✅ **设计规格沉淀**：`FIGMA_DESIGN_SPEC.md` 记录界面设计稿与规范，便于后续迭代与协作
 - ✅ **一致体验**：`reminder_ui.py` / `daily_ui.py` / `wiki_app.py` 同步适配统一 token
+
+### 10. 待办 / 搜索 / 标签 / 报告（桌面端 + 网页端）🆕
+
+- ✅ **待办清单**：优先级（高 / 中 / 低）、截止日期、完成勾选、删除；数据落盘 `vault/todos.json`，桌面端「待办」标签页与网页版 `todo_web.html`（`/api/todos`）读写同一份数据
+- ✅ **全文搜索**：桌面端「搜索」标签页遍历 vault 内 Markdown 做关键词匹配并高亮命中片段
+- ✅ **标签浏览**：桌面端「标签」标签页解析各笔记 frontmatter 的 tags，展示标签云，点击列出相关笔记
+- ✅ **周报 / 月报**：桌面端「报告」标签页一键汇总周期内的日记 + 心情 + 待办，生成 Markdown 报告，支持复制与保存到 vault
 
 **换肤 / 切换主题**：
 
