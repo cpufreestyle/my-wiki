@@ -812,6 +812,20 @@ class Handler(SimpleHTTPRequestHandler):
         except (ValueError, TypeError) as e:
             self._send_json({"ok": False, "error": str(e)}, status=400)
 
+    def end_headers(self):
+        """HTML 页面一律不缓存。
+
+        本地工具页每次改完都要立刻生效；若浏览器拿了旧副本，用户会看到
+        旧 UI/旧逻辑，误以为「点了没反应」。"""
+        try:
+            if self.path.split("?")[0].endswith(".html"):
+                self.send_header("Cache-Control",
+                                "no-store, no-cache, must-revalidate")
+                self.send_header("Pragma", "no-cache")
+        except Exception:  # noqa: BLE001
+            pass
+        super().end_headers()
+
     def log_message(self, fmt, *args):
         pass  # 静默
 

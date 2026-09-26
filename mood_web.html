@@ -272,6 +272,30 @@
         }
 
         /* ---------- Toast ---------- */
+        .modal-mask {
+            position: fixed; inset: 0; z-index: 100; display: flex;
+            align-items: center; justify-content: center; padding: 20px;
+            background: rgba(0, 0, 0, 0.45); backdrop-filter: blur(6px);
+        }
+        .modal-mask[hidden] { display: none; }
+        .modal-card {
+            width: 100%; max-width: 340px; background: var(--surface);
+            border: 1px solid var(--border); border-radius: 18px;
+            box-shadow: var(--shadow-md); padding: 22px 20px 18px; text-align: center;
+        }
+        .modal-emoji { font-size: 46px; line-height: 1; }
+        .modal-card h3 { font-size: 16px; margin: 10px 0 6px; }
+        .modal-main { font-size: 24px; font-weight: 800; letter-spacing: -0.02em; }
+        .modal-sub { font-size: 13px; color: var(--text-secondary); margin-top: 6px; }
+        .modal-sub.dim { color: var(--text-secondary); opacity: 0.75; font-variant-numeric: tabular-nums; }
+        .modal-actions { display: flex; gap: 10px; margin-top: 16px; }
+        .spinner {
+            width: 30px; height: 30px; margin: 4px auto 8px; border-radius: 50%;
+            border: 3px solid var(--border); border-top-color: var(--accent);
+            animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
         .toast {
             position: fixed;
             left: 50%;
@@ -362,6 +386,28 @@
     </main>
 
     <div class="toast" id="toast" role="status"></div>
+        <!-- 面部识别弹窗：识别中转圈、结束弹结果（以前只在底部状态行写字，用户看不到） -->
+        <div class="modal-mask" id="faceModal" hidden>
+            <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="faceModalTitle">
+                <div class="modal-emoji" id="faceEmoji">🙂</div>
+                <h3 id="faceModalTitle">正在识别表情</h3>
+                <div id="faceProg">
+                    <div class="spinner" aria-hidden="true"></div>
+                    <p class="modal-sub">正在打开摄像头并采样，请正对镜头…</p>
+                    <p class="modal-sub dim">已等待 <span id="faceProgTime">0.0 秒</span></p>
+                </div>
+                <div id="faceResult" hidden>
+                    <p class="modal-main" id="faceMood">—</p>
+                    <p class="modal-sub" id="faceDetail"></p>
+                    <p class="modal-sub dim" id="faceMeta"></p>
+                </div>
+                <div class="modal-actions">
+                    <button class="btn-primary" id="faceSaveBtn">保存这次心情</button>
+                    <button class="btn-secondary" id="faceCloseBtn">关闭</button>
+                </div>
+            </div>
+        </div>
+
 
     <script src="voice-controller.js"></script>
     <script>
@@ -590,6 +636,87 @@
             } catch {}
         })();
 
+        // ---------- 面部识别弹窗（进度 + 结果） ----------
+        // 以前识别成功后只在底部状态行写一行字，用户点了按钮「什么都看不到」，
+        // 于是反馈「点面部 无法跳出」。这里改成明显的模态弹窗：识别中转圈并显示
+        // 已等待时间，结束直接弹结果，可一键保存或关闭。
+        const faceModal = $("#faceModal");
+        let faceCurrent = null;
+        let faceProgTimer = null;
+
+        function openFaceModal() {
+            faceModal.hidden = false;
+        }
+
+        function closeFaceModal() {
+            faceModal.hidden = true;
+            clearInterval(faceProgTimer);
+            faceProgTimer = null;
+        }
+
+        function showFaceProgress() {
+            faceCurrent = null;
+            $("#faceProg").hidden = false;
+            $("#faceResult").hidden = true;
+            $("#faceModalTitle").textContent = "正在识别表情";
+            const started = Date.now();
+            const timeEl = $("#faceProgTime");
+            timeEl.textContent = "0.0 秒";
+            clearInterval(faceProgTimer);
+            faceProgTimer = setInterval(() => {
+                timeEl.textContent = ((Date.now() - started) / 1000).toFixed(1) + " 秒";
+            }, 100);
+            openFaceModal();
+        }
+
+        function showFaceResult(f) {
+            clearInterval(faceProgTimer);
+            faceProgTimer = null;
+            faceCurrent = f || null;
+            $("#faceProg").hidden = true;
+            $("#faceResult").hidden = false;
+            $("#faceModalTitle").textContent = "面部情绪";
+            $("#faceEmoji").textContent = MOOD_EMOJI[f.mood] || "🙂";
+            const pct = Math.round((f.confidence || 0) * 100);
+            $("#faceMood").textContent = f.mood + "（" + pct + "%）";
+            $("#faceDetail").textContent = f.detail || "";
+            const meta = [];
+            if (f.frames) meta.push("采样 " + f.frames + " 帧");
+            if (f.backend === "vision") meta.push("macOS Vision 关键点");
+            else if (f.backend) meta.push(f.backend);
+            $("#faceMeta").textContent = meta.join(" · ");
+            $("#faceSaveBtn").disabled = false;
+            openFaceModal();
+        }
+
+        function showFaceError(msg) {
+            clearInterval(faceProgTimer);
+            faceProgTimer = null;
+            faceCurrent = null;
+            $("#faceProg").hidden = true;
+            $("#faceResult").hidden = false;
+            $("#faceModalTitle").textContent = "识别失败";
+            $("#faceEmoji").textContent = "⚠️";
+            $("#faceMood").textContent = msg;
+            $("#faceDetail").textContent = "可点「🔍 摄像头」自检，或关闭占用摄像头的程序后重试。";
+            $("#faceMeta").textContent = "";
+            $("#faceSaveBtn").disabled = true;
+            openFaceModal();
+        }
+
+        $("#faceCloseBtn").addEventListener("click", closeFaceModal);
+        faceModal.addEventListener("click", (e) => { if (e.target === faceModal) closeFaceModal(); });
+        document.addEventListener("keydown", (e) => {
+            if (e.key === "Escape" && !faceModal.hidden) closeFaceModal();
+        });
+        $("#faceSaveBtn").addEventListener("click", () => {
+            if (!faceCurrent) return;
+            const f = faceCurrent;
+            closeFaceModal();
+            analyzeMoodUi(null, f);
+        });
+
+
         // 摄像头自检：把「无法打开摄像头」定位成 被占用 / 无权限 / 设备缺失
         $("#camBtn").addEventListener("click", async () => {
             const btn = $("#camBtn");
@@ -624,6 +751,7 @@
             btn.classList.add("recording");
             btn.textContent = "📷 识别中…";
             setStatus("正在打开摄像头，请正对镜头…");
+            showFaceProgress();
             try {
                 const r = await fetch("/api/face/mood", { method: "POST" });
                 const d = await r.json();
@@ -633,18 +761,21 @@
                     // 摄像头类失败给出自检入口，用户不用猜是占用还是权限
                     const extra = (why.indexOf("摄像头") >= 0) ? "（可点「🔍 摄像头」自检）" : "";
                     setStatus(why + extra);
+                    showFaceError(why);
                     return;
                 }
                 const f = d.face;
                 lastFaceResult = f;
                 $("#voiceStatus").textContent = "面部→" + f.mood + " (" + f.detail.slice(0, 20) + ")";
                 setStatus("面部情绪：" + f.mood + "（" + f.detail + "）");
+                showFaceResult(f);
                 // 自动保存
                 if ($("#autosave").checked) analyzeMoodUi(null, f);
             } catch (e) {
                 const why = (e && e.message) ? e.message : "网络错误";
                 toast("面部识别请求失败：" + why);
                 setStatus("面部服务无响应，请确认本地服务已在 8082 端口运行");
+                showFaceError("面部服务无响应：请确认本地服务已在 8082 端口运行");
             } finally {
                 btn.disabled = false;
                 btn.classList.remove("recording");

@@ -122,5 +122,74 @@ class TestMoodWebStructure(unittest.TestCase):
         self.assertIn("localStorage.setItem(LS_CARD_H", self.script,
                       "卡片高度应持久化到 localStorage")
 
+
+class TestFaceRecognitionPopup(unittest.TestCase):
+    """面部识别必须有明显弹窗反馈。
+
+    曾经的形态是：点「📷 面部」→ 只在底部状态行写一行字，用户看不到任何
+    弹出，反馈「点面部 无法跳出」。这里守住进度弹窗 / 结果弹窗 / 失败弹窗
+    三条路径都存在且可关闭。"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.text, cls.p, cls.script, cls.voice_js = _load()
+
+    def test_modal_element_present(self):
+        mask = next((d for t, d in self.p.tags if d.get("id") == "faceModal"), None)
+        self.assertIsNotNone(mask, "缺少面部识别弹窗遮罩 #faceModal")
+        self.assertIn("hidden", mask, "#faceModal 初始应为 hidden")
+        # dialog 语义放在卡片上，并用 aria-labelledby 指向标题
+        dialog = next((d for t, d in self.p.tags if d.get("role") == "dialog"), None)
+        self.assertIsNotNone(dialog, "弹窗卡片缺少 role=dialog")
+        self.assertEqual(dialog.get("aria-modal"), "true")
+        self.assertEqual(dialog.get("aria-labelledby"), "faceModalTitle")
+
+    def test_modal_ids_exist(self):
+        for mid in ("faceEmoji", "faceModalTitle", "faceProg", "faceResult",
+                    "faceMood", "faceDetail", "faceMeta", "faceProgTime",
+                    "faceSaveBtn", "faceCloseBtn"):
+            self.assertIn(mid, self.p.ids, f"缺少弹窗元素 #{mid}")
+
+    def test_modal_css_present(self):
+        self.assertIn(".modal-mask", self.text, "缺少弹窗遮罩样式")
+        self.assertIn(".modal-mask[hidden]", self.text,
+                      "hidden 状态必须能真正隐藏（否则弹窗关不掉）")
+        self.assertIn(".spinner", self.text, "缺少进度指示器样式")
+        self.assertIn("z-index", self.text, "弹窗应浮在页面之上")
+
+    def test_modal_functions_defined(self):
+        for fn in ("showFaceProgress", "showFaceResult", "showFaceError",
+                   "closeFaceModal", "openFaceModal"):
+            self.assertIn("function " + fn, self.script,
+                          f"缺少弹窗控制函数 {fn}()")
+
+    def test_click_handler_shows_popup(self):
+        for call in ("showFaceProgress();", "showFaceResult(f);",
+                     "showFaceError(why);",
+                     'showFaceError("面部服务无响应'):
+            self.assertIn(call, self.script,
+                          f"点击「📷 面部」后未调用 {call}")
+
+    def test_modal_closable(self):
+        self.assertIn('$("#faceCloseBtn").addEventListener("click", closeFaceModal)',
+                      self.script, "关闭按钮未绑定")
+        self.assertIn('"Escape"', self.script, "应支持 Esc 关闭弹窗")
+        self.assertIn("e.target === faceModal", self.script,
+                      "应支持点遮罩关闭弹窗")
+
+    def test_result_can_be_saved(self):
+        self.assertIn('$("#faceSaveBtn").addEventListener', self.script,
+                      "保存按钮未绑定")
+        idx = self.script.index('$("#faceSaveBtn").addEventListener')
+        self.assertIn("analyzeMoodUi(null, f)", self.script[idx:idx + 300],
+                      "保存后应把面部结果交给心情分析")
+
+    def test_progress_shows_elapsed_time(self):
+        self.assertIn("faceProgTime", self.script)
+        self.assertIn("toFixed(1)", self.script,
+                      "进度应显示已等待秒数，避免用户以为卡死")
+
+
 if __name__ == "__main__":
-    unittest.main(verbosity=2)
+    unittest.main()
+
