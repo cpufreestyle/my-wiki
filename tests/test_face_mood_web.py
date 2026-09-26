@@ -262,3 +262,36 @@ class TestFaceMoodWebLocalAssets(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class TestFaceMoodWebMirror(unittest.TestCase):
+    """方向/镜像开关与画布尺寸时序回归（修复「抠图和人方向反了」）。"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.text, cls.p, cls.script, cls.server = _load()
+
+    def test_mirror_toggle_present(self):
+        self.assertIn("mirrorBtn", self.p.ids, "缺少方向/镜像开关按钮 mirrorBtn")
+        self.assertIn("mirrorMode", self.script, "脚本应定义方向开关 mirrorMode")
+
+    def test_all_video_draws_are_mirror_gated(self):
+        # 所有 drawImage(video, ...) 的尺寸参数都必须由 mirrorMode 决定，
+        # 不得残留硬编码镜像 -w/-w1，否则方向开关会漏掉某一路导致错位
+        draws = re.findall(r"drawImage\(\s*video,\s*([^;]*)\);", self.script)
+        self.assertTrue(draws, "未发现 drawImage(video, ...) 调用")
+        self.assertGreaterEqual(len(draws), 5, "至少应捕获 5 路 drawImage(video,...)")
+        for args in draws:
+            self.assertIn("mirrorMode", args,
+                          "drawImage(video, ...) 未受 mirrorMode 控制: " + repr(args))
+
+    def test_landmark_flip_mirror_gated(self):
+        self.assertIn("x: mirrorMode ? 1 - p.x : p.x", self.script,
+                      "landmark x 翻转应由 mirrorMode 控制")
+
+    def test_canvas_size_metadata_timing(self):
+        # start() 需用事件监听 loadedmetadata 对齐画布尺寸，避免画布停在 300x150
+        self.assertIn('video.addEventListener("loadedmetadata"', self.script,
+                      "应使用事件监听 loadedmetadata 对齐画布尺寸")
+        self.assertIn("{ once: true }", self.script,
+                      "loadedmetadata 监听应为一次性事件")

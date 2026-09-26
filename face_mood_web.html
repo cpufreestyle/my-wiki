@@ -108,6 +108,7 @@
                 <button class="btn-secondary" id="bgBtn">上传背景图片</button>
                 <button class="btn-secondary" id="resetBgBtn">切换背景</button>
                 <button class="btn-secondary" id="cutoutBtn">📸 保存人像</button>
+                <button class="btn-secondary" id="mirrorBtn">🧭 方向：真实</button>
                 <input type="file" id="bgInput" accept="image/*" style="display:none">
             </div>
             <div class="status" id="status">模型加载中…</div>
@@ -163,6 +164,12 @@
         const resetBgBtn = document.getElementById("resetBgBtn");
         const bgInput = document.getElementById("bgInput");
         const cutoutBtn = document.getElementById("cutoutBtn");
+        const mirrorBtn = document.getElementById("mirrorBtn");
+        // 方向开关：true=自拍镜像，false=真实方向（与所见一致）。
+        // 默认真实方向以修复「抠图和人方向反了」——人物朝向/移动方向与真实一致。
+        let mirrorMode = false;
+        try { mirrorMode = localStorage.getItem("mywiki-face-mirror") === "1"; } catch {}
+        mirrorBtn.textContent = "🧭 方向：" + (mirrorMode ? "镜像" : "真实");
 
         const EMOTIONS = ["平静", "开心", "悲伤", "愤怒", "惊讶", "恐惧", "轻蔑"];
         // 特征顺序需与 FEATURE_KEYS 一致（含 8 个嘴部细粒度特征，提升表情区分度）
@@ -416,7 +423,7 @@
                     bgSmall2.width = w2; bgSmall2.height = h2;
                 }
                 bgSmall1Ctx.imageSmoothingEnabled = true;
-                bgSmall1Ctx.drawImage(video, w1, 0, -w1, h1); // 镜像（自拍惯例）
+                bgSmall1Ctx.drawImage(video, w1, 0, mirrorMode ? -w1 : w1, h1); // 虚化背景方向随镜像开关
                 bgSmall2Ctx.imageSmoothingEnabled = true;
                 bgSmall2Ctx.drawImage(bgSmall1, 0, 0, w2, h2);
                 ctx.imageSmoothingEnabled = true;
@@ -455,7 +462,7 @@
             if (frameCanvas.width !== w || frameCanvas.height !== h) {
                 frameCanvas.width = w; frameCanvas.height = h;
             }
-            frameCtx.drawImage(video, w, 0, -w, h); // 镜像抓帧 → Vision mask 同源
+            frameCtx.drawImage(video, w, 0, mirrorMode ? -w : w, h); // 抓帧方向随镜像开关 → mask 与人像同源
             const blobP = new Promise((res) => frameCanvas.toBlob(res, "image/jpeg", 0.6));
             return blobP.then((blob) => {
                 if (!blob) return null;
@@ -479,7 +486,7 @@
 
         function drawPerson(w, h, mask) {
             if (!mask) {
-                ctx.drawImage(video, w, 0, -w, h); // 镜像（自拍惯例）
+                ctx.drawImage(video, w, 0, mirrorMode ? -w : w, h); // 兜底人像方向随镜像开关
                 return;
             }
             // mask 先降采样再上采样：边缘经双线性插值天然羽化，
@@ -500,7 +507,7 @@
             }
             pctx.globalCompositeOperation = "source-over";
             pctx.clearRect(0, 0, w, h);
-            pctx.drawImage(video, w, 0, -w, h); // 镜像：与 mask/landmark 同源
+            pctx.drawImage(video, w, 0, mirrorMode ? -w : w, h); // 人像方向随镜像开关，与 mask/landmark 同源
             pctx.globalCompositeOperation = "destination-in";
             pctx.imageSmoothingEnabled = true;
 
@@ -627,7 +634,7 @@
             // 与下方镜像绘制的视频/mask 同源，运动补偿方向一致
             if (result.faceLandmarks && result.faceLandmarks.length > 0) {
                 result.faceLandmarks = result.faceLandmarks.map((pts) =>
-                    pts.map((p) => ({ ...p, x: 1 - p.x })));
+                    pts.map((p) => ({ ...p, x: mirrorMode ? 1 - p.x : p.x })));
             }
             // 当前帧人脸度量（供下一轮抓帧/渲染补偿使用）
             curFace = (result.faceLandmarks && result.faceLandmarks.length > 0)
@@ -697,12 +704,16 @@
                     audio: false
                 });
                 video.srcObject = stream;
-                await video.play();
-                // 画布尺寸对齐视频实际分辨率
-                video.onloadedmetadata = () => {
+                // 画布尺寸对齐视频实际分辨率：loadedmetadata 触发时机早于/晚于
+                // play() 返回不稳定，先同步兜底一次，再用 once 事件兜住尚未触发的
+                // 时序，避免画布停在 300x150 默认值 → 画面 1.5x 横向拉伸 + cover 裁切
+                canvas.width = video.videoWidth || 640;
+                canvas.height = video.videoHeight || 480;
+                video.addEventListener("loadedmetadata", () => {
                     canvas.width = video.videoWidth || 640;
                     canvas.height = video.videoHeight || 480;
-                };
+                }, { once: true });
+                await video.play();
                 placeholder.style.display = "none";
                 running = true;
                 startBtn.disabled = true;
@@ -760,6 +771,14 @@
         startBtn.addEventListener("click", start);
         stopBtn.addEventListener("click", stop);
         saveBtn.addEventListener("click", save);
+        mirrorBtn.addEventListener("click", () => {
+            mirrorMode = !mirrorMode;
+            try { localStorage.setItem("mywiki-face-mirror", mirrorMode ? "1" : "0"); } catch {}
+            mirrorBtn.textContent = "🧭 方向：" + (mirrorMode ? "镜像" : "真实");
+            // 旧 mask 已换向，作废以按新方向重新分割，避免错位残影
+            lastMask = null; lastMaskFace = null;
+            toast(mirrorMode ? "自拍镜像：画面左右翻转" : "真实方向：与摄像头方向一致");
+        });
 
         // ---- 情绪自动记录：开启后每 60s 把当前识别结果静默写入 mood/ ----
         // （复用每帧已有的 classify 结果，source="auto"；偏好持久化 localStorage）
@@ -811,7 +830,7 @@
                 if (frameCanvas.width !== w || frameCanvas.height !== h) {
                     frameCanvas.width = w; frameCanvas.height = h;
                 }
-                frameCtx.drawImage(video, w, 0, -w, h); // 镜像抓帧，输出自拍方向
+                frameCtx.drawImage(video, w, 0, mirrorMode ? -w : w, h); // 抓帧方向随镜像开关（与实时一致）
                 const blob = await new Promise((res) => frameCanvas.toBlob(res, "image/jpeg", 0.92));
                 const r = await fetch("/api/vision/cutout", {
                     method: "POST",
