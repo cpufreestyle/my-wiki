@@ -204,5 +204,190 @@ class SubprocessIsolationTest(unittest.TestCase):
             self.assertIn(kw, self.src)
 
 
+
+
+class CameraRobustnessTest(unittest.TestCase):
+    """「摄像头无法打开」的定位与重试。"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.mod = _load_module()
+        cls.ws = WEB_SERVER_PATH.read_text(encoding="utf-8")
+        cls.mood_html = (PROJECT_ROOT / "mood_web.html").read_text(encoding="utf-8")
+        cls.face_html = (PROJECT_ROOT / "face_mood_web.html").read_text(encoding="utf-8")
+
+    def test_avf_state_has_three_keys(self):
+        state = self.mod._avf_state()
+        self.assertEqual(set(state), {"present", "device", "busy_by_other"})
+        for v in state.values():
+            self.assertTrue(v is None or isinstance(v, (bool, str)), v)
+
+    def test_hint_when_busy_by_other_app(self):
+        hint = self.mod.camera_hint({"present": True, "device": "MacBook 相机",
+                                      "busy_by_other": True})
+        self.assertIn("占用", hint)
+        self.assertIn("Zoom", hint)
+
+    def test_hint_when_device_missing(self):
+        hint = self.mod.camera_hint({"present": False, "device": None,
+                                     "busy_by_other": None})
+        self.assertIn("未检测到摄像头", hint)
+
+    def test_hint_when_present_but_cannot_open(self):
+        hint = self.mod.camera_hint({"present": True, "device": "MacBook 相机",
+                                      "busy_by_other": False})
+        self.assertIn("隐私与安全性", hint)
+
+    def test_read_frames_retries_first_frames(self):
+        """首帧常未就绪：前两次 read 失败不应直接判定「采集不到画面」。"""
+        calls = {"n": 0}
+
+        class FakeCap:
+            def read(self):
+                calls["n"] += 1
+                if calls["n"] <= 2:
+                    return False, None
+                return True, object()
+
+        class FakeCv2:
+            @staticmethod
+            def imencode(_ext, _frame):
+                return True, bytearray(b"jpeg-bytes")
+
+        frames = self.mod._read_frames(FakeCap(), 1, 0.0, cv2mod=FakeCv2)
+        self.assertEqual(len(frames), 1)
+        self.assertEqual(calls["n"], 3)
+
+    def test_read_frames_empty_when_all_reads_fail(self):
+        class DeadCap:
+            def read(self):
+                return False, None
+
+        class FakeCv2:
+            @staticmethod
+            def imencode(_ext, _frame):
+                return True, bytearray(b"x")
+
+        self.assertEqual(self.mod._read_frames(DeadCap(), 2, 0.0, cv2mod=FakeCv2), [])
+
+    def test_capture_retries_open_when_busy(self):
+        """被占用时多等几轮，避免一句「无法打开摄像头」把用户挡死。"""
+        opens = {"n": 0}
+
+        class FakeCap:
+            def isOpened(self):
+                opens["n"] += 1
+                return opens["n"] >= 3
+
+            def read(self):
+                return True, object()
+
+            def release(self):
+                pass
+
+        mod = self.mod
+        state = {"present": True, "device": "MacBook 相机", "busy_by_other": True}
+        seen = {}
+
+        def fake_open(cam_index, tries=None):
+            seen["tries"] = tries
+            return FakeCap(), True
+
+        real = (mod._avf_state, mod._open_camera, mod._read_frames,
+                mod.analyze_frames)
+        mod._avf_state = lambda: state
+        mod._open_camera = fake_open
+        mod._read_frames = lambda cap, n, iv, cv2mod=None: [b"jpg"]
+        mod.analyze_frames = lambda frames: {
+            "mood": "开心", "confidence": 0.5, "detail": "嘴角上扬",
+            "frames": len(frames), "backend": "vision"}
+        try:
+            out = mod.capture_and_analyze(num_frames=1)
+        finally:
+            (mod._avf_state, mod._open_camera, mod._read_frames,
+             mod.analyze_frames) = real
+        self.assertIn("mood", out)
+        # 被占用时必须要求打开重试，而不是一次失败就放弃
+        self.assertEqual(seen["tries"], mod.CAMERA_OPEN_TRIES)
+
+    def test_capture_error_message_is_actionable(self):
+        mod = self.mod
+        state = {"present": True, "device": "MacBook 相机", "busy_by_other": True}
+        real = (mod._avf_state, mod._open_camera)
+        mod._avf_state = lambda: state
+        mod._open_camera = lambda cam_index, tries=None: (None, False)
+        try:
+            out = mod.capture_and_analyze(num_frames=1)
+        finally:
+            mod._avf_state, mod._open_camera = real
+        self.assertIn("error", out)
+        self.assertIn("占用", out["error"])
+
+    def test_main_supports_camera_probe(self):
+        import io as _io
+        import sys as _sys
+        buf = _io.StringIO()
+        old_out, old_argv = _sys.stdout, _sys.argv
+        real_probe = self.mod.camera_probe
+        self.mod.camera_probe = lambda cam_index=0: {
+            "present": True, "device": "MacBook 相机", "busy_by_other": False,
+            "can_open": True, "can_read": True, "ok": True}
+        _sys.stdout = buf
+        _sys.argv = ["vision_face_mood.py", "--camera-probe"]
+        try:
+            rc = self.mod.main()
+        finally:
+            _sys.stdout, _sys.argv = old_out, old_argv
+            self.mod.camera_probe = real_probe
+        self.assertEqual(rc, 0)
+        payload = json.loads(buf.getvalue())
+        self.assertTrue(payload["ok"])
+        self.assertTrue(payload["camera"]["can_read"])
+
+    def test_main_camera_probe_failure_exit_code(self):
+        import io as _io
+        import sys as _sys
+        buf = _io.StringIO()
+        old_out, old_argv = _sys.stdout, _sys.argv
+        real_probe = self.mod.camera_probe
+        self.mod.camera_probe = lambda cam_index=0: {
+            "present": True, "device": None, "busy_by_other": True,
+            "can_open": False, "can_read": False, "ok": False}
+        _sys.stdout = buf
+        _sys.argv = ["vision_face_mood.py", "--camera-probe"]
+        try:
+            rc = self.mod.main()
+        finally:
+            _sys.stdout, _sys.argv = old_out, old_argv
+            self.mod.camera_probe = real_probe
+        self.assertEqual(rc, 1)
+        payload = json.loads(buf.getvalue())
+        self.assertFalse(payload["ok"])
+
+    def test_web_server_exposes_camera_probe_route(self):
+        self.assertIn('/api/face/camera', self.ws)
+        self.assertIn('_handle_face_camera', self.ws)
+        self.assertIn('--camera-probe', self.ws)
+
+    def test_web_server_capture_does_not_require_face_mood(self):
+        """Vision 可用时不应再要求 face_mood（mediapipe）导入成功。"""
+        self.assertIn('if face_mood is None and vision_face_mood is None:', self.ws)
+        self.assertNotIn('"face_mood 模块不可用"', self.ws)
+
+    def test_mood_web_has_camera_self_check(self):
+        self.assertIn('id="camBtn"', self.mood_html)
+        self.assertIn('/api/face/camera', self.mood_html)
+        self.assertIn('摄像头不可用', self.mood_html)
+
+    def test_face_mood_web_maps_gum_errors(self):
+        for name in ("NotAllowedError", "NotReadableError", "NotFoundError",
+                     "OverconstrainedError", "AbortError"):
+            self.assertIn(name, self.face_html)
+        self.assertIn('function cameraErrorHint(e)', self.face_html)
+        self.assertIn('setStatus("摄像头开启失败：" + cameraErrorHint(e)', self.face_html)
+        # 旧的笼统提示已移除
+        self.assertNotIn('（需在 https 或 localhost 下授权', self.face_html)
+
+
 if __name__ == "__main__":
     unittest.main()

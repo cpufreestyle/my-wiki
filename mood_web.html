@@ -337,6 +337,7 @@
             <div class="voice-row">
                 <button class="tool-btn" id="voiceBtn">🎤 语音</button>
                 <button class="tool-btn" id="faceBtn">📷 面部</button>
+                <button class="tool-btn" id="camBtn" title="检测摄像头是否被占用 / 有无权限" aria-label="检测摄像头">🔍 摄像头</button>
                 <span class="voice-status" id="voiceStatus"></span>
                 <label class="autosave">
                     <input type="checkbox" id="autosave" />
@@ -589,6 +590,33 @@
             } catch {}
         })();
 
+        // 摄像头自检：把「无法打开摄像头」定位成 被占用 / 无权限 / 设备缺失
+        $("#camBtn").addEventListener("click", async () => {
+            const btn = $("#camBtn");
+            if (btn.disabled) return;
+            btn.disabled = true;
+            setStatus("正在检测摄像头…");
+            try {
+                const r = await fetch("/api/face/camera");
+                const d = await r.json();
+                const c = d.camera || {};
+                if (d.ok && c.can_read) {
+                    toast("摄像头正常：" + (c.device || "默认设备"));
+                    setStatus("摄像头正常，可以点「📷 面部」开始识别。");
+                } else {
+                    const why = d.error || c.hint || "未知原因";
+                    toast("摄像头不可用：" + why);
+                    setStatus("摄像头不可用：" + why);
+                }
+            } catch (e) {
+                const why = (e && e.message) ? e.message : "网络错误";
+                toast("摄像头检测请求失败：" + why);
+                setStatus("摄像头检测请求失败，请确认本地服务已在 8082 端口运行");
+            } finally {
+                btn.disabled = false;
+            }
+        });
+
         $("#faceBtn").addEventListener("click", async () => {
             const btn = $("#faceBtn");
             if (btn.disabled) return;
@@ -600,8 +628,11 @@
                 const r = await fetch("/api/face/mood", { method: "POST" });
                 const d = await r.json();
                 if (!d.ok) {
-                    toast(d.error || "面部识别失败");
-                    setStatus(d.error || "面部识别失败");
+                    const why = d.error || "面部识别失败";
+                    toast(why);
+                    // 摄像头类失败给出自检入口，用户不用猜是占用还是权限
+                    const extra = (why.indexOf("摄像头") >= 0) ? "（可点「🔍 摄像头」自检）" : "";
+                    setStatus(why + extra);
                     return;
                 }
                 const f = d.face;

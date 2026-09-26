@@ -696,6 +696,33 @@
             rafId = requestAnimationFrame(loop);
         }
 
+        // 把 getUserMedia 的 DOMException 翻译成可操作的中文提示。
+        // 权限被拒 / 设备缺失 / 被占用 是三回事，混成一句用户没法自己解决。
+        function cameraErrorHint(e) {
+            const name = (e && e.name) || "";
+            switch (name) {
+                case "NotAllowedError":
+                case "PermissionDeniedError":
+                case "SecurityError":
+                    return "浏览器没有摄像头权限：请点地址栏左侧图标允许，"
+                        + "并在 系统设置 → 隐私与安全性 → 摄像头 里允许该浏览器";
+                case "NotFoundError":
+                case "DevicesNotFoundError":
+                    return "没有找到摄像头设备（或未授予访问权）";
+                case "NotReadableError":
+                case "TrackStartError":
+                    return "摄像头被其它程序占用（Zoom / 腾讯会议 / FaceTime / "
+                        + "其它浏览器标签页），关闭后重试";
+                case "OverconstrainedError":
+                    return "摄像头不满足画面尺寸要求，可换一台摄像头或降低约束";
+                case "AbortError":
+                    return "摄像头启动被打断，请重试";
+                default:
+                    return ((e && e.message) ? e.message : String(e))
+                        + "（需在 https 或 localhost 下打开，且浏览器允许摄像头权限）";
+            }
+        }
+
         async function start() {
             if (!faceLandmarker) { toast("模型尚未就绪"); return; }
             try {
@@ -721,8 +748,7 @@
                 setStatus("摄像头已开启，识别中…");
                 loop();
             } catch (e) {
-                setStatus("摄像头开启失败：" + (e?.message || e) +
-                    "（需在 https 或 localhost 下授权，且浏览器允许摄像头权限）", true);
+                setStatus("摄像头开启失败：" + cameraErrorHint(e), true);
             }
         }
 

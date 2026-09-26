@@ -320,6 +320,9 @@ class Handler(SimpleHTTPRequestHandler):
         if self.path.startswith("/api/vision/status"):
             self._handle_vision_status()
             return
+        if self.path.split("?")[0] == "/api/face/camera":
+            self._handle_face_camera()
+            return
         if self.path.split("?")[0] == "/api/face/deps":
             self._handle_face_deps()
             return
@@ -684,8 +687,8 @@ class Handler(SimpleHTTPRequestHandler):
 
         同一时刻只允许一次采样。
         """
-        if face_mood is None:
-            self._send_json({"ok": False, "error": "face_mood 模块不可用"}, status=503)
+        if face_mood is None and vision_face_mood is None:
+            self._send_json({"ok": False, "error": "面部识别模块不可用"}, status=503)
             return
         if not _face_lock.acquire(blocking=False):
             self._send_json({"ok": False, "error": "正在识别中，请稍候。"}, status=400)
@@ -738,6 +741,42 @@ class Handler(SimpleHTTPRequestHandler):
         if not payload.get("ok"):
             return None, payload.get("error") or "面部识别失败"
         return payload.get("face") or {}, None
+
+    def _handle_face_camera(self):
+        """GET /api/face/camera：摄像头自检。
+
+        用于把「摄像头无法打开」定位成具体原因：设备缺失、被其它程序占用、
+        取不到画面（权限被拒 / 首帧未就绪）。同样走子进程，避免 native 库问题
+        影响主进程。"""
+        if vision_face_mood is None or not vision_face_mood.is_available():
+            self._send_json({"ok": False, "error": "摄像头自检仅支持 macOS Vision 后端"},
+                            status=503)
+            return
+        if not _face_lock.acquire(blocking=False):
+            self._send_json({"ok": False, "error": "摄像头正被占用，请稍候。"}, status=400)
+            return
+        try:
+            script = os.path.join(ROOT, "vision_face_mood.py")
+            try:
+                proc = subprocess.run(
+                    [sys.executable, script, "--camera-probe"],
+                    cwd=ROOT, capture_output=True, text=True, timeout=30)
+            except subprocess.TimeoutExpired:
+                self._send_json({"ok": False, "error": "摄像头自检超时"}, status=400)
+                return
+            except Exception as e:  # noqa: BLE001
+                self._send_json(
+                    {"ok": False, "error": "摄像头自检启动失败：{}".format(e)},
+                    status=400)
+                return
+        finally:
+            _face_lock.release()
+        try:
+            payload = json.loads((proc.stdout or "").strip())
+        except Exception:
+            self._send_json({"ok": False, "error": "自检输出无法解析"}, status=400)
+            return
+        self._send_json(payload)
 
     # ---- 待办清单（复用桌面端 wiki_data，落盘同一份 vault/todos.json） ----
     def _handle_todos_get(self):
@@ -802,6 +841,7 @@ def run_server(port=8082):
     print("语音接口:   POST /api/voice/start  |  POST /api/voice/stop")
     print("面部接口:   GET  /api/face/deps    |  POST /api/face/mood")
     print("          后端：macOS Vision 优先，关键点不可用时回退 mediapipe；摄像头采样需 opencv-python")
+    print("          自检： GET /api/face/camera（占用/权限/取图）")
     print("（首次使用请允许终端/应用的麦克风权限；语音识别需联网）")
     try:
         server.serve_forever()
