@@ -47,6 +47,12 @@ SKIP_DIRS = {
     "inbox",  # 收件箱为临时捕获区，不参与链接图
 }
 
+
+def _is_scannable_dir(name):
+    """是否进入该目录扫描：显式黑名单 + 所有点开头目录（.obsidian/.codebuddy 等）。"""
+    return name not in SKIP_DIRS and not name.startswith(".")
+
+
 # [[目标]] / [[目标#锚点]] / [[目标|别名]]；别名与锚点不计入目标
 _LINK_RE = re.compile(r"\[\[([^\[\]|#\n]+)(?:#[^\[\]|\n]*)?(?:\|[^\[\]\n]*)?\]\]")
 
@@ -55,7 +61,7 @@ def iter_notes(wiki_root):
     """产出 wiki 根下全部 Markdown 笔记（相对 wiki_root 的 posix 路径，排序稳定）。"""
     root = Path(wiki_root)
     for dirpath, dirnames, filenames in os.walk(root):
-        dirnames[:] = sorted(d for d in dirnames if d not in SKIP_DIRS)
+        dirnames[:] = sorted(d for d in dirnames if _is_scannable_dir(d))
         for name in sorted(filenames):
             if name.lower().endswith(".md"):
                 rel = PurePosixPath(Path(dirpath).relative_to(root).as_posix(), name)

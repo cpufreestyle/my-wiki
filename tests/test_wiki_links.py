@@ -40,6 +40,7 @@ class LinkEngineTests(unittest.TestCase):
         _write(self.tmp, "Beta.md", "根目录孤儿笔记。\n")
         _write(self.tmp, "INDEX.md", "- [[projects/Alpha]]\n- [[people/Bob]]\n")
         _write(self.tmp, "inbox/quick-capture.md", "- 收件箱不参与链接图\n")
+        _write(self.tmp, ".codebuddy/memory/m.md", "工具目录记忆 [[projects/Alpha]]\n")
         self.graph = wiki_links.scan_links(self.tmp)
 
     def tearDown(self):
@@ -57,6 +58,7 @@ class LinkEngineTests(unittest.TestCase):
         notes = list(wiki_links.iter_notes(self.tmp))
         self.assertIn("projects/Alpha.md", notes)
         self.assertFalse(any(n.startswith("inbox/") for n in notes))
+        self.assertFalse(any(n.startswith(".") for n in notes))
 
     def test_resolve_root_relative(self):
         rel = wiki_links.resolve_target("projects/Alpha", "daily/x.md", self.tmp)
