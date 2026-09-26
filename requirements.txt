@@ -41,12 +41,12 @@ pyobjc-framework-Quartz>=10.0; sys_platform == "darwin"
 # OpenClaw 集成
 # openclaw-client>=0.1.0  # 如果有的话
 
-# ---- 面部情绪识别（face_mood.py，可选） ----
-# MediaPipe FaceMesh 面部关键点检测 + 几何特征 → 心情映射
-# 安装后 mood_web.html 的「📷 面部」按钮可用
-# mediapipe>=0.10.0       # 首次约 50MB，内置 FaceMesh 模型，离线可用
-# opencv-python>=4.8.0    # 摄像头采样
+# ---- 面部情绪识别（face_mood.py）----
+# MediaPipe FaceLandmarker 面部关键点检测 + 几何特征 → 心情映射
+# mood_web.html 的「📷 面部」按钮；模型约 3.6MB，首次运行自动下载
+mediapipe>=1.0.0        # mediapipe 1.x 的 Tasks API（FaceLandmarker）
+opencv-python>=4.8.0    # 摄像头采样
 
-# ---- 语音识别（voice_mood.py，可选） ----
-# SpeechRecognition>=3.10  # Google Web Speech API（需联网）
-# static-ffmpeg            # 无系统 ffmpeg 时的纯 pip 替代
+# ---- 语音识别（voice_mood.py）----
+SpeechRecognition>=3.10.0  # Google Web Speech API（需联网，支持 zh-CN）
+# static-ffmpeg>=0.4.0     # 无系统 ffmpeg 时的纯 pip 替代（可选）
