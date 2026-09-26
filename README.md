@@ -660,6 +660,11 @@ MYWIKI_RAG_MODE=ollama python rag.py "你的问题" --rebuild
 - ✅ **链接健康**：wiki_tool.py orphans 输出孤儿笔记（无入链，INDEX/README 自动豁免）与失效链接清单（疑似笔误或尚未创建的笔记），清理知识库死角
 - ✅ **快速捕捉**：wiki_tool.py capture <文本> 把灵感 / 待办一键收集到 inbox/quick-capture.md（时间戳 + 去重，参数为空自动读剪贴板），免去「开笔记-找位置-打字」三步操作；只写 inbox/，不动 daily/ 等用户笔记目录
 
+### 13. 桌面快捷方式（一键放桌面）🆕
+
+- ✅ **零构建 .app 包裹器**：bash scripts/make_desktop_shortcuts.sh 在桌面生成 MyWiki.app（桌面端 GUI）与 MyWiki网页版.app（网页版 :8082）两个快捷方式，图标取自 icon.png，双击始终运行仓库最新代码，无需 PyInstaller 重新打包
+- ✅ **网页版自启**：MyWiki网页版.app 调用 scripts/launch_web.sh：检测端口未起则后台拉起 web_server.py（nohup + disown，启动器退出后由 launchd 收养继续运行），就绪后自动打开浏览器并弹系统通知；重复双击只聚焦浏览器，不会重复起服务
+
 
 **换肤 / 切换主题**：
 
