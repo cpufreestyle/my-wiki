@@ -7,10 +7,16 @@ test_mood_web.py 一致：守住 JS 引用的元素 id 不存在、关键 DOM / 
 以及与 web_server.py 后端路由 / 模块注册表脱节的整类 bug。
 
 前端约定（face_mood_web.html）：
-  - 摄像头经浏览器 getUserMedia 取流，MediaPipe FaceLandmarker（CDN ESM）本地推理
+  - 摄像头经浏览器 getUserMedia 取流，MediaPipe FaceLandmarker（本地 vendor ESM）本地推理
   - 由 27 维 blendshape 线性权重推断 7 类情绪（平静/开心/悲伤/愤怒/惊讶/恐惧/轻蔑）
   - 结果 POST 到 /api/face_mood，由 web_server.py 落盘到 mood/<date>.json(source="face")
+
+资源本地化约定（vendor/mediapipe/）：
+  - MediaPipe 的 JS/WASM 与 face_landmarker.task 一律从同源路径加载，
+    不依赖公网 CDN，避免用户网络/VPN 环境下 CDN 慢或不可达，
+    页面长期停在「正在加载 MediaPipe 模型…」。
 """
+import os
 import re
 import unittest
 from html.parser import HTMLParser
@@ -18,6 +24,15 @@ from pathlib import Path
 
 HTML_PATH = Path(__file__).resolve().parent.parent / "face_mood_web.html"
 WEB_SERVER_PATH = Path(__file__).resolve().parent.parent / "web_server.py"
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+# 页面不得再出现的外网 CDN 域名（含常见的 MediaPipe 模型托管域名）
+FORBIDDEN_CDN_HOSTS = (
+    "cdn.jsdelivr.net",
+    "unpkg.com",
+    "storage.googleapis.com",
+    "cdn.skypack.dev",
+)
 
 
 class _Collector(HTMLParser):
@@ -166,6 +181,83 @@ class TestFaceMoodWebStructure(unittest.TestCase):
     def test_toast_role_status(self):
         toast = next((d for t, d in self.p.tags if d.get("id") == "toast"), None)
         self.assertIsNotNone(toast, "缺少 toast 元素")
+
+
+
+
+class TestFaceMoodWebLocalAssets(unittest.TestCase):
+    """MediaPipe 资源本地化回归（防止 CDN 拉取失败复发）。"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.text, cls.p, cls.script, cls.server = _load()
+
+    def test_no_external_cdn_reference(self):
+        # 页面（含 <script type="module"> 正文）不得再引用任何公网 CDN
+        for host in FORBIDDEN_CDN_HOSTS:
+            self.assertNotIn(host, self.text,
+                             f"face_mood_web.html 仍引用外网 CDN：{host}")
+            self.assertNotIn(host, self.script,
+                             f"页面脚本仍引用外网 CDN：{host}")
+
+    def test_vendor_paths_are_local(self):
+        # ESM 依赖经 importmap 指向本地 vendor 文件
+        self.assertIn('"/vendor/mediapipe/vision_bundle.mjs"', self.text,
+                      "importmap 应把 @mediapipe/tasks-vision 映射到本地 vision_bundle.mjs")
+        # 人像分割脚本同源加载（本地存在时才有效，站内资源无需 crossorigin）
+        self.assertIn('src="/vendor/mediapipe/selfie_segmentation.js"', self.text,
+                      "selfie_segmentation.js 应同源加载")
+        # wasm 文件集与模型文件均指向本地
+        self.assertIn('"/vendor/mediapipe/wasm"', self.script,
+                      "forVisionTasks 应指向本地 wasm 目录")
+        self.assertIn('"/models/face_landmarker.task"', self.script,
+                      "modelAssetPath 应指向本地 face_landmarker.task")
+        self.assertIn("/vendor/mediapipe/${file}", self.script,
+                      "locateFile 应拼装本地 vendor 路径")
+
+    def test_vendor_assets_exist_on_disk(self):
+        # 页面引用的每个本地站点路径都必须真实存在，否则运行期 404
+        refs = re.findall(r'["\'`]((?:/vendor|/models)/[^"\'`\s)]+)["\'`]',
+                          self.text + self.script)
+        normalized = set()
+        for ref in refs:
+            normalized.add(ref.split("${")[0].rstrip("/"))
+        missing = []
+        for ref in sorted(normalized):
+            if not (PROJECT_ROOT / ref.lstrip("/")).exists():
+                missing.append(ref)
+        self.assertFalse(missing, f"页面引用的本地资源在仓库中不存在: {missing}")
+        self.assertTrue(normalized, "未在页面中发现任何 /vendor 或 /models 本地资源引用")
+
+    def test_vendor_wasm_binaries_are_not_empty(self):
+        # wasm 二进制必须真实入仓（曾出现 curl 半截文件导致页面卡加载）
+        for rel in (
+            "vendor/mediapipe/vision_bundle.mjs",
+            "vendor/mediapipe/wasm/vision_wasm_internal.js",
+            "vendor/mediapipe/wasm/vision_wasm_internal.wasm",
+            "vendor/mediapipe/wasm/vision_wasm_nosimd_internal.js",
+            "vendor/mediapipe/wasm/vision_wasm_nosimd_internal.wasm",
+            "vendor/mediapipe/selfie_segmentation.js",
+            "vendor/mediapipe/selfie_segmentation_solution_simd_wasm_bin.js",
+            "vendor/mediapipe/selfie_segmentation_solution_simd_wasm_bin.wasm",
+            "vendor/mediapipe/selfie_segmentation_solution_wasm_bin.js",
+            "vendor/mediapipe/selfie_segmentation_solution_wasm_bin.wasm",
+        ):
+            path = PROJECT_ROOT / rel
+            self.assertTrue(path.is_file(), f"缺少 vendor 文件: {rel}")
+            size = path.stat().st_size
+            self.assertGreater(size, 1024,
+                                f"vendor 文件过小（疑似 404 占位或半截文件）: {rel} ({size}B)")
+            if rel.endswith(".wasm"):
+                with open(path, "rb") as fh:
+                    self.assertEqual(fh.read(4), b"\x00asm",
+                                     f"不是合法 wasm 文件: {rel}")
+
+    def test_face_landmarker_model_exists(self):
+        model = PROJECT_ROOT / "models/face_landmarker.task"
+        self.assertTrue(model.is_file(), "缺少本地模型文件 models/face_landmarker.task")
+        self.assertGreater(model.stat().st_size, 1024 * 1024,
+                           "face_landmarker.task 体积异常，疑似下载不完整")
 
 
 if __name__ == "__main__":

@@ -24,6 +24,14 @@ MyWiki 是一个个人知识管理系统，同时作为多个 AI Agent 的共享
 
 这些目录的内容由用户通过 Obsidian 或同步模块管理，Agent 仅可**读取**，不可写入。
 
+## 第三方前端运行时（`vendor/`）
+
+`vendor/mediapipe/` 存放 MediaPipe Tasks Vision 与 Selfie Segmentation 的 JS/WASM，
+与上游 npm 包逐字节一致，供 `face_mood_web.html` 同源加载。**只增不改**：升级请按
+`vendor/README.md` 的方式整体重新下载，不要手改文件内容，也不要换回 CDN 引用——
+本地网络环境下 CDN 不可达会让页面卡在「正在加载 MediaPipe 模型…」。
+`tests/test_face_mood_web.py` 会守住「无外网 CDN 引用 + vendor 文件完整」。
+
 ## Python 代码约定
 
 - **Python 版本**: 3.10+

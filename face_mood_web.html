@@ -133,16 +133,16 @@
     <div class="toast" id="toast"></div>
     <script src="assets/web/theme.js"></script>
 
-    <!-- MediaPipe Tasks Vision（ES Module，CDN） -->
+    <!-- MediaPipe Tasks Vision（ES Module，本地 vendor：避免 CDN 拉取失败/长时间挂起） -->
     <script type="importmap">
     {
         "imports": {
-            "@mediapipe/tasks-vision": "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10/vision_bundle.mjs"
+            "@mediapipe/tasks-vision": "/vendor/mediapipe/vision_bundle.mjs"
         }
     }
     </script>
     <!-- 人像抠图：MediaPipe Selfie Segmentation（legacy JS solution） -->
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation/selfie_segmentation.js" crossorigin="anonymous"></script>
+    <script src="/vendor/mediapipe/selfie_segmentation.js"></script>
     <script type="module">
         import { FaceLandmarker, FilesetResolver, DrawingUtils } from "@mediapipe/tasks-vision";
 
@@ -300,12 +300,12 @@
             try {
                 setStatus("正在加载 MediaPipe 模型…");
                 const fileset = await FilesetResolver.forVisionTasks(
-                    "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10/wasm"
+                    "/vendor/mediapipe/wasm"
                 );
                 faceLandmarker = await FaceLandmarker.createFromOptions(fileset, {
                     baseOptions: {
                         modelAssetPath:
-                            "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task",
+                            "/models/face_landmarker.task",
                         delegate: "GPU"
                     },
                     runningMode: "VIDEO",
@@ -326,7 +326,7 @@
                     return;
                 }
                 selfieSegmentation = new window.SelfieSegmentation({
-                    locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation/${file}`
+                    locateFile: (file) => `/vendor/mediapipe/${file}`
                 });
                 selfieSegmentation.setOptions({
                     modelSelection: 0,
