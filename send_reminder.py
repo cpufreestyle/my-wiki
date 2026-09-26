@@ -8,6 +8,13 @@ import json
 import os
 from datetime import datetime
 
+# 重复提醒推进：一次性→sent；重复→排下一次；耗尽→done。
+# 打包版或异常环境下 import 失败时，退化为原来的 sent 标记逻辑。
+try:
+    from reminder_manager import advance_reminder
+except Exception:  # noqa: BLE001
+    advance_reminder = None
+
 # 数据目录跟随统一解析（环境变量 MYWIKI_ROOT > vault > 仓库根），
 # 避免 macOS/Linux 上把 Windows 硬编码路径当成相对目录而创建垃圾文件夹。
 try:
@@ -82,13 +89,23 @@ def main():
     success = notify_openclaw(reminder["message"])
     
     if success:
-        # 标记为已发送
-        for r in reminders:
-            if r["id"] == reminder_id:
-                r["status"] = "sent"
-                break
-        save_reminders(reminders)
-        print(f"[OK] Reminder processed: {reminder['message']}")
+        if advance_reminder is not None:
+            updated = advance_reminder(reminder_id)
+            if updated is None:
+                print(f"[FAIL] Reminder advance failed: {reminder['message']}")
+                sys.exit(1)
+            if updated.get("status") == "pending":
+                print(f"[OK] Reminder recurring, next at {updated['remind_at']}")
+            else:
+                print(f"[OK] Reminder processed: {reminder['message']}")
+        else:
+            # 标记为已发送
+            for r in reminders:
+                if r["id"] == reminder_id:
+                    r["status"] = "sent"
+                    break
+            save_reminders(reminders)
+            print(f"[OK] Reminder processed: {reminder['message']}")
     else:
         print(f"[FAIL] Reminder processing failed: {reminder['message']}")
         sys.exit(1)

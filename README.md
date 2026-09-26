@@ -362,6 +362,7 @@ my-wiki/
 ├── voice_mood.py                  # 语音心情（ffmpeg 录音 + SpeechRecognition 在线识别）🆕
 ├── daily_ui.py                    # 日记桌面端 UI 🆕
 ├── reminder_ui.py                 # 提醒桌面端 UI 🆕
+├── reminder_rrule.py              # 重复提醒规则引擎（RRULE 子集，零依赖，融合 dateutil/RFC 5545 语义）🆕
 ├── theme.py                       # 统一设计 token（Apple 风浅/深色）🆕
 ├── reminder_web.html              # 提醒 Web UI（支持深色模式）🆕
 ├── daily_web.html                  # 日记 Web UI（模板 / 标签提取 / 深色模式）🆕
@@ -642,6 +643,14 @@ MYWIKI_RAG_MODE=ollama python rag.py "你的问题" --rebuild
 - ✅ **标签浏览**：桌面端「标签」标签页解析各笔记 frontmatter 的 tags，展示标签云，点击列出相关笔记
 - ✅ **周报 / 月报**：桌面端「报告」标签页一键汇总周期内的日记 + 心情 + 待办，生成 Markdown 报告，支持复制与保存到 vault
 
+### 11. 重复提醒（RRULE，零依赖）🆕
+
+- ✅ **周期规则**：add_reminder(remind_at, message, rrule="FREQ=WEEKLY;BYDAY=MO,FR")，支持 DAILY / WEEKLY / MONTHLY / YEARLY，含 INTERVAL 步长、COUNT 次数上限、UNTIL 截止时间；非法规则在入库前即被拒绝
+- ✅ **零依赖融合**：reminder_rrule.py 将 python-dateutil rrule / iCalendar RFC 5545 的语义按纯标准库重实现（不引入第三方依赖，可直接随 .app 打包），语义对齐开源实现：dtstart 命中规则即首次发生、当期不存在目标日期则跳过、COUNT 与 UNTIL 互斥
+- ✅ **自动推进**：提醒触发后 send_reminder.py 经 advance_reminder 排下一次；触发满 COUNT 或超过 UNTIL 自动标记 done，一次性提醒仍标记 sent
+- ✅ **Windows 计划任务**：重复规则自动映射 schtasks /sc daily / weekly / monthly（YEARLY 暂以一次性任务承接并由 advance_reminder 续排），规则耗尽时同步清理任务
+- ✅ **中文描述**：describe_reminder_rule() 输出如「周一、周五，每隔 2 周，共 5 次」，供桌面端 / Web 端直接展示
+
 **换肤 / 切换主题**：
 
 ```bash
@@ -840,6 +849,8 @@ QT_QPA_PLATFORM=offscreen python scripts/smoke_desktop_qt.py
 - `tests/reminder_web.logic.test.mjs`：校验 `getPresetTime` / `computeRemindAt` 的时间计算正确。
 - `tests/daily_web.logic.test.mjs`：校验 `extract_tags` 的停用词过滤 / 领域词加权 / `top_n` 生效。
 - `tests/mood_web.logic.test.mjs`：校验 `analyze_mood` 的关键词命中 / 否定词处理 / 中性回退。
+- `tests/test_reminder_rrule.py`：校验 RRULE 子集解析校验 / 发生时间展开语义（对齐 dateutil）/
+  COUNT / UNTIL 耗尽、advance_reminder 推进与 schtasks 参数映射。
 - `scripts/smoke_desktop_qt.py`：桌面端（PySide6）启动冒烟——构建 `WikiApp`、应用 QSS、弹出
   欢迎框、校验语音 `VoiceSignals` 信号槽、切换主题 / 语言、触发 MCP 启动处理器，全程无异常。
 - `.github/workflows/ci.yml`：push / PR 到 `main` 时自动跑上述测试 + 桌面端冒烟 + RAG/theme 检查。
