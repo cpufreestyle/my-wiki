@@ -569,14 +569,20 @@
         // 缓存最近一次面部分析结果，供自动分析使用
         let lastFaceResult = null;
 
+        // 后端优先级：macOS Vision → MediaPipe。/api/face/deps 会告知当前实际启用
+        // 的后端，因此只校验该后端所需的依赖；否则 Vision 可用时也会误报缺 mediapipe。
         (async function checkFaceDeps() {
             try {
                 const r = await fetch("/api/face/deps");
                 const d = await r.json();
-                if (!d.mediapipe || !d.cv2) {
-                    const missing = [];
+                const missing = [];
+                if (d.backend === "vision") {
+                    if (!d.vision_cv2) missing.push("opencv-python");
+                } else {
                     if (!d.mediapipe) missing.push("mediapipe");
                     if (!d.cv2) missing.push("opencv-python");
+                }
+                if (missing.length) {
                     $("#faceBtn").title = "缺少依赖：" + missing.join(", ");
                     // 不禁用按钮，允许触发（后端会返回有意义的错误提示）
                 }
@@ -605,8 +611,9 @@
                 // 自动保存
                 if ($("#autosave").checked) analyzeMoodUi(null, f);
             } catch (e) {
-                toast("面部识别请求失败：" + e.message);
-                setStatus("面部识别失败");
+                const why = (e && e.message) ? e.message : "网络错误";
+                toast("面部识别请求失败：" + why);
+                setStatus("面部服务无响应，请确认本地服务已在 8082 端口运行");
             } finally {
                 btn.disabled = false;
                 btn.classList.remove("recording");

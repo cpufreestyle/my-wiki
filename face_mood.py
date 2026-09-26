@@ -15,6 +15,7 @@ face_mood.py - 面部情绪识别（MediaPipe FaceLandmarker + 摄像头）
 注：mediapipe 0.10+/1.x 移除了旧的 mp.solutions.face_mesh，这里统一使用
 新的 Tasks API（FaceLandmarker + .task 模型文件）。
 """
+import json
 import math
 import os
 import statistics
@@ -303,7 +304,23 @@ def capture_and_analyze(num_frames=DEFAULT_FRAMES, interval=DEFAULT_INTERVAL,
     }
 
 
-if __name__ == "__main__":
+def _cli_main():
+    """命令行入口：默认人类可读输出；--json 输出单行 JSON 供子进程隔离调用。"""
+    json_mode = "--json" in sys.argv
+
+    def emit(obj):
+        if json_mode:
+            json.dump(obj, sys.stdout, ensure_ascii=False)
+        return None
+
+    if json_mode:
+        result = capture_and_analyze()
+        if "error" in result:
+            emit({"ok": False, "error": result["error"]})
+            return 1
+        emit({"ok": True, "face": result})
+        return 0
+
     print("face_mood - MediaPipe 面部情绪识别")
     mp_ok, cv_ok = deps_status()
     if not (mp_ok and cv_ok):
@@ -327,3 +344,8 @@ if __name__ == "__main__":
     print("情绪: {} (置信度 {})".format(result["mood"], result["confidence"]))
     print("特征: " + result["detail"])
     print("采样: {} 帧".format(result["frames"]))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(_cli_main())

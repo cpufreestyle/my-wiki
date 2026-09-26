@@ -52,6 +52,18 @@ try:
 except Exception:  # noqa: BLE001
     face_mood = None
 
+# 面部情绪识别（vision_face_mood：macOS Vision 关键点，无需第三方推理库）。
+# MediaPipe 的 Metal 委托在部分 macOS 上会 abort 整个进程，因此优先用本后端。
+try:
+    import vision_face_mood
+except Exception:  # noqa: BLE001
+    vision_face_mood = None
+
+# 面部识别子进程隔离：MediaPipe / Vision 都是 native 库，一旦 abort 会把整个
+# web_server 带走（曾导致「面部识别请求失败」连带全部接口不可用）。放到独立子进程
+# 后，最坏只是这条请求失败，HTTP 服务继续为其它接口服务。
+_FACE_TIMEOUT = 60.0
+
 # 待办数据层（与桌面端共用同一份 vault/todos.json）
 try:
     import wiki_data
@@ -649,12 +661,23 @@ class Handler(SimpleHTTPRequestHandler):
     # 与上面的 /api/face_mood（浏览器端识别后落盘）是两条独立路径；
     # 两者若同名会互相覆盖，故此处命名为 _capture。
     def _handle_face_deps(self):
-        """GET /api/face/deps：反馈 mediapipe / cv2 依赖是否可用。"""
-        if face_mood is None:
-            self._send_json({"ok": False, "error": "face_mood 模块不可用"}, status=503)
+        """GET /api/face/deps：反馈各面部后端 / 依赖是否可用。"""
+        if face_mood is None and vision_face_mood is None:
+            self._send_json({"ok": False, "error": "面部模块不可用"}, status=503)
             return
-        mp_ok, cv_ok = face_mood.deps_status()
-        self._send_json({"ok": True, "mediapipe": mp_ok, "cv2": cv_ok})
+        out = {"ok": True}
+        if face_mood is not None:
+            mp_ok, cv_ok = face_mood.deps_status()
+            out["mediapipe"] = mp_ok
+            out["cv2"] = cv_ok
+            out["mediapipe_usable"] = mp_ok and cv_ok
+        if vision_face_mood is not None:
+            v_ok, v_cv_ok = vision_face_mood.deps_status()
+            out["vision"] = v_ok
+            out["vision_cv2"] = v_cv_ok
+            out["vision_usable"] = v_ok and v_cv_ok
+            out["backend"] = "vision" if out.get("vision_usable") else "mediapipe"
+        self._send_json(out)
 
     def _handle_face_mood_capture(self):
         """POST /api/face/mood：服务端摄像头采样约 2 秒 → 返回面部情绪。
@@ -668,13 +691,53 @@ class Handler(SimpleHTTPRequestHandler):
             self._send_json({"ok": False, "error": "正在识别中，请稍候。"}, status=400)
             return
         try:
-            result = face_mood.capture_and_analyze()
+            result, err = self._run_face_worker()
         finally:
             _face_lock.release()
-        if "error" in result:
-            self._send_json({"ok": False, "error": result["error"]}, status=400)
+        if err:
+            self._send_json({"ok": False, "error": err}, status=400)
             return
         self._send_json({"ok": True, "face": result})
+
+    def _run_face_worker(self):
+        """在独立子进程里跑摄像头采样识别，返回 (result, error)。
+
+        MediaPipe 的 Metal 委托失败时会 abort 整个进程，所以绝不放进 web_server
+        进程内执行；子进程被 signal 杀掉时主进程仍可继续服务其它接口。
+        后端优先级：vision_face_mood（macOS Vision）→ face_mood（MediaPipe）。
+        """
+        import subprocess
+        script = None
+        if (vision_face_mood is not None and vision_face_mood.is_available()):
+            script = os.path.join(ROOT, "vision_face_mood.py")
+            if not os.path.exists(script):
+                script = None
+        if script is None and face_mood is not None:
+            script = os.path.join(ROOT, "face_mood.py")
+        if not script:
+            return None, ("没有可用的面部识别后端："
+                          "请安装 opencv-python，或在 macOS 上使用系统 Vision。")
+        try:
+            proc = subprocess.run(
+                [sys.executable, script, "--json"],
+                cwd=ROOT, capture_output=True, text=True, timeout=_FACE_TIMEOUT)
+        except subprocess.TimeoutExpired:
+            return None, "面部识别超时（摄像头可能被其它程序占用）"
+        except Exception as e:  # noqa: BLE001
+            return None, "面部识别启动失败：{}".format(e)
+        stdout = (proc.stdout or "").strip()
+        if not stdout:
+            tail = (proc.stderr or "").strip().splitlines()
+            hint = tail[-1][:200] if tail else "无输出"
+            return None, ("面部识别进程异常退出（code=-{}）：{}".format(
+                proc.returncode, hint))
+        try:
+            payload = json.loads(stdout)
+        except Exception:
+            return None, "面部识别输出无法解析"
+        if not payload.get("ok"):
+            return None, payload.get("error") or "面部识别失败"
+        return payload.get("face") or {}, None
 
     # ---- 待办清单（复用桌面端 wiki_data，落盘同一份 vault/todos.json） ----
     def _handle_todos_get(self):
@@ -737,7 +800,8 @@ def run_server(port=8082):
     print("  图谱页:   <INTERNAL_LINK_REMOVED>")
     print("接口:     GET /api/rag?q=...   |   GET /api/graph")
     print("语音接口:   POST /api/voice/start  |  POST /api/voice/stop")
-    print("面部接口:   GET  /api/face/deps    |  POST /api/face/mood（需安装 mediapipe + opencv-python）")
+    print("面部接口:   GET  /api/face/deps    |  POST /api/face/mood")
+    print("          后端：macOS Vision 优先，关键点不可用时回退 mediapipe；摄像头采样需 opencv-python")
     print("（首次使用请允许终端/应用的麦克风权限；语音识别需联网）")
     try:
         server.serve_forever()
