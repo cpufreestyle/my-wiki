@@ -105,6 +105,9 @@ def apply_qss(app, mode=None):
         font-family: {UI_FONT};
         font-size: 14px;
     }}
+    /* ---------- 滚动区（标签页内容超高时滚动，不挤压叠放） ---------- */
+    QScrollArea {{ background: transparent; border: none; }}
+    QScrollArea > QWidget > QWidget {{ background: transparent; }}
     /* ---------- 标签页（对齐网页 header，更宽松） ---------- */
     QTabWidget::pane {{
         border: none;

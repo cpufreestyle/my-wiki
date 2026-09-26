@@ -74,7 +74,6 @@ class MoodTabMixin:
         layout.addWidget(inp_card)
 
         # 快捷心情卡片网格
-        grid_widget = type(self) and None or None
         from PySide6.QtWidgets import QWidget as _QW
         grid_widget = _QW()
         grid = QGridLayout(grid_widget)

@@ -449,11 +449,39 @@ class WikiApp(QMainWindow, DailyTabMixin, MoodTabMixin, ReminderTabMixin, ShareT
         self._build_report_tab()
         self._build_share_tab()
 
+        # 标签页包进滚动区：内容超高时可滚动，防止布局挤压导致卡片叠放
+        self._wrap_tabs_scrollable()
+
         # 状态栏
         self.status_label = QLabel(t("ready"))
         self.status_label.setStyleSheet(f"color: {get_theme_colors()['TEXT2']}; font-size: 13px; padding: 4px 20px 8px; text-align: center;")
         self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.status_label)
+
+    def _wrap_tabs_scrollable(self):
+        """把每个标签页内容包进无边框滚动区。
+
+        窗口较小（如 1147x745 笔记本屏）或用户在设置面板调大卡片高度时，
+        标签页内容高度可能超出可视区。不包裹时外层 QVBoxLayout 会向下挤压
+        固定高度的网格卡片：行距被压到小于卡片高度，卡片视觉上互相叠放
+        （心情 / 提醒页已复现）。包裹后超出部分改为滚动，根除挤压叠放。
+        """
+        from PySide6.QtWidgets import QScrollArea
+        if self.nb.count() == 0:
+            return
+        pages = [(self.nb.tabText(i), self.nb.widget(i))
+                 for i in range(self.nb.count())]
+        for text, page in pages:
+            if page is None:
+                continue
+            idx = self.nb.indexOf(page)
+            if idx >= 0:
+                self.nb.removeTab(idx)
+            scroll = QScrollArea()
+            scroll.setWidget(page)
+            scroll.setWidgetResizable(True)
+            scroll.setFrameShape(QFrame.Shape.NoFrame)
+            self.nb.addTab(scroll, text)
 
     def _build_topbar(self, parent_layout):
         """顶部工具条（对齐网页 .app-header：居中标题 + 右上角圆形主题按钮）。"""
