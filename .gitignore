@@ -164,3 +164,6 @@ _verify_*.log
 .codely/
 .zion-mcp/
 .codely-cli/auto-saves/
+
+# 快速捕捉收件箱（运行时写入，按需归档）
+inbox/

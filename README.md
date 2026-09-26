@@ -358,6 +358,7 @@ my-wiki/
 ├── wiki_data.py                   # 数据层（日记/心情/提醒/待办，无 GUI 依赖）
 ├── wiki_report.py                 # 周报 / 月报生成器 🆕
 ├── wiki_tool.py                   # 统一工具入口 (v2.8.0)
+├── wiki_links.py                  # 双链解析 / 反向链接 / 孤儿与失效链接检测（[[wikilink]]，零依赖）🆕
 ├── rag.py                         # 语义 RAG 检索引擎 (BM25 / Ollama embedding)
 ├── voice_mood.py                  # 语音心情（ffmpeg 录音 + SpeechRecognition 在线识别）🆕
 ├── daily_ui.py                    # 日记桌面端 UI 🆕
@@ -651,6 +652,15 @@ MYWIKI_RAG_MODE=ollama python rag.py "你的问题" --rebuild
 - ✅ **Windows 计划任务**：重复规则自动映射 schtasks /sc daily / weekly / monthly（YEARLY 暂以一次性任务承接并由 advance_reminder 续排），规则耗尽时同步清理任务
 - ✅ **中文描述**：describe_reminder_rule() 输出如「周一、周五，每隔 2 周，共 5 次」，供桌面端 / Web 端直接展示
 
+
+### 12. 双链反向链接 + 快速捕捉（零依赖）🆕
+
+- ✅ **双链解析**：wiki_links.py 以纯标准库解析 Obsidian 风格 [[目标]] / [[目标#锚点]] / [[目标|别名]]，支持根相对路径、裸文件名（stem 全局匹配）、相对来源目录三种解析方式，只读扫描不改动任何笔记
+- ✅ **反向链接**：wiki_tool.py backlinks <笔记> 一键查看「哪些笔记引用了我」；links <笔记> 查看出链，不带参数则列出出链最多的枢纽页
+- ✅ **链接健康**：wiki_tool.py orphans 输出孤儿笔记（无入链，INDEX/README 自动豁免）与失效链接清单（疑似笔误或尚未创建的笔记），清理知识库死角
+- ✅ **快速捕捉**：wiki_tool.py capture <文本> 把灵感 / 待办一键收集到 inbox/quick-capture.md（时间戳 + 去重，参数为空自动读剪贴板），免去「开笔记-找位置-打字」三步操作；只写 inbox/，不动 daily/ 等用户笔记目录
+
+
 **换肤 / 切换主题**：
 
 ```bash
@@ -851,6 +861,8 @@ QT_QPA_PLATFORM=offscreen python scripts/smoke_desktop_qt.py
 - `tests/mood_web.logic.test.mjs`：校验 `analyze_mood` 的关键词命中 / 否定词处理 / 中性回退。
 - `tests/test_reminder_rrule.py`：校验 RRULE 子集解析校验 / 发生时间展开语义（对齐 dateutil）/
   COUNT / UNTIL 耗尽、advance_reminder 推进与 schtasks 参数映射。
+`tests/test_wiki_links.py`：校验 [[wikilink]] 抽取 / 三种解析方式 / 反向链接（忽略自链）/
+  孤儿与失效链接，以及 capture / links / backlinks / orphans 四个 CLI 子命令冒烟。
 - `scripts/smoke_desktop_qt.py`：桌面端（PySide6）启动冒烟——构建 `WikiApp`、应用 QSS、弹出
   欢迎框、校验语音 `VoiceSignals` 信号槽、切换主题 / 语言、触发 MCP 启动处理器，全程无异常。
 - `.github/workflows/ci.yml`：push / PR 到 `main` 时自动跑上述测试 + 桌面端冒烟 + RAG/theme 检查。
