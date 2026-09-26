@@ -3,22 +3,5 @@
     "TJGenerators": {
       "httpUrl": "https://ai-generator.tuanjie.cn/mcp"
     }
-  },
-  "model": "qwen3.7-plus-2026-05-26",
-  "contentGenerator": {
-    "overrides": {
-      "model": {
-        "authType": "openai"
-      },
-      "flashModel": {
-        "authType": "codely-oauth"
-      },
-      "multimodalModel": {
-        "authType": "codely-oauth"
-      }
-    }
-  },
-  "selectedAuthType": "openai",
-  "flashModel": "codely-flash",
-  "multimodalModel": "codely-vl"
+  }
 }

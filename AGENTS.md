@@ -38,18 +38,13 @@ MyWiki 是一个个人知识管理系统，同时作为多个 AI Agent 的共享
 ## 测试命令
 
 ```bash
-python tests/run_all.py
+python tests/run_all.py              # Python 全部单元测试（自动发现 tests/test_*.py）
+node --test "tests/**/*.test.mjs"    # Node 端纯逻辑测试
 ```
 
-测试文件位于 `tests/` 目录，包含：
-
-- `test_daily_web.py` — 日记 Web 逻辑测试
-- `test_graph_web.py` — 知识图谱 Web 测试
-- `test_index.py` — 索引测试
-- `test_mood_web.py` — 情绪分析 Web 测试
-- `test_rag_web.py` — RAG Web 测试
-- `test_reminder_web.py` — 提醒 Web 测试
-- `daily_web.logic.test.mjs` / `mood_web.logic.test.mjs` / `reminder_web.logic.test.mjs` — JS 端逻辑测试
+`tests/run_all.py` 按文件名自动发现 `tests/` 下的 `test_*.py`，**新增测试文件无需注册**，
+也不要在文档或 CI 中另行维护测试清单——手工清单会漏注册，使失败测试被静默跳过。
+CI（`.github/workflows/ci.yml`）同样调用 `python tests/run_all.py`，因此与该命令保持同源。
 
 ## 模块边界说明
 

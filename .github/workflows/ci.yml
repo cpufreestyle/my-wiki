@@ -24,7 +24,7 @@ jobs:
         with:
           node-version: "20"
 
-      - name: Python 单元测试（run_all.py 全套 8 模块）
+      - name: Python 单元测试（tests/run_all.py 全套模块）
         run: python tests/run_all.py
 
       - name: Node 单元测试（reminder_web 纯日期逻辑）
