@@ -458,39 +458,47 @@ class RAGEngine:
 
     @staticmethod
     def _rrf_merge(rankings, limit, k=RRF_K):
-        """Reciprocal Rank Fusion：按名次倒数累加，避免分数不可比。
+        """Reciprocal Rank Fusion：按名次倒数累加，避免两路分数不可比。
 
-        以 (rel, snippet) 而非 rel 为融合键。同一篇笔记的多个片段各自计入
-        名次——若按 rel 折叠，BM25 里命中 6 个片段的文档只能拿到 1 次贡献，
-        反而被另一路只命中 1 个片段、但排在首位的文档压过去。
-        同一片段被两路同时召回时贡献累加，这正是"两路都认为相关"的信号。
+        贡献在**文档级**累加：一篇笔记命中多个片段，说明相关证据更多，
+        各片段的 1/(k+rank) 全部叠加到该文档上。若只按片段计分而不累加，
+        6 个中排名次片段（各约 0.016）会输给 1 个排第一的片段（0.0164），
+        多片段证据就被白白浪费——这是按 rel 折叠之后的第二个相关 bug。
+
+        同一文档最终只展示得分最高的 MAX_CHUNKS_PER_DOC 个片段，避免
+        一篇笔记占满整个结果页。
         """
-        fused = {}
+        doc_score = {}
+        chunks = {}
         for ranking in rankings:
             for rank, hit in enumerate(ranking, start=1):
-                key = (hit["rel"], hit["snippet"])
-                prev = fused.get(key)
+                rel = hit["rel"]
                 contrib = 1.0 / (k + rank)
+                doc_score[rel] = doc_score.get(rel, 0.0) + contrib
+                bucket = chunks.setdefault(rel, {})
+                # 同一片段被两路召回时也累加，用 snippet 区分片段
+                key = hit["snippet"]
+                prev = bucket.get(key)
                 if prev is None:
                     item = dict(hit)
-                    item["score"] = contrib
-                    fused[key] = item
+                    item["_contrib"] = contrib
+                    bucket[key] = item
                 else:
-                    prev["score"] += contrib
-        ordered = sorted(fused.values(), key=lambda x: x["score"], reverse=True)
+                    prev["_contrib"] += contrib
+
+        ordered_docs = sorted(doc_score.items(), key=lambda x: x[1], reverse=True)
         out = []
-        per_doc = {}
-        for item in ordered:
-            # 同一篇笔记最多保留 2 个片段，避免一篇占满整个结果页
-            cnt = per_doc.get(item["rel"], 0)
-            if cnt >= MAX_CHUNKS_PER_DOC:
-                continue
-            per_doc[item["rel"]] = cnt + 1
-            item["score"] = round(item["score"], 4)
-            out.append(item)
+        for rel, score in ordered_docs:
+            best = sorted(
+                chunks[rel].values(), key=lambda x: x["_contrib"], reverse=True
+            )[:MAX_CHUNKS_PER_DOC]
+            for item in best:
+                item.pop("_contrib", None)
+                item["score"] = round(score, 4)
+                out.append(item)
             if len(out) >= limit:
                 break
-        return out
+        return out[:limit]
 
     def _search_bm25(self, q_tokens, limit):
         k1, b = 1.5, 0.75

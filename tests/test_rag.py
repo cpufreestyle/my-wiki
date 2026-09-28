@@ -286,28 +286,33 @@ class TestRRFMerge(unittest.TestCase):
         out = RAGEngine._rrf_merge([a, b], limit=10)
         self.assertEqual(out[0]["rel"], "x.md", "两路都召回的片段应排第一")
 
-    def test_doc_multi_chunk_keeps_separate_scores(self):
-        """同一篇笔记的多个片段各自计分，不被折叠成一条。
+    def test_doc_multi_chunk_accumulates(self):
+        """一篇笔记命中多个片段时，各片段贡献在文档级累加。
 
-        这是当初按 rel 做融合键时的真实 bug：BM25 里一篇命中 6 个片段，
-        折叠后只拿到 1 次贡献，被"另一路只命中 1 个片段但排第一"的文档压过。
+        只按片段计分而不累加的话，6 个中等名次片段（各约 0.016）会输给
+        1 个排第一的片段（0.0164），多片段证据被白白浪费。
         """
         a = [_hit("a.md", "only")]
         b = [_hit("b.md", "b1"), _hit("b.md", "b2"), _hit("b.md", "b3")]
         out = RAGEngine._rrf_merge([a, b], limit=10)
-        b_scores = sorted(
-            (h["score"] for h in out if h["rel"] == "b.md"), reverse=True)
-        # 上限内保留多个片段；折叠实现下只会剩 1 条
-        self.assertEqual(len(b_scores), rag_module.MAX_CHUNKS_PER_DOC,
-                         "上限内的多个片段都应保留各自分数")
-        self.assertGreater(b_scores[1], 0, "后续片段的贡献不应被折叠抹掉")
+        self.assertEqual(out[0]["rel"], "b.md", "多片段证据应在文档级胜出")
+        b_hits = [h for h in out if h["rel"] == "b.md"]
+        self.assertEqual(len(b_hits), rag_module.MAX_CHUNKS_PER_DOC,
+                         "展示片段数应受 MAX_CHUNKS_PER_DOC 限制")
 
     def test_two_roads_agree_beats_single_road_top(self):
         """同一片段被两路同时召回时，贡献累加，胜过只被单路召回的片段。"""
         a = [_hit("x.md", "s0"), _hit("y.md", "y0")]
         b = [_hit("y.md", "y0")]
         out = RAGEngine._rrf_merge([a, b], limit=10)
-        self.assertEqual(out[0]["rel"], "y.md", "两路都召回的片段应排第一")
+        self.assertEqual(out[0]["rel"], "y.md", "两路都召回的文档应排第一")
+
+    def test_doc_score_is_shared_across_its_chunks(self):
+        """同一文档的多个片段共享该文档的融合分。"""
+        a = [_hit("a.md", "a1"), _hit("a.md", "a2")]
+        out = RAGEngine._rrf_merge([a], limit=10)
+        scores = {h["score"] for h in out}
+        self.assertEqual(len(scores), 1, "同文档片段应共享同一分数：%s" % scores)
 
     def test_per_doc_chunk_cap(self):
         b = [_hit("b.md", "b%d" % i) for i in range(6)] + [_hit("a.md", "a0")]
