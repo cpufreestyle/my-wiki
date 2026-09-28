@@ -76,6 +76,13 @@ try:
 except Exception:
     RAGEngine = None
 
+# 本地 LLM 问答（llm_qa：检索增强 + Ollama 生成）。
+# 与 RAGEngine 一样是可选依赖：Ollama 不可用时接口自动回退为纯检索。
+try:
+    import llm_qa
+except Exception:
+    llm_qa = None
+
 # macOS Vision 人物分割（Apple 官方虚化同款；不可用时前端降级 MediaPipe）
 try:
     from vision_segment import is_available as _vision_available, VisionSegmenter
@@ -374,7 +381,7 @@ class Handler(SimpleHTTPRequestHandler):
         {"id": "face_mood", "file": "face_mood_web.html", "label": "面部情绪",
          "hint": "摄像头 + MediaPipe 人脸情绪识别", "emoji": "😊", "color": "pink"},
         {"id": "rag", "file": "rag_web.html", "label": "语义检索",
-         "hint": "本地知识库问答", "emoji": "🔍", "color": "accent"},
+         "hint": "检索 + 本地 LLM 问答（带引用来源）", "emoji": "🔍", "color": "accent"},
         {"id": "graph", "file": "graph_web.html", "label": "知识图谱",
          "hint": "笔记关联网络", "emoji": "🕸️", "color": "green"},
         {"id": "todo", "file": "todo_web.html", "label": "待办清单",
@@ -422,7 +429,42 @@ class Handler(SimpleHTTPRequestHandler):
         except Exception as e:
             self._send_json({"ok": False, "error": str(e)}, status=500)
 
+    # ---- 本地 LLM 问答（检索增强：先召回片段，再交给本机 Ollama 生成答案） ----
+    def _handle_qa(self):
+        """POST /api/qa：基于知识库的本地 LLM 问答，返回答案 + 引用来源。
+
+        请求体：{ query, limit(可选), model(可选) }
+        响应：{ ok, query, answer|null, mode, sources, error }
+
+        Ollama 不可用 / 生成失败时不报错，回退为纯检索结果（mode=retrieval-only）。
+        """
+        if llm_qa is None:
+            self._send_json({"ok": False, "error": "llm_qa 模块不可用"}, status=503)
+            return
+        try:
+            data = json.loads(self._read_body() or b"{}")
+        except Exception:
+            self._send_json({"ok": False, "error": "无效 JSON"}, status=400)
+            return
+        query = (data.get("query") or "").strip()
+        if not query:
+            self._send_json({"ok": False, "error": "缺少 query 字段"}, status=400)
+            return
+        try:
+            limit = int(data.get("limit") or 6)
+        except Exception:
+            limit = 6
+        limit = max(1, min(limit, 20))
+        model = data.get("model") or None
+        try:
+            result = llm_qa.answer(query, limit=limit, model=model)
+        except Exception as e:  # noqa: BLE001
+            self._send_json({"ok": False, "error": str(e)}, status=500)
+            return
+        self._send_json(result)
+
     # ---- 知识图谱（读取 knowledge_graph.json，归一化 link 的 .md 后缀） ----
+
     def _graph_path(self):
         """定位 knowledge_graph.json 的可写副本。
 
@@ -498,6 +540,9 @@ class Handler(SimpleHTTPRequestHandler):
             self._handle_voice_start()
         elif path == "/api/voice/stop":
             self._handle_voice_stop()
+        elif path == "/api/qa":
+            self._handle_qa()
+            return
         elif path == "/api/mood":
             self._handle_mood()
         elif path == "/api/face_mood":

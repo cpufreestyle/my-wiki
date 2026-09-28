@@ -132,6 +132,50 @@
             float: right; font-size: 11px; color: var(--accent); font-family: var(--mono);
         }
 
+        /* ---------- 问答模式切换 ---------- */
+        .mode-switch { display: flex; gap: 6px; justify-content: center; margin-bottom: 14px; }
+        .mode-switch button {
+            border: 1px solid var(--border); background: var(--surface); color: var(--text-secondary);
+            border-radius: 999px; padding: 7px 18px; font-size: 13px; font-family: inherit;
+            cursor: pointer; transition: all 0.15s ease;
+        }
+        .mode-switch button.active {
+            background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600;
+        }
+        .mode-switch button:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+
+        /* ---------- LLM 答案卡片 ---------- */
+        .answer-card {
+            background: var(--surface); border-radius: 14px; padding: 18px 20px;
+            box-shadow: var(--shadow-md); margin-bottom: 16px; border-left: 3px solid var(--green);
+        }
+        .answer-card .answer-head {
+            display: flex; align-items: center; gap: 8px; margin-bottom: 12px;
+            font-size: 13px; color: var(--text-secondary);
+        }
+        .answer-card .badge {
+            background: var(--green); color: #fff; border-radius: 6px;
+            padding: 2px 8px; font-size: 11px; font-weight: 600;
+        }
+        .answer-card .badge.fallback { background: var(--orange); }
+        .answer-body {
+            font-size: 14px; line-height: 1.72; color: var(--text); white-space: pre-wrap;
+            word-break: break-word;
+        }
+        .answer-body strong { font-weight: 600; }
+        .answer-body ul { margin: 8px 0 8px 20px; }
+        .answer-body li { margin: 4px 0; }
+
+        .sources { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); }
+        .sources-title { font-size: 12px; color: var(--text-secondary); margin-bottom: 8px; }
+        .source-item {
+            font-size: 12px; color: var(--text-secondary); margin: 4px 0;
+            font-family: var(--mono); line-height: 1.5;
+        }
+        .source-item .idx { color: var(--accent); font-weight: 600; margin-right: 6px; }
+
+        .thinking-tip { font-size: 13px; color: var(--text-secondary); padding: 20px 0; text-align: center; }
+
         .empty-tip { text-align: center; font-size: 14px; color: var(--text-secondary); padding: 40px 0; }
 
         .toast {
@@ -159,8 +203,13 @@
             <p>MyWiki · 本地知识库问答</p>
         </header>
 
+        <div class="mode-switch" role="tablist" aria-label="检索模式">
+            <button type="button" id="modeSearch" class="active" role="tab" aria-selected="true">🔍 检索</button>
+            <button type="button" id="modeAsk" role="tab" aria-selected="false">💬 问答</button>
+        </div>
+
         <div class="search-row">
-            <input type="text" id="queryInput" placeholder="例如：如何配置本地模型" autocomplete="off"
+            <input type="text" id="queryInput" placeholder="例如：如何配置本地模型 / 我的知识库里有哪些项目" autocomplete="off"
                    aria-label="检索关键词" />
             <button type="button" class="voice-btn" id="voiceBtn" aria-label="语音输入检索词">🎤 语音</button>
             <button type="button" class="search-btn" id="searchBtn">搜索</button>
@@ -168,6 +217,7 @@
         <p class="voice-status" id="voiceStatus" aria-live="polite"></p>
 
         <p class="meta" id="meta" aria-live="polite"></p>
+        <div id="answerWrap"></div>
         <div class="result-list" id="results" aria-live="polite"></div>
     </main>
 
@@ -256,9 +306,137 @@
                 .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
         }
 
-        $("#searchBtn").addEventListener("click", () => doSearch($("#queryInput").value));
+        // ---------- 模式：检索 / 问答 ----------
+        let mode = "search";
+        const btnSearch = $("#modeSearch");
+        const btnAsk = $("#modeAsk");
+        const searchBtn = $("#searchBtn");
+        const answerWrap = $("#answerWrap");
+
+        function setMode(next) {
+            mode = next;
+            const ask = mode === "ask";
+            btnSearch.classList.toggle("active", !ask);
+            btnAsk.classList.toggle("active", ask);
+            btnSearch.setAttribute("aria-selected", String(!ask));
+            btnAsk.setAttribute("aria-selected", String(ask));
+            searchBtn.textContent = ask ? "提问" : "搜索";
+            const inp = $("#queryInput");
+            inp.placeholder = ask ? "例如：我的知识库里有哪些项目？" : "例如：如何配置本地模型";
+        }
+        btnSearch.addEventListener("click", () => setMode("search"));
+        btnAsk.addEventListener("click", () => setMode("ask"));
+
+        // 极简 Markdown：加粗 + 列表，不引第三方库
+        function inlineMd(s) {
+            const parts = String(s).split("**");
+            let out = "", bold = false;
+            for (const p of parts) {
+                out += bold ? ("<strong>" + p + "</strong>") : p;
+                bold = !bold;
+            }
+            return out;
+        }
+
+        function renderAnswer(text) {
+            const lines = escapeHtml(text || "").split("\n");
+            let html = "", inList = false;
+            for (const ln of lines) {
+                const t = ln.trim();
+                const isBullet = t.indexOf("- ") === 0 || t.indexOf("* ") === 0;
+                const isNum = /^[0-9]+[.)] /.test(t);
+                if (isBullet || isNum) {
+                    if (!inList) { html += "<ul>"; inList = true; }
+                    const body = isBullet ? t.slice(2) : t.replace(/^[0-9]+[.)] /, "");
+                    html += "<li>" + inlineMd(body) + "</li>";
+                } else {
+                    if (inList) { html += "</ul>"; inList = false; }
+                    if (t) html += "<p>" + inlineMd(t) + "</p>";
+                }
+            }
+            if (inList) html += "</ul>";
+            return html;
+        }
+
+        function renderSources(sources) {
+            if (!sources || !sources.length) return "";
+            let html = '<div class="sources"><div class="sources-title">引用来源</div>';
+            for (const s of sources.slice(0, 6)) {
+                html += '<div class="source-item"><span class="idx">[' + s.index + ']</span>' +
+                    escapeHtml(s.rel || s.title || "") + "</div>";
+            }
+            return html + "</div>";
+        }
+
+        async function doAsk(q) {
+            const meta = $("#meta");
+            const results = $("#results");
+            meta.textContent = "本地模型思考中…";
+            results.innerHTML = "";
+            answerWrap.innerHTML = '<div class="thinking-tip">正在基于知识库生成答案（首次需加载模型，稍候）</div>';
+            try {
+                const base = apiBase();
+                const urls = [base + "api/qa", "/api/qa"];
+                let resp = null, data = null;
+                for (const u of urls) {
+                    try {
+                        resp = await fetch(u, {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ query: q, limit: 6 })
+                        });
+                        const ct = resp.headers.get("Content-Type") || "";
+                        if (!ct.includes("json")) { resp = null; continue; }
+                        data = await resp.json();
+                        break;
+                    } catch (e) { resp = null; data = null; }
+                }
+                if (!resp || !data || !resp.ok || !data.ok) {
+                    answerWrap.innerHTML = "";
+                    meta.textContent = "问答失败：" + ((data && data.error) || "请确认已通过本地服务器访问");
+                    return;
+                }
+                const isLlm = data.mode === "llm";
+                let html = '<div class="answer-card"><div class="answer-head">' +
+                    '<span class="badge' + (isLlm ? "" : " fallback") + '">' +
+                    (isLlm ? "本地 LLM 答案" : "检索模式") + "</span>" +
+                    (data.model ? "<span>模型：" + escapeHtml(data.model) + "</span>" : "") +
+                    "</div>";
+                if (isLlm && data.answer) {
+                    html += '<div class="answer-body">' + renderAnswer(data.answer) + "</div>";
+                } else {
+                    html += '<div class="answer-body">' +
+                        escapeHtml(data.error || "当前为纯检索结果，未启用 LLM 生成。") + "</div>";
+                }
+                html += renderSources(data.sources) + "</div>";
+                answerWrap.innerHTML = html;
+                const n = (data.sources || []).length;
+                meta.textContent = isLlm ? ("已基于 " + n + " 条知识库片段生成答案")
+                                         : ("检索模式 · " + n + " 条相关片段");
+                results.innerHTML = "";
+                for (const s of (data.sources || [])) {
+                    const item = document.createElement("div");
+                    item.className = "result-item";
+                    item.innerHTML = '<div><span class="title">' + escapeHtml(s.title || "") + "</span>" +
+                        '<span class="rel">' + escapeHtml(s.rel || "") + "</span></div>" +
+                        '<div class="snippet">' + escapeHtml(s.snippet || "") + "</div>";
+                    results.appendChild(item);
+                }
+            } catch (e) {
+                answerWrap.innerHTML = "";
+                meta.textContent = "网络错误：" + (e && e.message ? e.message : e);
+            }
+        }
+
+        $("#searchBtn").addEventListener("click", () => {
+            const v = $("#queryInput").value;
+            if (mode === "ask") { doAsk(v); } else { doSearch(v); }
+        });
         $("#queryInput").addEventListener("keydown", (e) => {
-            if (e.key === "Enter") doSearch($("#queryInput").value);
+            if (e.key === "Enter") {
+                const v = $("#queryInput").value;
+                if (mode === "ask") { doAsk(v); } else { doSearch(v); }
+            }
         });
 
         // ---------- 语音输入 ----------
