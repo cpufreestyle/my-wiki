@@ -320,6 +320,9 @@ class Handler(SimpleHTTPRequestHandler):
         if self.path.startswith("/api/vision/status"):
             self._handle_vision_status()
             return
+        if self.path.split("?")[0] == "/api/health":
+            self._handle_health_check()
+            return
         if self.path.split("?")[0] == "/api/face/camera":
             self._handle_face_camera()
             return
@@ -778,7 +781,68 @@ class Handler(SimpleHTTPRequestHandler):
             return
         self._send_json(payload)
 
-    # ---- 待办清单（复用桌面端 wiki_data，落盘同一份 vault/todos.json） ----
+    # ---- 一键健康自检 ----
+    def _handle_health_check(self):
+        """GET /api/health：聚合健康自检（只读、不取帧，秒回）。
+
+        覆盖四类常见故障：静态页面缺失、面部依赖不可用、mood 目录不可写、
+        摄像头设备缺失/被占用（细化诊断仍用 /api/face/camera）。"""
+        checks = []
+
+        def add(name, ok, detail=""):
+            checks.append({"name": name, "ok": bool(ok), "detail": detail})
+
+        for page in ("mood_web.html", "face_mood_web.html"):
+            p = os.path.join(ROOT, page)
+            add(page, os.path.isfile(p), "存在" if os.path.isfile(p) else "仓库根缺少该文件")
+
+        if vision_face_mood is not None:
+            v_ok, cv_ok = vision_face_mood.deps_status()
+            add("vision_face_mood", v_ok, "macOS Vision 后端可用" if v_ok else "Vision 后端不可用")
+            add("opencv", cv_ok, "cv2 可用（摄像头采样）" if cv_ok else "缺 opencv-python")
+        else:
+            add("vision_face_mood", False, "模块导入失败")
+        if face_mood is None:
+            add("mediapipe", False, "模块导入失败（Vision 优先，可接受）")
+        else:
+            mp_ok, mp_cv = face_mood.deps_status()
+            usable = mp_ok and mp_cv
+            add("mediapipe", usable,
+                "MediaPipe 备用后端可用" if usable else "MediaPipe 备用后端不可用（Vision 正常时可忽略）")
+
+        mood_dir = os.path.join(WIKI_DIR, "mood")
+        try:
+            os.makedirs(mood_dir, exist_ok=True)
+            probe = os.path.join(mood_dir, ".health_probe")
+            with open(probe, "w", encoding="utf-8") as f:
+                f.write("ok")
+            with open(probe, "r", encoding="utf-8") as f:
+                f.read()
+            os.unlink(probe)
+            add("mood_dir", True, mood_dir)
+        except Exception as e:  # noqa: BLE001
+            add("mood_dir", False, "{}: {}".format(mood_dir, e))
+
+        try:
+            import cv2  # noqa: PLC0415
+            cap = cv2.VideoCapture(0)
+            opened = cap.isOpened()
+            if opened:
+                cap.release()
+            add("camera_device", opened,
+                "摄像头可打开（未取帧）" if opened else "摄像头无法打开：占用/权限/缺失，详见 /api/face/camera")
+        except Exception as e:  # noqa: BLE001
+            add("camera_device", False, "cv2 不可用：{}".format(e))
+
+        all_ok = all(c["ok"] for c in checks)
+        core_ok = all(c["ok"] for c in checks if c["name"] != "camera_device")
+        self._send_json({
+            "ok": core_ok,
+            "status": "ok" if all_ok else ("degraded" if core_ok else "error"),
+            "checks": checks,
+        })
+
+        # ---- 待办清单（复用桌面端 wiki_data，落盘同一份 vault/todos.json） ----
     def _handle_todos_get(self):
         """GET /api/todos：返回排序后的全部待办。"""
         if wiki_data is None:
