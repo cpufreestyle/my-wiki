@@ -101,6 +101,32 @@ CACHE_PATH = WIKI_ROOT / "wiki" / ".rag_index.json"
 OLLAMA_URL = os.environ.get("MYWIKI_OLLAMA_URL", "http://localhost:11434")
 EMBED_MODEL = os.environ.get("MYWIKI_EMBED_MODEL", "nomic-embed-text")
 
+# 单批嵌入条数上限：整库一次性提交会让 Ollama runner 连接重置（400）
+EMBED_BATCH = 32
+
+# RRF 融合常数：越大越弱化 top-1 的优势，让两路结果更均衡
+RRF_K = 60
+# 单篇笔记在融合结果里最多出现的片段数，避免一篇占满结果页
+MAX_CHUNKS_PER_DOC = 2
+
+
+def _ollama_has_embed_model(timeout=1.5):
+    """探测本机 Ollama 是否可用且装有 EMBED_MODEL 对应的嵌入模型。
+
+    只做一次轻量 GET /api/tags。名字比对忽略 ":latest" 这类 tag 差异。
+    任何异常都当作不可用，绝不抛出，保证纯离线环境下仍留在 BM25。
+    """
+    try:
+        import requests
+        resp = requests.get(OLLAMA_URL + "/api/tags", timeout=timeout)
+        if resp.status_code != 200:
+            return False
+        names = [m.get("name", "") for m in (resp.json().get("models") or [])]
+        want = EMBED_MODEL.split(":")[0]
+        return any(n.split(":")[0] == want for n in names)
+    except Exception:
+        return False
+
 
 # ---------------------------------------------------------------------------
 # 分词 (中英文混合)
@@ -138,22 +164,33 @@ def cosine(a, b):
 # ---------------------------------------------------------------------------
 
 def chunk_text(text: str, max_chars: int = 600):
-    """按段落 / 标题切分为语义块，便于精准召回。"""
+    """按段落 / 标题切分为语义块，便于精准召回。
+
+    断块时机：累计长度已达上限且当前行处于段落边界（空行或标题）时切断；
+    若始终遇不到边界（整篇无空行/标题），则在超出 2 倍上限时强制切断，
+    避免出现数千字的巨型块——块越大，嵌入向量越“平均”，检索越不精准。
+    """
     lines = text.splitlines()
     blocks, cur, cur_len = [], [], 0
-    for ln in lines:
-        cur.append(ln)
-        cur_len += len(ln) + 1
-        # 在空行或标题处断块，控制块大小
-        if cur_len >= max_chars and (ln.strip() == "" or ln.startswith("#")):
-            joined = "\n".join(cur).strip()
-            if joined:
-                blocks.append(joined)
-            cur, cur_len = [], 0
-    if cur:
+
+    def flush():
         joined = "\n".join(cur).strip()
         if joined:
             blocks.append(joined)
+
+    for ln in lines:
+        at_boundary = ln.strip() == "" or ln.startswith("#")
+        # 到上限后遇到任意段落边界就切；一直没有边界则到 2 倍上限强切
+        if cur and ((cur_len >= max_chars and at_boundary) or cur_len >= max_chars * 2):
+            flush()
+            cur, cur_len = [], 0
+            if ln.strip() == "":
+                continue
+        cur.append(ln)
+        cur_len += len(ln) + 1
+
+    if cur:
+        flush()
     return [b for b in blocks if len(b) > 20]
 
 
@@ -177,7 +214,9 @@ class RAGEngine:
         env = os.environ.get("MYWIKI_RAG_MODE")
         if env in ("ollama", "bm25"):
             return env
-        return "bm25"
+        # 未显式指定时自动探测：装了本地嵌入模型就用向量语义检索，
+        # 否则留在零依赖的 BM25。此前恒为 "bm25"，装了 Ollama 也用不上。
+        return "ollama" if _ollama_has_embed_model() else "bm25"
 
     def _load_cache(self):
         try:
@@ -191,12 +230,20 @@ class RAGEngine:
             json.dumps(self.cache, ensure_ascii=False), encoding="utf-8"
         )
 
-    def _corpus_signature(self):
-        """知识库内容签名：所有 .md 的 (rel, mtime) 排序后取 md5。
+    def _iter_source_files(self):
+        """遍历知识库 .md，按规范路径去重后返回 [(canonical_rel, rel, path)]。
 
-        只 stat 不读文件内容，成本远低于全量重读 + 重分词。
+        两处去重：
+        1. brain/ 下的分类目录（brain/daily/、brain/projects/…）与顶层同名
+           目录存放的是同一批文档的副本；
+        2. macOS 大小写不敏感文件系统上，同一篇笔记可能存在仅大小写不同
+           的两个文件名（LLM_Wiki.md / llm_wiki.md）。
+
+        不去重会让同一篇笔记被索引多次，top-k 里出现多条分数完全相同的
+        重复项，白白占掉名额。规范路径取小写并去掉开头的 "brain/"；
+        冲突时优先保留顶层版本，其次按路径字典序取其一。
         """
-        items = []
+        chosen = {}
         for cat in CATEGORIES:
             root = self.root / cat
             if not root.exists():
@@ -206,15 +253,39 @@ class RAGEngine:
                     continue
                 if f.name in ("INDEX.md", "README.md"):
                     continue
-                try:
-                    items.append((f.relative_to(self.root).as_posix(), f.stat().st_mtime))
-                except OSError:
+                rel = f.relative_to(self.root).as_posix()
+                canon = rel[len("brain/"):] if rel.startswith("brain/") else rel
+                key = canon.lower()
+                prev = chosen.get(key)
+                if prev is None:
+                    chosen[key] = (canon, rel, f)
                     continue
+                prev_rel = prev[1]
+                prev_in_brain = prev_rel.startswith("brain/")
+                cur_in_brain = rel.startswith("brain/")
+                if prev_in_brain and not cur_in_brain:
+                    chosen[key] = (canon, rel, f)
+                elif prev_in_brain == cur_in_brain and canon < prev[0]:
+                    chosen[key] = (canon, rel, f)
+        return sorted(chosen.values(), key=lambda x: x[0])
+
+    def _corpus_signature(self):
+        """知识库内容签名：所有 .md 的 (canonical_rel, mtime) 排序后取 md5。
+
+        只 stat 不读文件内容，成本远低于全量重读 + 重分词。
+        """
+        items = []
+        for canon, _rel, f in self._iter_source_files():
+            try:
+                items.append((canon, f.stat().st_mtime))
+            except OSError:
+                continue
         items.sort()
         h = hashlib.md5()
         for rel, mt in items:
             h.update("{}:{}\n".format(rel, mt).encode("utf-8"))
         return h.hexdigest()
+
 
     def _restore_bm25(self, cached):
         """从缓存恢复 BM25 预处理结果（跳过读文件与分词）。"""
@@ -250,34 +321,25 @@ class RAGEngine:
     # --- 收集与分块 ---
     def _collect_blocks(self):
         blocks = []
-        for cat in CATEGORIES:
-            root = self.root / cat
-            if not root.exists():
+        for canon, _rel, f in self._iter_source_files():
+            try:
+                text = f.read_text(encoding="utf-8", errors="ignore")
+            except Exception:
                 continue
-            for f in root.rglob("*.md"):
-                if any(part in SKIP_DIRS for part in f.parts):
-                    continue
-                if f.name in ("INDEX.md", "README.md"):
-                    continue
-                rel = f.relative_to(self.root).as_posix()
-                try:
-                    text = f.read_text(encoding="utf-8", errors="ignore")
-                except Exception:
-                    continue
-                # 去掉 YAML frontmatter 噪声，只索引正文
-                m = re.match(r"^---\s*\n.*?\n---\s*\n?", text, re.DOTALL)
-                body = text[m.end():] if m else text
-                title = f.stem.replace("_", " ")
-                for b in chunk_text(body):
-                    blocks.append({
-                        "rel": rel,
-                        "title": title,
-                        "text": b,
-                        "mtime": f.stat().st_mtime,
-                    })
+            # 去掉 YAML frontmatter 噪声，只索引正文
+            m = re.match(r"^---\s*\n.*?\n---\s*\n?", text, re.DOTALL)
+            body = text[m.end():] if m else text
+            title = f.stem.replace("_", " ")
+            for b in chunk_text(body):
+                blocks.append({
+                    "rel": canon,
+                    "title": title,
+                    "text": b,
+                    "mtime": f.stat().st_mtime,
+                })
         return blocks
 
-    # --- 索引 ---
+
     def index(self, force=False):
         # 语料未变化时直接复用上次的 BM25 预处理结果（跳过全量读文件与分词）。
         # 此前每次冷启动都要重新读完整个知识库并重新分词。
@@ -322,33 +384,113 @@ class RAGEngine:
                 pending.append((i, b["text"]))
         if not pending:
             return
-        try:
+
+        def embed_batch(texts):
+            """向 Ollama 请求一批嵌入，返回向量列表；失败抛异常。"""
             import requests
-            batch = [t for _, t in pending]
             resp = requests.post(
                 f"{OLLAMA_URL}/api/embed",
-                json={"model": EMBED_MODEL, "input": batch},
+                json={"model": EMBED_MODEL, "input": texts},
                 timeout=180,
             )
             resp.raise_for_status()
-            embs = resp.json().get("embeddings", [])
-            for (i, _), e in zip(pending, embs):
+            return resp.json().get("embeddings", [])
+
+        # 一次性把整库塞进单个请求会让 Ollama runner 连接重置（400），
+        # 于是按小批重试：单批失败只丢该批，其余批仍拿到向量。
+        done = 0
+        for start in range(0, len(pending), EMBED_BATCH):
+            chunk = pending[start:start + EMBED_BATCH]
+            try:
+                embs = embed_batch([t for _, t in chunk])
+            except Exception as e:  # noqa: BLE001
+                print(
+                    f"[WARN] 嵌入批次 {start}-{start + len(chunk)} 失败，"
+                    f"该批退回 BM25: {e}",
+                    file=sys.stderr,
+                )
+                continue
+            for (i, _), e in zip(chunk, embs):
                 key = self.blocks[i]["_key"]
                 emb_cache[key] = e
                 self.blocks[i]["_emb"] = e
+                done += 1
+            self._save_cache()
+
+        if done == 0:
+            # 一条都没向量化成功：整库退回 BM25，保证检索仍可用
+            print("[WARN] Ollama embedding 全部失败，回退 BM25", file=sys.stderr)
+            self.mode = "bm25"
+        elif done < len(pending):
+            print(
+                f"[WARN] 仅有 {done}/{len(pending)} 片段完成向量化，"
+                f"其余由 BM25 补齐",
+                file=sys.stderr,
+            )
+        else:
             self.cache["mode"] = "ollama"
             self._save_cache()
-        except Exception as e:
-            print(f"[WARN] Ollama embedding 失败，回退 BM25: {e}", file=sys.stderr)
-            self.mode = "bm25"
 
     # --- 查询 ---
     def search(self, query, limit=10):
+        """混合检索：向量语义 + BM25 字面，用 RRF 融合排序。
+
+        单用向量时存在 hubness——个别块（如标签密集的日记开头）对任何查询
+        都给出高分，稳定占据 top-1；单用 BM25 则只认字面重合，换个说法就
+        召回不到。RRF 只看排序名次、不看原始分数，天然免疫两者量纲差异，
+        任一路召回不到的文档不会拖累另一路的名次。
+        """
         if not self.blocks:
             self.index()
-        if self.mode == "ollama" and all("_emb" in b for b in self.blocks):
-            return self._search_embedding(query, limit)
-        return self._search_bm25(tokenize(query), limit)
+        q_tokens = tokenize(query)
+        bm25_hits = self._search_bm25(q_tokens, limit * 3)
+
+        emb_hits = None
+        if self.mode == "ollama":
+            embedded = [b for b in self.blocks if "_emb" in b]
+            if embedded:
+                # 查询向量化失败（Ollama 挂了/超时）时返回 None，整库退回 BM25
+                emb_hits = self._search_embedding(query, limit * 3)
+
+        if not emb_hits:
+            return bm25_hits[:limit]
+        return self._rrf_merge([emb_hits, bm25_hits], limit)
+
+    @staticmethod
+    def _rrf_merge(rankings, limit, k=RRF_K):
+        """Reciprocal Rank Fusion：按名次倒数累加，避免分数不可比。
+
+        以 (rel, snippet) 而非 rel 为融合键。同一篇笔记的多个片段各自计入
+        名次——若按 rel 折叠，BM25 里命中 6 个片段的文档只能拿到 1 次贡献，
+        反而被另一路只命中 1 个片段、但排在首位的文档压过去。
+        同一片段被两路同时召回时贡献累加，这正是"两路都认为相关"的信号。
+        """
+        fused = {}
+        for ranking in rankings:
+            for rank, hit in enumerate(ranking, start=1):
+                key = (hit["rel"], hit["snippet"])
+                prev = fused.get(key)
+                contrib = 1.0 / (k + rank)
+                if prev is None:
+                    item = dict(hit)
+                    item["score"] = contrib
+                    fused[key] = item
+                else:
+                    prev["score"] += contrib
+        ordered = sorted(fused.values(), key=lambda x: x["score"], reverse=True)
+        out = []
+        per_doc = {}
+        for item in ordered:
+            # 同一篇笔记最多保留 2 个片段，避免一篇占满整个结果页
+            cnt = per_doc.get(item["rel"], 0)
+            if cnt >= MAX_CHUNKS_PER_DOC:
+                continue
+            per_doc[item["rel"]] = cnt + 1
+            item["score"] = round(item["score"], 4)
+            out.append(item)
+            if len(out) >= limit:
+                break
+        return out
 
     def _search_bm25(self, q_tokens, limit):
         k1, b = 1.5, 0.75
@@ -377,14 +519,22 @@ class RAGEngine:
         return self._format(scored[:limit])
 
     def _search_embedding(self, query, limit):
-        import requests
-        resp = requests.post(
-            f"{OLLAMA_URL}/api/embed",
-            json={"model": EMBED_MODEL, "input": [query]},
-            timeout=60,
-        )
-        resp.raise_for_status()
-        q_emb = resp.json()["embeddings"][0]
+        """向量检索。查询向量化失败时返回 None（由调用方退回 BM25），
+
+        避免 Ollama 中途挂掉时整库检索返回空结果。
+        """
+        try:
+            import requests
+            resp = requests.post(
+                f"{OLLAMA_URL}/api/embed",
+                json={"model": EMBED_MODEL, "input": [query]},
+                timeout=60,
+            )
+            resp.raise_for_status()
+            q_emb = resp.json()["embeddings"][0]
+        except Exception as e:  # noqa: BLE001
+            print(f"[WARN] 查询向量化失败，退回 BM25: {e}", file=sys.stderr)
+            return None
         scored = []
         for blk in self.blocks:
             if "_emb" not in blk:
