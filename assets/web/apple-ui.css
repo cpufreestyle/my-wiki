@@ -1,0 +1,603 @@
+/* ==========================================================================
+   apple-ui.css — MyWiki 网页端 · Apple Liquid Glass 统一皮肤
+   --------------------------------------------------------------------------
+   放在各页 <style> 之后引入（同特异度下后者胜出），即可把已按
+   苹果设计词汇（--bg/--surface/--accent + .app/.card/.app-header）写好的页面
+   整体换成现代 Apple 观感，无需逐页重写内联样式。
+
+   设计要点（对应 macOS Tahoe / iOS 26 材质语言）：
+   1. 材质分层 —— 内容在底层，控件与导航用半透明玻璃浮在内容之上；
+   2. 玻璃三件套 —— fill（半透明填充）+ blur（背景模糊饱和）+ specular
+      （内阴影高光描边，让边缘有玻璃厚度）；
+   3. 连续圆角 —— 卡片 22px、按钮 12px，趋近 squircle 观感；
+   4. 系统色与系统字 —— 不引入自定义色板，全部走 Apple 系统色阶；
+   5. 无障碍 —— prefers-reduced-transparency 时退化为不透明材质，
+      prefers-reduced-motion 时去掉位移动画。
+   ========================================================================== */
+
+:root {
+    /* ---- 材质（浅色） ---- */
+    --glass-fill: rgba(255, 255, 255, 0.62);
+    --glass-fill-strong: rgba(255, 255, 255, 0.76);
+    --glass-fill-subtle: rgba(255, 255, 255, 0.42);
+    --glass-stroke: rgba(255, 255, 255, 0.72);
+    --glass-hairline: rgba(60, 60, 67, 0.12);
+    --glass-blur: saturate(180%) blur(26px);
+    --glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.88),
+        inset 0 -1px 0 rgba(255, 255, 255, 0.22);
+
+    /* ---- 语义色 ---- */
+    --bg: #eceff5;
+    --surface: rgba(255, 255, 255, 0.72);
+    --text: #1d1d1f;
+    --text-secondary: rgba(60, 60, 67, 0.62);
+    --text-tertiary: rgba(60, 60, 67, 0.42);
+    --accent: #0071e3;
+    --accent-hover: #0062c4;
+    --orange: #ff9500;
+    --orange-hover: #e68600;
+    --green: #34c759;
+    --green-hover: #2aa84a;
+    --red: #ff3b30;
+    --pink: #ff2d78;
+    --border: rgba(60, 60, 67, 0.1);
+    --separator: rgba(60, 60, 67, 0.12);
+
+    /* ---- 形状与阴影 ---- */
+    --radius-card: 22px;
+    --radius-btn: 12px;
+    --radius-tile: 14px;
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05), 0 4px 12px rgba(0, 0, 0, 0.04);
+    --shadow-md: 0 2px 6px rgba(0, 0, 0, 0.05), 0 14px 34px rgba(0, 0, 0, 0.08);
+    --shadow-accent: 0 6px 18px rgba(0, 113, 227, 0.28);
+
+    --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display",
+        "PingFang SC", "Helvetica Neue", "Microsoft YaHei", sans-serif;
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, "JetBrains Mono",
+        "Cascadia Code", monospace;
+
+    color-scheme: light;
+}
+
+[data-theme="dark"] {
+    --glass-fill: rgba(38, 38, 42, 0.6);
+    --glass-fill-strong: rgba(46, 46, 51, 0.76);
+    --glass-fill-subtle: rgba(255, 255, 255, 0.06);
+    --glass-stroke: rgba(255, 255, 255, 0.14);
+    --glass-hairline: rgba(255, 255, 255, 0.1);
+    --glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.12),
+        inset 0 -1px 0 rgba(255, 255, 255, 0.04);
+
+    --bg: #0b0b0f;
+    --surface: rgba(38, 38, 42, 0.7);
+    --text: #f5f5f7;
+    --text-secondary: rgba(235, 235, 245, 0.62);
+    --text-tertiary: rgba(235, 235, 245, 0.4);
+    --accent: #0a84ff;
+    --accent-hover: #409cff;
+    --orange: #ff9f0a;
+    --orange-hover: #ffb340;
+    --green: #30d158;
+    --green-hover: #4ade7a;
+    --red: #ff453a;
+    --pink: #ff375f;
+    --border: rgba(255, 255, 255, 0.1);
+    --separator: rgba(255, 255, 255, 0.12);
+
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4), 0 4px 14px rgba(0, 0, 0, 0.3);
+    --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.42), 0 18px 40px rgba(0, 0, 0, 0.46);
+    --shadow-accent: 0 6px 20px rgba(10, 132, 255, 0.4);
+
+    color-scheme: dark;
+}
+
+/* ---- 基础 ---- */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+html {
+    -webkit-text-size-adjust: 100%;
+}
+
+body {
+    font-family: var(--font);
+    color: var(--text);
+    line-height: 1.5;
+    min-height: 100vh;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    background-color: var(--bg);
+    /* 玻璃需要有内容可采样：底层铺柔和色雾，而不是一块纯色 */
+    background-image:
+        radial-gradient(1200px 820px at 6% -14%, rgba(0, 122, 255, 0.3), transparent 62%),
+        radial-gradient(980px 700px at 108% -6%, rgba(255, 55, 95, 0.22), transparent 58%),
+        radial-gradient(820px 620px at 46% 112%, rgba(94, 92, 230, 0.24), transparent 64%),
+        linear-gradient(180deg, rgba(255, 255, 255, 0.62), rgba(255, 255, 255, 0.14) 46%);
+    background-attachment: fixed;
+    transition: background-color 0.35s ease, color 0.25s ease;
+}
+
+[data-theme="dark"] body {
+    background-image:
+        radial-gradient(1100px 760px at 8% -12%, rgba(10, 132, 255, 0.2), transparent 60%),
+        radial-gradient(900px 640px at 106% -4%, rgba(255, 55, 95, 0.16), transparent 56%),
+        radial-gradient(760px 560px at 50% 108%, rgba(94, 92, 230, 0.18), transparent 62%),
+        linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0) 42%);
+}
+
+::selection {
+    background: rgba(0, 113, 227, 0.24);
+}
+
+[data-theme="dark"] ::selection {
+    background: rgba(10, 132, 255, 0.36);
+}
+
+/* 细滚动条，风格贴近 macOS 覆盖式滚动条 */
+::-webkit-scrollbar {
+    width: 9px;
+    height: 9px;
+}
+::-webkit-scrollbar-thumb {
+    background: rgba(120, 120, 128, 0.34);
+    border-radius: 999px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover {
+    background: rgba(120, 120, 128, 0.55);
+    background-clip: content-box;
+}
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+/* ---- 布局容器 ---- */
+.app {
+    max-width: 620px;
+    margin: 0 auto;
+    padding: 40px 20px 56px;
+    position: relative;
+    z-index: 0;
+}
+
+/* ---- 页头：大标题 + 磨砂方角玻璃应用标 ---- */
+.app-header {
+    position: relative;
+    text-align: center;
+    margin-bottom: 28px;
+}
+
+.app-header h1 {
+    font-size: 28px;
+    font-weight: 700;
+    letter-spacing: -0.022em;
+    line-height: 1.2;
+}
+
+.app-header p {
+    margin-top: 5px;
+    font-size: 14px;
+    font-weight: 400;
+    color: var(--text-secondary);
+    letter-spacing: -0.006em;
+}
+
+.app-header .icon {
+    width: 68px;
+    height: 68px;
+    margin: 0 auto 16px;
+    display: grid;
+    place-items: center;
+    font-size: 32px;
+    border-radius: var(--radius-tile);
+    /* squircle 观感：大圆角 + 玻璃填充 + 顶部高光 */
+    background: var(--glass-fill-strong);
+    -webkit-backdrop-filter: var(--glass-blur);
+    backdrop-filter: var(--glass-blur);
+    border: 1px solid var(--glass-stroke);
+    box-shadow: var(--glass-highlight), var(--shadow-md);
+    transition: transform 0.25s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.app-header:hover .icon {
+    transform: scale(1.04) translateY(-1px);
+}
+
+/* ---- 主题切换：飘在内容之上的玻璃圆形按钮 ---- */
+.theme-toggle {
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 40px;
+    height: 40px;
+    border: 1px solid var(--glass-stroke);
+    border-radius: 50%;
+    background: var(--glass-fill);
+    -webkit-backdrop-filter: var(--glass-blur);
+    backdrop-filter: var(--glass-blur);
+    box-shadow: var(--glass-highlight), var(--shadow-sm);
+    color: var(--text);
+    font-size: 17px;
+    cursor: pointer;
+    display: grid;
+    place-items: center;
+    transition: transform 0.2s cubic-bezier(0.32, 0.72, 0, 1), background 0.25s ease;
+}
+.theme-toggle:hover {
+    transform: scale(1.08);
+    background: var(--glass-fill-strong);
+}
+.theme-toggle:active {
+    transform: scale(0.93);
+}
+
+/* ---- 分组小标题（Apple 内嵌分组列表风格） ---- */
+.section-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    letter-spacing: 0.01em;
+    margin: 24px 6px 12px;
+}
+
+/* ---- 玻璃卡片：这是全局最常用的表面 ---- */
+.card,
+.height-panel,
+.modal-card,
+.tool-panel {
+    background: var(--glass-fill);
+    -webkit-backdrop-filter: var(--glass-blur);
+    backdrop-filter: var(--glass-blur);
+    border: 1px solid var(--glass-stroke);
+    border-radius: var(--radius-card);
+    box-shadow: var(--glass-highlight), var(--shadow-md);
+    padding: 20px;
+}
+
+/* 与卡片同族的展示块：只列独立表面。
+   注意不要把 .result-list / .sources / .records 这类容器加进来——
+   它们是卡片内部的栅格或子区块，套上玻璃会形成玻璃套玻璃，
+   既违反 Apple「一个界面同一层只放一层材质」的规则，视觉上也会糊。 */
+.mood-result,
+.answer-card {
+    background: var(--glass-fill);
+    -webkit-backdrop-filter: var(--glass-blur);
+    backdrop-filter: var(--glass-blur);
+    border: 1px solid var(--glass-stroke);
+    border-radius: var(--radius-card);
+    box-shadow: var(--glass-highlight), var(--shadow-sm);
+}
+
+/* ---- 列表行：给分隔线用系统色，行内不做重投影 ---- */
+.result-item,
+.source-item,
+.records > * {
+    border-color: var(--separator);
+}
+
+.result-item .title,
+.source-item .title {
+    letter-spacing: -0.01em;
+}
+
+/* ---- 徽标 ---- */
+.badge {
+    border-radius: 7px;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+}
+
+/* ---- 空状态提示 ---- */
+.empty-tip {
+    color: var(--text-secondary);
+    text-align: center;
+    padding: 22px 16px;
+    font-size: 14px;
+    line-height: 1.6;
+}
+
+/* ---- 返回链接 ---- */
+.back-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    margin: 0 6px 16px;
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--accent);
+    text-decoration: none;
+    transition: opacity 0.15s ease;
+}
+.back-link:hover {
+    opacity: 0.72;
+}
+
+/* ---- Toast：玻璃通知，浮在最上层 ---- */
+.toast {
+    background: var(--glass-fill-strong);
+    -webkit-backdrop-filter: saturate(180%) blur(30px);
+    backdrop-filter: saturate(180%) blur(30px);
+    border: 1px solid var(--glass-stroke);
+    border-radius: 999px;
+    box-shadow: var(--glass-highlight), var(--shadow-md);
+    color: var(--text);
+    font-weight: 500;
+    letter-spacing: -0.006em;
+}
+[data-theme="dark"] .toast {
+    color: var(--text);
+}
+
+/* ---- 焦点环：统一为系统蓝柔光环 ---- */
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+[tabindex]:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3.5px rgba(0, 113, 227, 0.45);
+    border-radius: 10px;
+}
+[data-theme="dark"] a:focus-visible,
+[data-theme="dark"] button:focus-visible,
+[data-theme="dark"] input:focus-visible,
+[data-theme="dark"] textarea:focus-visible,
+[data-theme="dark"] select:focus-visible {
+    box-shadow: 0 0 0 3.5px rgba(10, 132, 255, 0.55);
+}
+
+/* ---- 输入区 ---- */
+input[type="text"],
+input[type="search"],
+input[type="password"],
+input[type="number"],
+input[type="date"],
+input[type="time"],
+textarea,
+.mood-input,
+.search-row input {
+    font-family: inherit;
+    font-size: 15px;
+    letter-spacing: -0.006em;
+    color: var(--text);
+    background: var(--glass-fill-subtle);
+    border: 1px solid var(--glass-hairline);
+    border-radius: var(--radius-btn);
+    padding: 11px 14px;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+}
+
+input::placeholder,
+textarea::placeholder {
+    color: var(--text-tertiary);
+}
+
+.search-row {
+    display: flex;
+    gap: 8px;
+    align-items: stretch;
+}
+.search-row input {
+    flex: 1;
+    min-width: 0;
+}
+
+/* ---- 按钮 ---- */
+button {
+    font-family: inherit;
+    letter-spacing: -0.006em;
+}
+
+.search-btn,
+.analyze-btn,
+.action-row button,
+.modal-actions button,
+.tool-btn {
+    border: none;
+    border-radius: var(--radius-btn);
+    padding: 11px 20px;
+    font-size: 15px;
+    font-weight: 600;
+    color: #fff;
+    background: var(--accent);
+    box-shadow: var(--shadow-accent);
+    cursor: pointer;
+    transition: transform 0.18s cubic-bezier(0.32, 0.72, 0, 1),
+        background 0.2s ease, box-shadow 0.2s ease, opacity 0.2s ease;
+}
+.search-btn:hover,
+.analyze-btn:hover,
+.action-row button:hover,
+.modal-actions button:hover,
+.tool-btn:hover {
+    background: var(--accent-hover);
+}
+.search-btn:active,
+.analyze-btn:active,
+.action-row button:active,
+.modal-actions button:active,
+.tool-btn:active {
+    transform: scale(0.97);
+    box-shadow: none;
+}
+
+/* 次级按钮：玻璃填充而非实色，形成层级 */
+.voice-btn {
+    border: 1px solid var(--glass-stroke);
+    border-radius: var(--radius-btn);
+    padding: 11px 15px;
+    font-size: 15px;
+    font-weight: 500;
+    color: var(--text);
+    background: var(--glass-fill);
+    -webkit-backdrop-filter: var(--glass-blur);
+    backdrop-filter: var(--glass-blur);
+    box-shadow: var(--glass-highlight);
+    cursor: pointer;
+    transition: transform 0.18s cubic-bezier(0.32, 0.72, 0, 1), background 0.2s ease;
+}
+.voice-btn:hover {
+    background: var(--glass-fill-strong);
+}
+.voice-btn:active {
+    transform: scale(0.97);
+}
+.voice-btn.recording,
+button.recording {
+    color: var(--red);
+    border-color: rgba(255, 59, 48, 0.45);
+}
+
+/* ---- 分段控件（iOS 风格） ---- */
+.mode-switch {
+    display: flex;
+    gap: 4px;
+    justify-content: center;
+    margin-bottom: 16px;
+    padding: 3px;
+    border-radius: 999px;
+    background: var(--glass-fill-subtle);
+    border: 1px solid var(--glass-hairline);
+    -webkit-backdrop-filter: blur(12px);
+    backdrop-filter: blur(12px);
+    width: fit-content;
+    margin-left: auto;
+    margin-right: auto;
+}
+.mode-switch button {
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    border-radius: 999px;
+    padding: 7px 18px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: all 0.22s cubic-bezier(0.32, 0.72, 0, 1);
+}
+.mode-switch button:hover:not(.active) {
+    color: var(--text);
+}
+.mode-switch button.active {
+    background: var(--glass-fill-strong);
+    color: var(--text);
+    font-weight: 600;
+    box-shadow: var(--glass-highlight), 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+
+/* ---- 状态文字与数值 ---- */
+.voice-status,
+.status,
+.thinking-tip {
+    font-size: 13px;
+    color: var(--text-secondary);
+    text-align: center;
+    margin-top: 8px;
+    min-height: 1.2em;
+}
+
+.label {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-secondary);
+}
+
+.val {
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.01em;
+}
+
+.meta {
+    font-size: 12px;
+    color: var(--text-secondary);
+    line-height: 1.5;
+}
+
+/* ---- 录音呼吸点 ---- */
+.dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--red);
+    box-shadow: 0 0 0 0 rgba(255, 59, 48, 0.6);
+    animation: apple-pulse 1.6s ease-out infinite;
+}
+
+@keyframes apple-pulse {
+    0%   { box-shadow: 0 0 0 0 rgba(255, 59, 48, 0.55); }
+    70%  { box-shadow: 0 0 0 7px rgba(255, 59, 48, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(255, 59, 48, 0); }
+}
+
+/* ---- 页脚 ---- */
+.footer {
+    margin-top: 34px;
+    text-align: center;
+    font-size: 12px;
+    color: var(--text-tertiary);
+}
+
+@media (max-width: 480px) {
+    .app {
+        padding: 30px 14px 42px;
+    }
+    .app-header h1 {
+        font-size: 24px;
+    }
+    .app-header .icon {
+        width: 60px;
+        height: 60px;
+        font-size: 28px;
+    }
+    .card,
+    .height-panel {
+        padding: 16px;
+        border-radius: 18px;
+    }
+}
+
+/* ---- 无障碍：减弱透明度时退化为不透明材质（玻璃不可读时的兜底） ---- */
+@media (prefers-reduced-transparency: reduce) {
+    :root,
+    [data-theme="dark"] {
+        --glass-fill: var(--surface-opaque-fallback, #ffffff);
+        --glass-fill-strong: var(--surface-opaque-fallback, #ffffff);
+        --glass-fill-subtle: rgba(120, 120, 128, 0.12);
+        --glass-stroke: var(--glass-hairline);
+        --glass-highlight: none;
+    }
+    [data-theme="dark"] {
+        --surface-opaque-fallback: #1f1f23;
+    }
+    body {
+        background-image: none;
+        background-color: var(--surface-opaque-fallback, #f2f4f8);
+    }
+    [data-theme="dark"] body {
+        background-color: #1f1f23;
+    }
+    .card, .height-panel, .modal-card, .tool-panel,
+    .app-header .icon, .theme-toggle, .toast {
+        -webkit-backdrop-filter: none;
+        backdrop-filter: none;
+    }
+}
+
+/* ---- 无障碍：减弱动效时只保留必要的颜色过渡 ---- */
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.001ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.001ms !important;
+    }
+}

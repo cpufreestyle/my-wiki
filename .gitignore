@@ -170,3 +170,6 @@ inbox/
 
 # 图标替换时的旧版本备份（本地保留，不进仓库）
 .icons-backup*
+
+# playwright-cli 快照工作目录（UI 验证时写入，不入库）
+.playwright-cli/
