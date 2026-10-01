@@ -262,6 +262,15 @@
         let curFace = null;      // 当前帧人脸度量 {x, y, eye}
         let lastMaskFace = null; // 抓帧时刻的人脸度量（对应 lastMask）
 
+        // ---- mask 无人兜底：Vision 检不出人物时返回全透明 alpha mask ----
+        // 若仍按 mask 扣图（destination-in），人会被整块擦掉，画面只剩背景图。
+        // 用 16x12 降采样探针读 alpha 均值，连续若干帧判定无人后改为直接显示原帧。
+        const maskProbe = document.createElement("canvas");
+        const maskProbeCtx = maskProbe.getContext("2d", { willReadFrequently: true });
+        const NO_PERSON_FRAMES = 3; // 连续多少帧无人后降级为原帧
+        const NO_PERSON_ALPHA = 8;  // 探针 alpha 均值阈值，低于视为无人
+        let maskNoPerson = 0;       // 连续无人帧计数
+
         function faceMetrics(lm) {
             if (!lm) return null;
             const L = lm[33], R = lm[263]; // 左右眼外角
@@ -387,6 +396,19 @@
             return out;
         }
 
+        // 视频帧统一绘制入口（镜像 / 真实共用）。
+        // 必须用 9 参形态 drawImage(img, sx, sy, sw, sh, dx, dy, dw, dh)：
+        // 不得图省事写成 5 参形态：那样后 4 个参数会被解读为
+        // 「源图裁剪矩形」(sx=w, sy=0, sw=+/-w, sh=h)，整幅画面被裁到
+        // 视频右侧之外 —— 真实模式什么都不画（只剩背景图，用户看不到人），
+        // 只有镜像模式恰好落在源图内才偶然可见。
+        function drawVideoFrame(c, w, h) {
+            if (!video.videoWidth || !video.videoHeight) return;
+            const dx = mirrorMode ? w : 0;
+            const dw = mirrorMode ? -w : w;
+            c.drawImage(video, 0, 0, video.videoWidth, video.videoHeight, dx, 0, dw, h);
+        }
+
         function drawBackground(w, h) {
             if (bgImage && bgImage.complete && bgImage.naturalWidth > 0) {
                 // 用户上传的自定义背景（最高优先）
@@ -424,7 +446,7 @@
                     bgSmall2.width = w2; bgSmall2.height = h2;
                 }
                 bgSmall1Ctx.imageSmoothingEnabled = true;
-                bgSmall1Ctx.drawImage(video, w1, 0, mirrorMode ? -w1 : w1, h1); // 虚化背景方向随镜像开关
+                drawVideoFrame(bgSmall1Ctx, w1, h1); // 虚化背景方向随镜像开关
                 bgSmall2Ctx.imageSmoothingEnabled = true;
                 bgSmall2Ctx.drawImage(bgSmall1, 0, 0, w2, h2);
                 ctx.imageSmoothingEnabled = true;
@@ -450,6 +472,30 @@
             }
         }
 
+        // mask 是否包含人物：16x12 降采样读 alpha 均值
+        //（Vision mask 为白底 RGBA、MediaPipe mask 为 alpha 位图，均看 alpha）
+        function maskHasPerson(bmp) {
+            if (!bmp) return false;
+            const pw = 16, ph = 12;
+            if (maskProbe.width !== pw || maskProbe.height !== ph) {
+                maskProbe.width = pw; maskProbe.height = ph;
+            }
+            maskProbeCtx.clearRect(0, 0, pw, ph);
+            try {
+                maskProbeCtx.drawImage(bmp, 0, 0, pw, ph);
+                const d = maskProbeCtx.getImageData(0, 0, pw, ph).data;
+                let sum = 0;
+                for (let i = 3; i < d.length; i += 4) sum += d[i];
+                return sum / (pw * ph) >= NO_PERSON_ALPHA;
+            } catch {
+                return true; // 读不到像素时不误判，维持原有扣图路径
+            }
+        }
+
+        function updatePersonPresence(has) {
+            maskNoPerson = has ? 0 : maskNoPerson + 1;
+        }
+
         function visionMaskImage() {
             // 返回 Promise<ImageBitmap|null>：送一帧给 Vision，拿回系统 mask。
             // 每次调用都用「当前最新帧」——在途请求即使未完成，新帧照发
@@ -463,7 +509,7 @@
             if (frameCanvas.width !== w || frameCanvas.height !== h) {
                 frameCanvas.width = w; frameCanvas.height = h;
             }
-            frameCtx.drawImage(video, w, 0, mirrorMode ? -w : w, h); // 抓帧方向随镜像开关 → mask 与人像同源
+            drawVideoFrame(frameCtx, w, h); // 抓帧方向随镜像开关 → mask 与人像同源
             const blobP = new Promise((res) => frameCanvas.toBlob(res, "image/jpeg", 0.6));
             return blobP.then((blob) => {
                 if (!blob) return null;
@@ -486,8 +532,11 @@
         }
 
         function drawPerson(w, h, mask) {
+            // 连续多帧取不到人物时 mask 已无参考价值：继续按它扣图会把画面
+            // 用 destination-in 擦成只剩背景图。降级为直接显示原帧。
+            if (mask && maskNoPerson >= NO_PERSON_FRAMES) mask = null;
             if (!mask) {
-                ctx.drawImage(video, w, 0, mirrorMode ? -w : w, h); // 兜底人像方向随镜像开关
+                drawVideoFrame(ctx, w, h); // 兜底人像方向随镜像开关
                 return;
             }
             // mask 先降采样再上采样：边缘经双线性插值天然羽化，
@@ -508,7 +557,7 @@
             }
             pctx.globalCompositeOperation = "source-over";
             pctx.clearRect(0, 0, w, h);
-            pctx.drawImage(video, w, 0, mirrorMode ? -w : w, h); // 人像方向随镜像开关，与 mask/landmark 同源
+            drawVideoFrame(pctx, w, h); // 人像方向随镜像开关，与 mask/landmark 同源
             pctx.globalCompositeOperation = "destination-in";
             pctx.imageSmoothingEnabled = true;
 
@@ -620,12 +669,17 @@
                 const now = performance.now();
                 if (!loop._nextVision || now >= loop._nextVision) {
                     loop._nextVision = now + VISION_POLL_MS;
-                    visionMaskImage().then((bmp) => { if (bmp) lastMask = bmp; });
+                    visionMaskImage().then((bmp) => {
+                        if (!bmp) return;
+                        lastMask = bmp;
+                        updatePersonPresence(maskHasPerson(bmp));
+                    });
                 }
             } else if (segReady && selfieSegmentation) {
                 try {
                     await selfieSegmentation.send({image: video});
                     lastMaskFace = null; // MediaPipe mask 逐帧生成，无需补偿
+                    updatePersonPresence(maskHasPerson(lastMask));
                 } catch (e) {
                     console.error("segmentation send error", e);
                 }
@@ -760,6 +814,7 @@
             video.srcObject = null;
             ctx.clearRect(0, 0, canvas.width, canvas.height);
             lastMask = null;
+            maskNoPerson = 0;
             mouthTrail = [];
             smoothedFeatures = null;
             labelVotes = [];
@@ -803,7 +858,7 @@
             try { localStorage.setItem("mywiki-face-mirror", mirrorMode ? "1" : "0"); } catch {}
             mirrorBtn.textContent = "🧭 方向：" + (mirrorMode ? "镜像" : "真实");
             // 旧 mask 已换向，作废以按新方向重新分割，避免错位残影
-            lastMask = null; lastMaskFace = null;
+            lastMask = null; lastMaskFace = null; maskNoPerson = 0;
             toast(mirrorMode ? "自拍镜像：画面左右翻转" : "真实方向：与摄像头方向一致");
         });
 
@@ -857,7 +912,7 @@
                 if (frameCanvas.width !== w || frameCanvas.height !== h) {
                     frameCanvas.width = w; frameCanvas.height = h;
                 }
-                frameCtx.drawImage(video, w, 0, mirrorMode ? -w : w, h); // 抓帧方向随镜像开关（与实时一致）
+                drawVideoFrame(frameCtx, w, h); // 抓帧方向随镜像开关（与实时一致）
                 const blob = await new Promise((res) => frameCanvas.toBlob(res, "image/jpeg", 0.92));
                 const r = await fetch("/api/vision/cutout", {
                     method: "POST",

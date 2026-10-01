@@ -260,10 +260,6 @@ class TestFaceMoodWebLocalAssets(unittest.TestCase):
                            "face_landmarker.task 体积异常，疑似下载不完整")
 
 
-if __name__ == "__main__":
-    unittest.main(verbosity=2)
-
-
 class TestFaceMoodWebMirror(unittest.TestCase):
     """方向/镜像开关与画布尺寸时序回归（修复「抠图和人方向反了」）。"""
 
@@ -275,15 +271,42 @@ class TestFaceMoodWebMirror(unittest.TestCase):
         self.assertIn("mirrorBtn", self.p.ids, "缺少方向/镜像开关按钮 mirrorBtn")
         self.assertIn("mirrorMode", self.script, "脚本应定义方向开关 mirrorMode")
 
-    def test_all_video_draws_are_mirror_gated(self):
-        # 所有 drawImage(video, ...) 的尺寸参数都必须由 mirrorMode 决定，
-        # 不得残留硬编码镜像 -w/-w1，否则方向开关会漏掉某一路导致错位
-        draws = re.findall(r"drawImage\(\s*video,\s*([^;]*)\);", self.script)
-        self.assertTrue(draws, "未发现 drawImage(video, ...) 调用")
-        self.assertGreaterEqual(len(draws), 5, "至少应捕获 5 路 drawImage(video,...)")
-        for args in draws:
-            self.assertIn("mirrorMode", args,
-                          "drawImage(video, ...) 未受 mirrorMode 控制: " + repr(args))
+    def test_no_five_arg_drawimage_video(self):
+        # 回归「看不见人脸」：5 参 drawImage(video, dx, dy, dw, dh) 的后 4 个参数是
+        # 「源图裁剪矩形」而非目标矩形，dx=w 会把整块画面画到画布外，
+        # 真实模式（默认）下什么都不画，只剩背景图。
+        draws = self.script.split("drawImage(video")[1:]
+        self.assertTrue(draws, "未发现任何 drawImage(video, ...) 调用")
+        for seg in draws:
+            args = seg.split(";")[0]
+            self.assertIn(
+                "video.videoWidth", args,
+                "drawImage(video, ...) 必须是 9 参形态（含源矩形）: " + repr(args),
+            )
+
+    def test_video_draws_go_through_drawvideoframe(self):
+        # 统一入口 drawVideoFrame 必须是 9 参形态，且 5 路绘制全部走它
+        self.assertIn("function drawVideoFrame(", self.script,
+                      "应定义统一的视频帧绘制入口 drawVideoFrame")
+        self.assertIn(
+            "drawImage(video, 0, 0, video.videoWidth, video.videoHeight,",
+            self.script,
+            "drawVideoFrame 应使用 9 参 drawImage 形态",
+        )
+        self.assertGreaterEqual(
+            self.script.count("drawVideoFrame("), 6,
+            "drawVideoFrame 应被 5 路绘制调用（含定义共 >= 6 处）",
+        )
+        for ctxname in ("bgSmall1Ctx", "frameCtx", "ctx", "pctx"):
+            self.assertIn("drawVideoFrame(%s," % ctxname, self.script,
+                          "缺少 drawVideoFrame(%s, ...) 调用" % ctxname)
+
+    def test_mirror_gates_drawvideoframe(self):
+        # 方向开关仍需只经由 drawVideoFrame 一处生效
+        self.assertIn("const dx = mirrorMode ? w : 0;", self.script,
+                      "drawVideoFrame 应由 mirrorMode 决定水平偏移")
+        self.assertIn("const dw = mirrorMode ? -w : w;", self.script,
+                      "drawVideoFrame 应由 mirrorMode 决定绘制宽度")
 
     def test_landmark_flip_mirror_gated(self):
         self.assertIn("x: mirrorMode ? 1 - p.x : p.x", self.script,
@@ -295,3 +318,45 @@ class TestFaceMoodWebMirror(unittest.TestCase):
                       "应使用事件监听 loadedmetadata 对齐画布尺寸")
         self.assertIn("{ once: true }", self.script,
                       "loadedmetadata 监听应为一次性事件")
+
+
+class TestFaceMoodWebMaskFallback(unittest.TestCase):
+    """mask 无人兜底回归（修复「人消失 / 只剩背景图」的另一半成因）。"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.text, cls.p, cls.script, cls.server = _load()
+
+    def test_person_presence_probe_defined(self):
+        self.assertIn("function maskHasPerson", self.script,
+                      "应定义 mask 人物探针 maskHasPerson")
+        self.assertIn("willReadFrequently", self.script,
+                      "探针画布应使用 willReadFrequently 读取像素")
+        self.assertIn("getImageData", self.script,
+                      "探针应读取 alpha 像素判断是否有人")
+        self.assertIn("drawImage(bmp, 0, 0, pw, ph)", self.script,
+                      "探针应把 mask 降采样到 16x12 再读像素")
+
+    def test_no_person_counter_and_thresholds(self):
+        self.assertIn("const NO_PERSON_FRAMES =", self.script,
+                      "应定义连续无人帧阈值 NO_PERSON_FRAMES")
+        self.assertIn("const NO_PERSON_ALPHA =", self.script,
+                      "应定义 alpha 均值阈值 NO_PERSON_ALPHA")
+        self.assertIn("let maskNoPerson = 0;", self.script,
+                      "应定义连续无人帧计数器 maskNoPerson")
+
+    def test_draw_person_skips_mask_when_no_person(self):
+        # 连续无人时不得再按 mask 抠图：destination-in 会擦掉整块画面
+        self.assertIn("maskNoPerson >= NO_PERSON_FRAMES", self.script,
+                      "drawPerson 应在连续无人时放弃 mask 抠图")
+
+    def test_update_person_presence_called_for_both_paths(self):
+        # Vision 与 MediaPipe 两条 mask 来源都要更新人物在/离场状态
+        self.assertGreaterEqual(
+            self.script.count("updatePersonPresence(maskHasPerson("), 2,
+            "Vision 与 MediaPipe 两条路径都应调用 updatePersonPresence",
+        )
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)
