@@ -102,35 +102,97 @@ class TestFaceMoodWebStructure(unittest.TestCase):
         m = re.search(r'const EMOTIONS = \[(.*?)\];', self.script, re.DOTALL)
         self.assertIsNotNone(m, "脚本应定义 EMOTIONS 数组")
         emotions = re.findall(r'"([^"]+)"', m.group(1))
-        self.assertEqual(len(emotions), 7, f"EMOTIONS 应为 7 类，实际 {len(emotions)}: {emotions}")
-        for e in ["平静", "开心", "悲伤", "愤怒", "惊讶", "恐惧", "轻蔑"]:
+        # Ekman 六基本情绪 + 轻蔑 + 厌恶。厌恶单列是因为它的 AU9+AU10
+        # 此前无处可去，只能并进愤怒或轻蔑，表现为识别不准。
+        self.assertEqual(len(emotions), 8, f"EMOTIONS 应为 8 类，实际 {len(emotions)}: {emotions}")
+        for e in ["平静", "开心", "悲伤", "愤怒", "惊讶", "恐惧", "轻蔑", "厌恶"]:
             self.assertIn(e, emotions, f"EMOTIONS 应含 {e}")
 
-    def test_feature_keys_count(self):
-        m = re.search(r'const FEATURE_KEYS = \[(.*?)\];', self.script, re.DOTALL)
-        self.assertIsNotNone(m, "脚本应定义 FEATURE_KEYS 数组")
+    def test_blendshape_keys_cover_all_52_outputs(self):
+        # FaceLandmarker 的 blendshape 输出应全量进入分类，
+        # 而不是只挑 27 个（缺的恰好是 AU2/AU7/AU10/AU14/AU15/AU29
+        # 这些真正区分表情的动作单元）。
+        m = re.search(r'const BLENDSHAPE_KEYS = \[(.*?)\];', self.script, re.DOTALL)
+        self.assertIsNotNone(m, "脚本应定义 BLENDSHAPE_KEYS 数组")
         keys = re.findall(r'"([^"]+)"', m.group(1))
-        self.assertEqual(len(keys), 27, f"FEATURE_KEYS 应为 27 维，实际 {len(keys)}")
+        self.assertEqual(len(keys), 52, f"BLENDSHAPE_KEYS 应为 52 项，实际 {len(keys)}")
+        for k in ["_neutral", "browOuterUpLeft", "eyeSquintLeft",
+                  "mouthUpperUpLeft", "mouthDimpleLeft", "jawForward"]:
+            self.assertIn(k, f"BLENDSHAPE_KEYS 缺 {k}")
 
-    def test_weights_dimension_consistency(self):
-        # 每个情绪的权重向量长度需与 FEATURE_KEYS(27) 一致，且情绪数需与 EMOTIONS(7) 一致
-        wm = re.search(r'const WEIGHTS = \{(.*?)\n\s*\};', self.script, re.DOTALL)
-        self.assertIsNotNone(wm, "脚本应定义 WEIGHTS 字典")
-        block = wm.group(1)
-        arrays = re.findall(r'\[(.*?)\]', block, re.DOTALL)
-        self.assertEqual(len(arrays), 7, f"WEIGHTS 应有 7 个向量，实际 {len(arrays)}")
-        for i, arr in enumerate(arrays):
-            nums = re.findall(r'-?\d+\.?\d*', arr)
-            self.assertEqual(
-                len(nums), 27,
-                f"WEIGHTS 第 {i} 个向量应为 27 维，实际 {len(nums)}",
-            )
+    def test_blendshape_keys_match_model_output(self):
+        # 与 models/face_landmarker.task 内 face_blendshapes.tflite 的真实输出类别对齐，
+        # 防止模型升级后名单过期（过期名单会让 blendshape 查不到、AU 恒为 0）。
+        import zipfile
+        model = PROJECT_ROOT / "models" / "face_landmarker.task"
+        self.assertTrue(model.exists(), "缺少 face_landmarker.task")
+        with zipfile.ZipFile(model) as z:
+            blob = z.read("face_blendshapes.tflite")
+        declared = set(re.findall(r'"([a-zA-Z_][a-zA-Z0-9_]*)"',
+                                 re.search(r'const BLENDSHAPE_KEYS = \[(.*?)\];',
+                                           self.script, re.DOTALL).group(1)))
+        missing = [k for k in declared if k.encode("ascii") not in blob]
+        self.assertEqual(missing, [],
+                         f"下列 blendshape 名在模型输出里不存在: {missing}")
+
+
+
+    def test_blendshape_keys_are_exactly_model_outputs(self):
+        # 双向校验：BLENDSHAPE_KEYS 与模型真实输出类别必须完全一致。
+        # 只校验单向会漏掉另一种失败——模型升级新增了 blendshape 而前端不知道，
+        # 新动作永远进不了 AU（表现为新表情识别不出来）。
+        #
+        # tflite 的字符串池里除了类别名还有图元数据（serving_default 之类），
+        # 用 ARKit blendshape 的命名前缀把它们滤掉。
+        import zipfile
+        with zipfile.ZipFile(PROJECT_ROOT / "models" / "face_landmarker.task") as z:
+            blob = z.read("face_blendshapes.tflite")
+        prefixes = (b"brow", b"cheek", b"eye", b"jaw", b"mouth", b"nose", b"tongue")
+        model_names = set()
+        for s in re.findall(rb"[\x20-\x7e]{2,24}\x00", blob):
+            name = s[:-1]
+            if name == b"_neutral" or name.startswith(prefixes):
+                model_names.add(name.decode())
+        declared = set(re.findall(r'"([a-zA-Z_][a-zA-Z0-9_]*)"',
+                                 re.search(r'const BLENDSHAPE_KEYS = \[(.*?)\];',
+                                           self.script, re.DOTALL).group(1)))
+        self.assertEqual(
+            declared, model_names,
+            "BLENDSHAPE_KEYS 必须与模型输出类别逐一对应；"
+            f"多出 {sorted(declared - model_names)}，缺少 {sorted(model_names - declared)}",
+        )
+
+    def test_emotion_au_prototype_consistency(self):
+        # 每个情绪的 AU 原型：必需/支持/抑制三类 AU 都必须在 AU_DEFS 里有定义，
+        # 且情绪集合与 EMOTION_AU 键集一致
+        au_defs = set(re.findall(r'^\s{12}(AU[0-9a-z]+):\s*\{', self.script, re.M))
+        self.assertTrue(au_defs, "未解析到 AU_DEFS 的动作单元")
+        block = re.search(r'const EMOTION_AU = \{(.*?)\n\s*\};', self.script, re.DOTALL)
+        self.assertIsNotNone(block, "脚本应定义 EMOTION_AU 情绪原型")
+        keys = set(re.findall(r'"([^"]+)":\s*\{ req:', block.group(1)))
+        emotions = set(re.findall(r'"([^"]+)"',
+                                 re.search(r'const EMOTIONS = \[(.*?)\];',
+                                           self.script, re.DOTALL).group(1)))
+        self.assertEqual(keys, emotions, "EMOTIONS 与 EMOTION_AU 键集必须一致")
+        for emo, seg in re.findall(r'"([^"]+)":\s*\{ ([^}]*)\}', block.group(1)):
+            for au in re.findall(r'"(AU[0-9a-z]+)"', seg):
+                self.assertIn(au, au_defs, f"{emo} 引用了未定义的 AU: {au}")
 
     def test_classify_function_defined(self):
-        self.assertIn("function classify", self.script, "脚本应定义 classify")
+        self.assertIn("function classifyExpression", self.script,
+                      "脚本应定义 classifyExpression")
         self.assertIn("softmax", self.script, "classify 应使用 softmax 归一化")
-        self.assertIn("function extractFeatures", self.script, "脚本应定义 extractFeatures")
+        self.assertIn("function estimateAUs", self.script, "脚本应定义 estimateAUs")
+        self.assertIn("function updateNeutralBaseline", self.script,
+                      "脚本应定义 updateNeutralBaseline（中性脸基准）")
         self.assertIn("function topFeatures", self.script, "脚本应定义 topFeatures")
+
+    def test_old_linear_weights_removed(self):
+        # 手调线性权重已废弃：权重无法泛化到不同人脸，是识别不准的结构性原因
+        self.assertNotIn("const FEATURE_KEYS", self.script, "不应再使用 FEATURE_KEYS")
+        self.assertNotIn("const WEIGHTS", self.script, "不应再使用 WEIGHTS")
+        self.assertNotIn("const NEUTRAL_BIAS", self.script, "不应再使用 NEUTRAL_BIAS")
+        self.assertNotIn("extractFeatures", self.script, "不应再使用 extractFeatures")
 
     # ---------- MediaPipe 接入与摄像头约束 ----------
     def test_mediapipe_import(self):

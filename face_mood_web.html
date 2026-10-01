@@ -172,43 +172,133 @@
         try { mirrorMode = localStorage.getItem("mywiki-face-mirror") === "1"; } catch {}
         mirrorBtn.textContent = "🧭 方向：" + (mirrorMode ? "镜像" : "真实");
 
-        const EMOTIONS = ["平静", "开心", "悲伤", "愤怒", "惊讶", "恐惧", "轻蔑"];
-        // 特征顺序需与 FEATURE_KEYS 一致（含 8 个嘴部细粒度特征，提升表情区分度）
-        const FEATURE_KEYS = [
-            "mouthSmileLeft", "mouthSmileRight", "mouthFrownLeft", "mouthFrownRight",
-            "jawOpen", "browDownLeft", "browDownRight", "browInnerUp",
-            "eyeWideLeft", "eyeWideRight", "eyeBlinkLeft", "eyeBlinkRight",
-            "noseSneerLeft", "noseSneerRight", "cheekSquintLeft", "cheekSquintRight",
-            "mouthPucker", "mouthStretchLeft", "mouthStretchRight",
-            "mouthFunnel", "mouthPressLeft", "mouthPressRight",
-            "mouthLeft", "mouthRight", "mouthShrugUpper",
-            "mouthRollLower", "mouthRollUpper"
+        // 8 类：Ekman 六基本情绪 + 轻蔑 + 厌恶。
+        // 「厌恶」单列是因为它的 AU9+AU10（鼻纹/上唇上提）此前无处可去，
+        // 只能被并进愤怒或轻蔑，表现为"识别不准"。
+        const EMOTIONS = ["平静", "开心", "悲伤", "愤怒", "惊讶", "恐惧", "轻蔑", "厌恶"];
+        // ---- 特征：FaceLandmarker 的全部 52 路输出（_neutral + 51 个 ARKit blendshape）----
+        // 旧版只用 27 个手工挑的 blendshape 配手调线性权重。被丢掉的恰好是
+        // 区分各表情最关键的动作单元：
+        //   AU2  browOuterUp    外眉上扬 —— 惊讶 / 恐惧的判据
+        //   AU7  eyeSquint      眼睑收紧 —— 愤怒 / 恐惧 / 厌恶的判据
+        //   AU10 mouthUpperUp   上唇上提 —— 厌恶的判据
+        //   AU14 mouthDimple    酒窝     —— 轻蔑的判据
+        //   AU15/17 mouthFrown / mouthShrugLower 嘴角下压 / 下巴 —— 悲伤的判据
+        //   AU29 jawForward     下颌前伸 —— 愤怒的判据
+        // 缺了这些 AU，悲伤/愤怒/恐惧/惊讶/厌恶/轻蔑没有可用的判别依据，
+        // 结果全部塌缩到 平静/开心 —— 这就是"情绪识别不准"的主因。
+        //
+        // 改法走 OpenFace 2.0 与 py-feat 的主流路线：
+        //   blendshape → 动作单元(FACS AU) → 情绪原型
+        // 而不是 blendshape 直接线性加权（那样拟合出的权重换张脸就失效）。
+        // keys 与 models/face_landmarker.task 内 face_blendshapes.tflite 的
+        // 输出类别一一对应（该模型不含 cheekSuck / tongueOut）。
+        const BLENDSHAPE_KEYS = [
+            "_neutral",
+            "browDownLeft", "browDownRight", "browInnerUp", "browOuterUpLeft", "browOuterUpRight",
+            "cheekPuff", "cheekSquintLeft", "cheekSquintRight",
+            "eyeBlinkLeft", "eyeBlinkRight",
+            "eyeLookDownLeft", "eyeLookDownRight", "eyeLookInLeft", "eyeLookInRight",
+            "eyeLookOutLeft", "eyeLookOutRight", "eyeLookUpLeft", "eyeLookUpRight",
+            "eyeSquintLeft", "eyeSquintRight", "eyeWideLeft", "eyeWideRight",
+            "jawForward", "jawLeft", "jawOpen", "jawRight",
+            "mouthClose", "mouthDimpleLeft", "mouthDimpleRight", "mouthFrownLeft", "mouthFrownRight",
+            "mouthFunnel", "mouthLeft", "mouthLowerDownLeft", "mouthLowerDownRight",
+            "mouthPressLeft", "mouthPressRight", "mouthPucker", "mouthRight",
+            "mouthRollLower", "mouthRollUpper", "mouthShrugLower", "mouthShrugUpper",
+            "mouthSmileLeft", "mouthSmileRight", "mouthStretchLeft", "mouthStretchRight",
+            "mouthUpperUpLeft", "mouthUpperUpRight",
+            "noseSneerLeft", "noseSneerRight"
         ];
-        // 各情绪对特征的线性权重（启发式，范围约 -1..1）
-        const WEIGHTS = {
-            "平静": [ 0.00, 0.00, 0.00, 0.00, -0.30, -0.30, -0.30, -0.40,
-                     -0.35, -0.35,  0.20,  0.20, -0.30, -0.30, -0.30, -0.30, -0.20, -0.20, -0.20,
-                     -0.20, -0.15, -0.15, -0.10, -0.10, -0.15, -0.05, -0.05],
-            "开心": [ 1.00, 1.00,-0.50,-0.50,  0.10, -0.30, -0.30,  0.00,
-                      0.10,  0.10, -0.20, -0.20,  0.10,  0.10,  0.20,  0.20, -0.20,  0.20,  0.20,
-                     -0.20, -0.30, -0.30, -0.10, -0.10, -0.10, -0.10, -0.10],
-            "悲伤": [-0.40,-0.40, 0.80, 0.80,  0.00, -0.10, -0.10,  0.50,
-                     -0.30, -0.30,  0.00,  0.00, -0.10, -0.10,  0.00,  0.00,  0.00,  0.10,  0.10,
-                     -0.10,  0.20,  0.20,  0.00,  0.00,  0.10,  0.15,  0.10],
-            "愤怒": [-0.30,-0.30,-0.10,-0.10, -0.10,  1.00,  1.00,  0.20,
-                     -0.40, -0.40, -0.30, -0.30,  0.60,  0.60,  0.30,  0.30, -0.10, -0.20, -0.20,
-                     -0.20,  0.45,  0.45, -0.10, -0.10,  0.20,  0.00,  0.00],
-            "惊讶": [ 0.00, 0.00,-0.30,-0.30,  1.00, -0.20, -0.20,  0.80,
-                      1.00,  1.00, -0.20, -0.20, -0.20, -0.20,  0.00,  0.00, -0.20,  0.00,  0.00,
-                      0.55, -0.30, -0.30,  0.00,  0.00, -0.10, -0.10, -0.10],
-            "恐惧": [-0.30,-0.30, 0.10, 0.10,  0.40,  0.50,  0.50,  0.80,
-                      0.90,  0.90,  0.00,  0.00,  0.00,  0.00,  0.20,  0.20,  0.00, -0.10, -0.10,
-                      0.40, -0.10, -0.10,  0.00,  0.00,  0.15,  0.00,  0.00],
-            "轻蔑":[ 0.30, 0.30,-0.20,-0.20, -0.10,  0.20,  0.20, -0.10,
-                     -0.20, -0.20, -0.10, -0.10,  1.00,  1.00,  0.40,  0.40,  0.00,  0.30,  0.30,
-                     -0.10,  0.25,  0.25,  0.40,  0.40,  0.30,  0.00,  0.00]
+        const BLENDSHAPE_INDEX = {};
+        BLENDSHAPE_KEYS.forEach((k, i) => { BLENDSHAPE_INDEX[k] = i; });
+
+        // ---- blendshape → 动作单元 ----
+        // op: "max"  取左右两侧较强者（单侧触发也算，如外眉上扬）
+        //     "mean" 取左右均值（需两侧大致对称的表情，如微笑）
+        //     "lipsPart" 单独折算：jawOpen 高但 mouthClose 也高只是闭嘴用力，
+        //                不是真的张嘴，会污染惊讶/恐惧的判据
+        //     "asym"  单侧嘴角上扬，轻蔑的标志性动作
+        const AU_DEFS = {
+            AU1:      { label: "内眉上扬",     keys: ["browInnerUp"], op: "max" },
+            AU2:      { label: "外眉上扬",     keys: ["browOuterUpLeft", "browOuterUpRight"], op: "max" },
+            AU4:      { label: "眉毛下压",     keys: ["browDownLeft", "browDownRight"], op: "max" },
+            AU5:      { label: "上睑提升",     keys: ["eyeWideLeft", "eyeWideRight"], op: "max" },
+            AU6:      { label: "脸颊提升",     keys: ["cheekSquintLeft", "cheekSquintRight"], op: "max" },
+            AU7:      { label: "眼睑收紧",     keys: ["eyeSquintLeft", "eyeSquintRight"], op: "max" },
+            AU9:      { label: "鼻纹",         keys: ["noseSneerLeft", "noseSneerRight"], op: "max" },
+            AU10:     { label: "上唇上提",     keys: ["mouthUpperUpLeft", "mouthUpperUpRight", "noseSneerLeft", "noseSneerRight"], op: "max" },
+            AU12:     { label: "嘴角上扬",     keys: ["mouthSmileLeft", "mouthSmileRight"], op: "mean" },
+            AU12asym: { label: "单侧嘴角上扬", keys: ["mouthSmileLeft", "mouthSmileRight"], op: "asym" },
+            AU14:     { label: "酒窝",         keys: ["mouthDimpleLeft", "mouthDimpleRight"], op: "mean" },
+            AU15:     { label: "嘴角下压",     keys: ["mouthFrownLeft", "mouthFrownRight"], op: "mean" },
+            AU17:     { label: "下巴上提",     keys: ["mouthShrugLower"], op: "max" },
+            AU20:     { label: "唇横向拉伸",   keys: ["mouthStretchLeft", "mouthStretchRight"], op: "mean" },
+            AU23:     { label: "唇收紧",       keys: ["mouthPressLeft", "mouthPressRight"], op: "mean" },
+            AU25:     { label: "唇分开",       keys: ["jawOpen"], op: "lipsPart" },
+            AU26:     { label: "下颌张开",     keys: ["jawOpen"], op: "max" },
+            AU28:     { label: "唇内吸",       keys: ["mouthPucker"], op: "max" },
+            AU29:     { label: "下颌前伸",     keys: ["jawForward"], op: "max" },
+            AU43:     { label: "眼闭合",       keys: ["eyeBlinkLeft", "eyeBlinkRight"], op: "mean" }
         };
-        const NEUTRAL_BIAS = 0.18; // 平静的基线偏置，放松表情默认归于平静
+        // AU 判定阈值：强度超过它才算这个动作单元真的动了。
+        // 取 0.34 而不是 0.5：MediaPipe 的 blendshape 分布整体偏低，
+        // 一个真实的微笑往往只到 0.6~0.8，阈值定太高会把表情全判成平静。
+        const AU_ON = 0.34;
+
+        // 参与打分与平滑的 AU（AU12asym 单独算，不占独立维度）
+        const AU_KEYS = Object.keys(AU_DEFS).filter((k) => k !== "AU12asym");
+
+        // ---- 情绪 ← 动作单元原型 ----
+        // req 是"必需 AU"，缺席要扣分；sup 是"支持 AU"，出现则加分。
+        // 必需 AU 是把各表情分开的关键：旧版线性加权里悲伤的 mouthFrown
+        // 权重 +0.8、开心是 -0.5，一张"笑着且撇嘴"的脸两边都拿高分；
+        // 有了 req 之后，缺 AU1+AU15 的悲伤直接不成立。
+        // inh 是"抑制项"：出现反而说明不是这个表情。
+        // 没有它，单侧上扬的笑既满足轻蔑的 AU12asym，也满足开心的 AU12，
+        // 两边同分；抑制项把这种情况明确推向轻蔑。
+        const EMOTION_AU = {
+            "平静": { req: [],                           sup: [],                 inh: [] },
+            "开心": { req: ["AU12"],                     sup: ["AU6", "AU14"],     inh: ["AU12asym"] },
+            "悲伤": { req: ["AU1", "AU15"],              sup: ["AU4", "AU17", "AU7"], inh: [] },
+            "愤怒": { req: ["AU4", "AU7"],               sup: ["AU5", "AU23", "AU29"], inh: [] },
+            "惊讶": { req: ["AU1", "AU2", "AU5", "AU26"], sup: ["AU20"],            inh: ["AU7"] },
+            "恐惧": { req: ["AU1", "AU2", "AU5", "AU7"],  sup: ["AU4", "AU20", "AU26"], inh: [] },
+            "厌恶": { req: ["AU9", "AU10"],              sup: ["AU4", "AU17"],      inh: [] },
+            "轻蔑": { req: ["AU12asym", "AU14"],         sup: ["AU10"],            inh: [] }
+        };
+        // 必需 AU 缺席的惩罚强度：越大，缺 AU 的情绪越难被选出来
+        // 必需 AU 命中也给正分："嘴角上扬"本身就是开心的证据。
+        // 只奖支持 AU 的话，一个强微笑的证据量还比不上一张安静的脸。
+        const REQ_WEIGHT = 0.9;
+        // 抑制项惩罚强度：出现这些 AU 说明"不是这个表情"
+        const INH_PENALTY = 1.2;
+
+        const REQ_PENALTY = 2.4;
+        // softmax 温度：越高越"果断"
+        // 平静的衰减系数：AU 越活跃，"此刻没有表情"这个假设越不可信。
+        // 没有这一项时，所有情绪都被 miss 压低，安静脸的胜者置信度只有
+        // 八类均分（约 42%）——概率全挤在很窄的一条带里，用户看到的就是
+        // "永远不太确定"。给平静一个与活跃度成反比的正向分数后，
+        // 安静脸能拿到接近 1 的置信度，真表情则顺利让位。
+        const NEUTRAL_DECAY = 1.35;
+
+        // softmax 温度（除以它）：越小越"果断"。
+        // 取 0.35 而不是 1.0：AU 原型的分数差本来就只有 0.3~0.5，
+        // 除以 1.0 时八个类的概率全挤在 12% 附近——标签其实是对的，
+        // 但用户看到"置信度 41%"，观感就是"永远不太确定"。
+        // 0.35 把真实分差放大回来；接近平手的仍接近平手（温度只放缩
+        // 差距，不制造差距），所以不会把犹豫的帧说成确定。
+        const CLASSIFY_TEMPERATURE = 0.35;
+
+        // 中性脸基准：每个人静止时的眉位/眼裂/嘴角曲率差别很大
+        // （有人天生皱眉、有人眼裂小）。MediaPipe 报的是绝对值，
+        // 直接用阈值会把天生皱眉的人长期判成愤怒。于是只在"安静帧"
+        // （所有 AU 都很低）上累积这个人的中性基准，分类前先减掉。
+        const NEUTRAL_ALPHA = 0.06;   // 基准学习率
+        const NEUTRAL_QUIET = 0.20;   // 全 AU 峰值低于此值才算安静帧
+        let neutralAU = null;
+
 
         let faceLandmarker = null;
         let selfieSegmentation = null;
@@ -223,7 +313,7 @@
         // ---- 时序平滑与稳定（抑制抖动，提高识别稳定性） ----
         const SMOOTH_ALPHA = 0.55; // 新帧权重，越小越平滑
         const VOTE_WINDOW = 9;     // 标签多数投票窗口（约 0.3s @30fps）
-        let smoothedFeatures = null;
+        let smoothedAU = null;     // 动作单元 EMA（替代旧的 blendshape EMA）
         let labelVotes = [];
 
         // ---- 嘴部运动轨迹（相对鼻尖的偏移，仅反映嘴部动作） ----
@@ -366,39 +456,113 @@
             }
         }
 
-        function extractFeatures(blendshapes) {
-            const map = {};
-            for (const c of blendshapes.categories) map[c.categoryName] = c.score;
-            return FEATURE_KEYS.map((k) => map[k] || 0);
+        // 把一路 blendshape 结果折算成动作单元强度（0..1）。
+        // 纯函数：给定 blendshape 就只有一种输出，方便单测。
+        function estimateAUs(blendshapes) {
+            const m = {};
+            for (const c of blendshapes.categories) m[c.categoryName] = c.score;
+            const pick = (k) => (typeof m[k] === "number" ? m[k] : 0);
+            const au = {};
+            for (const k of AU_KEYS) {
+                const d = AU_DEFS[k];
+                const vals = d.keys.map(pick);
+                let v;
+                if (d.op === "mean") {
+                    v = vals.reduce((a, b) => a + b, 0) / vals.length;
+                } else if (d.op === "lipsPart") {
+                    // 张嘴同时在闭嘴用力 → 不算真的唇分开
+                    v = Math.max(0, pick("jawOpen") - pick("mouthClose") * 0.65);
+                } else {
+                    v = Math.max.apply(null, vals);
+                }
+                au[k] = Math.min(1, Math.max(0, v));
+            }
+            // 单侧嘴角上扬：|L-R| 大且至少一侧够高才算（轻蔑的标志性动作）
+            const l = pick("mouthSmileLeft"), r = pick("mouthSmileRight");
+            au.AU12asym = Math.max(l, r) > 0.25
+                ? Math.min(1, (Math.max(l, r) - Math.min(l, r)) * 1.6)
+                : 0;
+            au.peak = 0;
+            for (const k of AU_KEYS) au.peak = Math.max(au.peak, au[k]);
+            return au;
         }
 
-        function classify(features) {
-            const raw = EMOTIONS.map((name) => {
+        // 在"安静帧"上累积这个人自己的中性脸基准。
+        // 只在所有 AU 都很低时更新：否则一露出表情就把表情学进基准，
+        // 之后同类表情会被自己抵消掉。
+        function updateNeutralBaseline(au) {
+            if (!au || (au.peak || 0) > NEUTRAL_QUIET) return;
+            if (!neutralAU) {
+                neutralAU = {};
+                for (const k of AU_KEYS) neutralAU[k] = au[k] || 0;
+                neutralAU.AU12asym = au.AU12asym || 0;
+                return;
+            }
+            for (const k of AU_KEYS) {
+                neutralAU[k] = neutralAU[k] * (1 - NEUTRAL_ALPHA) + (au[k] || 0) * NEUTRAL_ALPHA;
+            }
+            neutralAU.AU12asym = neutralAU.AU12asym * (1 - NEUTRAL_ALPHA)
+                + (au.AU12asym || 0) * NEUTRAL_ALPHA;
+        }
+
+        // 减掉中性脸基准，只留"相对这个人自己的变化量"。
+        function subtractNeutral(au) {
+            if (!neutralAU) return au;
+            const out = {};
+            for (const k of AU_KEYS) out[k] = Math.max(0, Math.min(1, (au[k] || 0) - (neutralAU[k] || 0)));
+            out.AU12asym = Math.max(0, (au.AU12asym || 0) - (neutralAU.AU12asym || 0));
+            out.peak = au.peak || 0;
+            return out;
+        }
+
+        // 情绪原型打分：支持 AU 加分、必需 AU 缺席扣分，再 softmax。
+        // 纯函数（只依赖 auRaw 与 neutralAU），方便单测。
+        function classifyExpression(auRaw) {
+            const au = subtractNeutral(auRaw);
+            const scores = {};
+            for (const name of EMOTIONS) {
+                const p = EMOTION_AU[name];
+                if (name === "平静") {
+                    // 平静的正向证据是"没有任何动作单元活跃"，
+                    // 而不是"所有情绪都不太成立"——后者会把概率摊平，
+                    // 安静脸只能拿到八类均分（约 42%）
+                    scores[name] = 1 - NEUTRAL_DECAY * (au.peak || 0);
+                    continue;
+                }
                 let s = 0;
-                const w = WEIGHTS[name];
-                for (let i = 0; i < features.length; i++) s += w[i] * features[i];
-                if (name === "平静") s += NEUTRAL_BIAS;
-                return s;
-            });
+                for (const k of p.sup) s += au[k] || 0;
+                if (p.sup.length) s /= p.sup.length;
+                let hit = 0;
+                for (const k of p.req) hit += au[k] || 0;
+                if (p.req.length) s += REQ_WEIGHT * hit / p.req.length;
+                // 必需 AU 缺席的惩罚按"离阈值还差多少"累加：
+                // 差得越远越不可能，而不是一刀切
+                let miss = 0;
+                for (const k of p.req) miss += Math.max(0, AU_ON - (au[k] || 0));
+                s -= REQ_PENALTY * miss;
+                for (const k of (p.inh || [])) s -= INH_PENALTY * (au[k] || 0);
+                scores[name] = s;
+            }
             // softmax 归一化为概率
-            const max = Math.max(...raw);
-            const exps = raw.map((v) => Math.exp(v - max));
+            const max = Math.max.apply(null, EMOTIONS.map((n) => scores[n]));
+            const exps = EMOTIONS.map((n) => Math.exp((scores[n] - max) / CLASSIFY_TEMPERATURE));
             const sum = exps.reduce((a, b) => a + b, 0);
-            const probs = exps.map((v) => v / sum);
+            const probs = EMOTIONS.map((n) => exps[EMOTIONS.indexOf(n)] / sum);
             let best = 0;
             for (let i = 1; i < probs.length; i++) if (probs[i] > probs[best]) best = i;
-            return { label: EMOTIONS[best], confidence: probs[best], probs };
+            return { label: EMOTIONS[best], confidence: probs[best], probs, scores };
         }
 
-        // 仅保留贡献最大的若干 blendshape，用于可解释性回看
-        function topFeatures(blendshapes, n = 6) {
-            const arr = blendshapes.categories
-                .map((c) => [c.categoryName, c.score])
-                .filter(([, v]) => v > 0.05)
+        // 仅保留最强的若干 AU，用于可解释性回看（"判为愤怒是因为 AU4+AU7"）
+        function topFeatures(auRaw, n = 4) {
+            const au = subtractNeutral(auRaw);
+            const arr = AU_KEYS
+                .map((k) => [k, au[k] || 0])
+                .filter(([, v]) => v >= AU_ON)
                 .sort((a, b) => b[1] - a[1])
                 .slice(0, n);
             const out = {};
-            for (const [k, v] of arr) out[k] = Math.round(v * 1000) / 1000;
+            for (const [k, v] of arr) out[k + "(" + AU_DEFS[k].label + ")"] = Math.round(v * 1000) / 1000;
             return out;
         }
 
@@ -790,16 +954,22 @@
                     });
                     if (mouthTrail.length > TRAIL_MAX) mouthTrail.shift();
                 }
-                // 特征 EMA 平滑，抑制单帧抖动
-                const raw = extractFeatures(result.faceBlendshapes[0]);
-                if (!smoothedFeatures || smoothedFeatures.length !== raw.length) {
-                    smoothedFeatures = raw.slice();
+                // 动作单元 EMA 平滑，抑制单帧抖动。在 AU 层平滑而不是在
+                // blendshape 层：先估 AU 再平滑，等价于对每个动作单元单独去抖。
+                const rawAU = estimateAUs(result.faceBlendshapes[0]);
+                updateNeutralBaseline(rawAU);   // 安静帧才学这个人的中性脸
+                if (!smoothedAU) {
+                    smoothedAU = {};
+                    for (const k of AU_KEYS) smoothedAU[k] = rawAU[k] || 0;
+                    smoothedAU.AU12asym = rawAU.AU12asym || 0;
                 } else {
-                    smoothedFeatures = smoothedFeatures.map(
-                        (v, i) => v * (1 - SMOOTH_ALPHA) + raw[i] * SMOOTH_ALPHA
-                    );
+                    for (const k of AU_KEYS) {
+                        smoothedAU[k] = smoothedAU[k] * (1 - SMOOTH_ALPHA) + (rawAU[k] || 0) * SMOOTH_ALPHA;
+                    }
+                    smoothedAU.AU12asym = smoothedAU.AU12asym * (1 - SMOOTH_ALPHA)
+                        + (rawAU.AU12asym || 0) * SMOOTH_ALPHA;
                 }
-                const r = classify(smoothedFeatures);
+                const r = classifyExpression(smoothedAU);
                 // 标签多数投票，避免结果在相邻情绪间闪烁
                 labelVotes.push(r.label);
                 if (labelVotes.length > VOTE_WINDOW) labelVotes.shift();
@@ -812,9 +982,9 @@
                 latest = {
                     label: stable,
                     confidence: r.confidence,
-                    features: topFeatures(result.faceBlendshapes[0]),
-                    reason: Object.entries(topFeatures(result.faceBlendshapes[0]))
-                        .map(([k, v]) => `${k}=${v}`).join(", ")
+                    features: topFeatures(smoothedAU),
+                    reason: Object.entries(topFeatures(smoothedAU))
+                        .map(([k, v]) => k + "=" + v).join(", ")
                 };
                 emoLabel.textContent = stable;
                 emoConf.textContent = "置信度 " + Math.round(r.confidence * 100) + "%";
@@ -827,7 +997,8 @@
                 renderBars(EMOTIONS.map(() => 0));
                 latest = null;
                 saveBtn.disabled = true;
-                smoothedFeatures = null;
+                smoothedAU = null;   // 复位动作单元 EMA
+                neutralAU = null;   // 人离场，中性脸基准不再适用
                 labelVotes = [];
                 mouthTrail = [];
                 setStatus("未检测到人脸，请正对摄像头。");
@@ -884,6 +1055,8 @@
                 running = true;
                 startBtn.disabled = true;
                 stopBtn.disabled = false;
+                neutralAU = null;   // 开摄像头即重新学这位的中性脸
+                smoothedAU = null;
                 setStatus("摄像头已开启，识别中…");
                 loop();
             } catch (e) {
@@ -900,7 +1073,8 @@
             lastMask = null;
             maskNoPerson = 0;
             mouthTrail = [];
-            smoothedFeatures = null;
+            smoothedAU = null;
+            neutralAU = null;   // 下一位观众有自己的中性脸，基准不可沿用
             labelVotes = [];
             placeholder.style.display = "flex";
             startBtn.disabled = false;
@@ -943,6 +1117,7 @@
             mirrorBtn.textContent = "🧭 方向：" + (mirrorMode ? "镜像" : "真实");
             // 旧 mask 已换向，作废以按新方向重新分割，避免错位残影
             lastMask = null; lastMaskFace = null; maskNoPerson = 0;
+            neutralAU = null;   // 镜像后左右互换，中性脸基准失效
             toast(mirrorMode ? "自拍镜像：画面左右翻转" : "真实方向：与摄像头方向一致");
         });
 
