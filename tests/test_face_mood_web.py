@@ -358,5 +358,150 @@ class TestFaceMoodWebMaskFallback(unittest.TestCase):
         )
 
 
+class TestFaceMoodWebMatteNormalization(unittest.TestCase):
+    """matte 通道归一回归（修复「抠图没成功」）。"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.text, cls.p, cls.script, cls.server = _load()
+
+    def test_build_matte_defined(self):
+        # 抠图前必须把引擎返回的 mask 归一小图，否则无法保证
+        # destination-in 读到的 alpha 就是人物覆盖率
+        self.assertIn("function buildMatte(", self.script,
+                      "应定义 buildMatte 把引擎 mask 归一为 alpha=覆盖率")
+
+    def test_matte_channel_detection_defined(self):
+        self.assertIn("function matteChannel(", self.script,
+                      "应定义 matteChannel 判定覆盖率在哪个通道")
+
+    def test_rgb_matte_is_inverted_into_alpha(self):
+        # 覆盖率落在 RGB、alpha 恒 255 的构建：destination-in 读 alpha 会得到
+        # 「整幅保留」——画面看着像没抠图；必须反相写进 alpha。
+        self.assertIn("const out = maskSmallCtx.createImageData(mw, mh);", self.script,
+                      "RGB 型 mask 必须重写为 alpha 通道")
+        self.assertIn("const cov = 255 - d[i];", self.script,
+                      "RGB 覆盖率需反相为 alpha")
+        self.assertIn("maskSmallCtx.putImageData(out, 0, 0);", self.script,
+                      "重写后的 matte 必须写回画布")
+
+    def test_draw_person_uses_build_matte(self):
+        self.assertIn("buildMatte(mask, mw, mh);", self.script,
+                      "drawPerson 必须走 buildMatte 而不是直接 drawImage(mask)")
+
+    def test_empty_matte_never_erases_person(self):
+        # 单帧保险：这一帧覆盖率接近 0 就不能抠，否则偶发空 mask 会在
+        # 一两帧内把人整块擦掉（用户看到「人突然消失」）。
+        self.assertIn("if (lastMatteCoverage < NO_PERSON_ALPHA) {", self.script,
+                      "matte 覆盖率接近 0 时应降级为直接显示原帧")
+        self.assertIn("let lastMatteCoverage = 0;", self.script,
+                      "应记录最近一帧的 matte 覆盖率")
+
+    def test_mask_probe_still_reads_pixels(self):
+        self.assertIn("function maskHasPerson", self.script)
+        self.assertIn("drawImage(bmp, 0, 0, pw, ph)", self.script)
+        self.assertIn("getImageData", self.script)
+
+
+class TestFaceMoodWebMaskDelivery(unittest.TestCase):
+    """Vision mask 送达率回归（修复「抠图没成功」的另一半成因）。"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.text, cls.p, cls.script, cls.server = _load()
+
+    def test_stale_logic_does_not_discard_everything(self):
+        # 旧逻辑：if (seq !== _visionSeq) return null;
+        # Vision 往返 ~35ms 与 VISION_POLL_MS(50) 同量级，主线程还要让给
+        # detectForVideo，实测同节奏 60 次请求 0 次被采纳 —— lastMask 永远
+        # 是 null，drawPerson 只能走兜底画原帧，用户看到「抠图没成功」。
+        self.assertNotIn("if (seq !== _visionSeq) return null;", self.script,
+                         "不得要求 seq 恰为最新发出的那一个，否则 mask 几乎全被丢弃")
+
+    def test_mask_acceptance_tracks_applied_seq(self):
+        self.assertIn("if (seq < _visionApplied) return null;", self.script,
+                      "只应作废已被更新结果取代的响应")
+        self.assertIn("_visionApplied = seq;", self.script,
+                      "采纳后必须推进 _visionApplied")
+
+    def test_mask_backlog_limit_defined(self):
+        self.assertIn("const MAX_VISION_LAG =", self.script,
+                      "应定义未决请求积压上限 MAX_VISION_LAG")
+        self.assertIn("if (_visionSeq - seq > MAX_VISION_LAG) return null;", self.script,
+                      "积压过旧的响应应作废")
+
+    def test_single_failure_does_not_disable_vision(self):
+        # 一次网络抖动就永久关掉 Vision，之后整条抠图链只剩「不抠」。
+        self.assertIn("const VISION_FAIL_LIMIT =", self.script,
+                      "应定义连续失败上限 VISION_FAIL_LIMIT")
+        self.assertIn('if (++visionFail >= VISION_FAIL_LIMIT) visionMode = "off";', self.script,
+                      "只有连续失败达到上限才降级")
+        self.assertIn("visionFail = 0;", self.script,
+                      "成功一次即清零失败计数")
+
+    def test_person_presence_still_updated_both_paths(self):
+        self.assertGreaterEqual(
+            self.script.count("updatePersonPresence(maskHasPerson("), 2,
+            "Vision 与 MediaPipe 两条路径都应调用 updatePersonPresence",
+        )
+
+    def test_matte_canvas_reads_frequently(self):
+        # buildMatte 每帧读像素判通道，maskSmallCtx 需标 willReadFrequently
+        self.assertIn(
+            'maskSmall.getContext("2d", { willReadFrequently: true })',
+            self.script,
+            "maskSmallCtx 应使用 willReadFrequently 避免每帧 GPU→CPU 回读",
+        )
+
+
+class TestVisionSegmentMatteSize(unittest.TestCase):
+    """vision_segment.py 掩码尺寸必须回到帧尺寸（同坐标系）。"""
+
+    def setUp(self):
+        import sys
+        sys.path.insert(0, str(PROJECT_ROOT))
+        import vision_segment as vs
+        self.vs = vs
+
+    def test_matte_to_frame_size_defined(self):
+        self.assertTrue(hasattr(self.vs, "matte_to_frame_size"),
+                        "应抽出可单测的 matte_to_frame_size")
+
+    def test_matte_is_resampled_to_frame_size(self):
+        import io
+        from PIL import Image
+        # Vision 固定输出 4:3；帧是 16:9 —— 掩码必须回到 16:9
+        frame = Image.new("RGB", (320, 180), (32, 64, 96))
+        buf = io.BytesIO()
+        frame.save(buf, "JPEG")
+        mask = Image.new("L", (512, 384), 0)
+        out = self.vs.matte_to_frame_size(mask, buf.getvalue())
+        self.assertEqual(out.size, (320, 180),
+                         "16:9 帧必须把 4:3 掩码重采样回帧尺寸")
+
+    def test_same_size_is_noop(self):
+        import io
+        from PIL import Image
+        frame = Image.new("RGB", (320, 240), (10, 20, 30))
+        buf = io.BytesIO()
+        frame.save(buf, "JPEG")
+        mask = Image.new("L", (320, 240), 128)
+        out = self.vs.matte_to_frame_size(mask, buf.getvalue())
+        self.assertEqual(out.size, (320, 240))
+        self.assertEqual(out.getpixel((0, 0)), 128, "尺寸一致时不得改动像素")
+
+    def test_matte_pixel_semantics_preserved(self):
+        import io
+        from PIL import Image
+        frame = Image.new("RGB", (320, 180), (0, 0, 0))
+        buf = io.BytesIO()
+        frame.save(buf, "JPEG")
+        mask = Image.new("L", (512, 384), 255)   # 全人像
+        out = self.vs.matte_to_frame_size(mask, buf.getvalue())
+        self.assertGreaterEqual(out.getpixel((160, 90)), 250,
+                                "重采样后 255 仍应代表人像")
+
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

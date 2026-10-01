@@ -242,18 +242,24 @@
         const bgSmall2 = document.createElement("canvas");
         const bgSmall2Ctx = bgSmall2.getContext("2d");
         const maskSmall = document.createElement("canvas"); // mask 降采样 → 软边缘羽化
-        const maskSmallCtx = maskSmall.getContext("2d");
+        // buildMatte 每帧都要读像素判通道，标 willReadFrequently 免得反复
+        // GPU→CPU 回读把渲染节奏拖垮
+        const maskSmallCtx = maskSmall.getContext("2d", { willReadFrequently: true });
         const frameCanvas = document.createElement("canvas"); // 抓帧 JPEG → 送 Vision
         const frameCtx = frameCanvas.getContext("2d");
         const BG_DOWNSCALE = 16; // 背景虚化强度（降采样倍率，≈ f/1.8 人像观感）
         const MASK_FEATHER = 8;  // 人像边缘羽化强度
         const VISION_POLL_MS = 50; // Vision mask 轮询间隔（推理 ~14ms + 网络/解码）
         const MAX_MASK_SHIFT = 0.18; // mask 允许的最大补偿位移（占画面比例），超出放弃补偿
+        const MAX_VISION_LAG = 4;    // 未决请求最多积压几个（~200ms），更旧的响应作废
+        const VISION_FAIL_LIMIT = 8; // 连续失败这么多次才降级为 MediaPipe
 
         // Vision 状态：'probe' 探测中 | 'on' 使用系统分割 | 'off' 降级 MediaPipe
         let visionMode = "probe";
         let visionBusy = false;
-        let _visionSeq = 0; // 请求序号：丢弃过期的在途响应（人已移走）
+        let _visionSeq = 0;      // 已发出的请求序号
+        let _visionApplied = -1; // 已采纳的最大序号，低于它的响应一律作废
+        let visionFail = 0;      // 连续失败计数（达到上限才降级）
 
         // ---- mask 运动补偿：用人脸关键点对齐滞后 mask ----
         // Vision mask 是抓帧时刻的（滞后数十毫秒），人移动时直接叠加会错位。
@@ -472,8 +478,26 @@
             }
         }
 
-        // mask 是否包含人物：16x12 降采样读 alpha 均值
-        //（Vision mask 为白底 RGBA、MediaPipe mask 为 alpha 位图，均看 alpha）
+        // ---- matte 通道判定：覆盖率到底在哪个通道 ----
+        // Vision /segment 返回「白底 RGBA，matte 在 alpha」；
+        // MediaPipe segmentationMask 是 alpha 位图。但两种引擎都存在
+        // matte 落在 RGB、alpha 恒 255 的构建：那时 destination-in 读
+        // alpha 得到「整幅保留」——画面看着像没抠图；读 alpha 的探针也
+        // 永远判「有人」，无人兜底跟着一起失效。所以先判通道再读数。
+        function matteChannel(d) {
+            let aLo = 255, aHi = 0, cLo = 255, cHi = 0;
+            for (let i = 0; i < d.length; i += 4) {
+                const a = d[i + 3], c = d[i];
+                if (a < aLo) aLo = a;
+                if (a > aHi) aHi = a;
+                if (c < cLo) cLo = c;
+                if (c > cHi) cHi = c;
+            }
+            if (aHi - aLo >= 24) return "alpha";
+            if (cHi - cLo >= 24) return "rgb";
+            return "none";
+        }
+
         function maskHasPerson(bmp) {
             if (!bmp) return false;
             const pw = 16, ph = 12;
@@ -484,8 +508,12 @@
             try {
                 maskProbeCtx.drawImage(bmp, 0, 0, pw, ph);
                 const d = maskProbeCtx.getImageData(0, 0, pw, ph).data;
+                const ch = matteChannel(d);
+                if (ch === "none") return false;
                 let sum = 0;
-                for (let i = 3; i < d.length; i += 4) sum += d[i];
+                for (let i = 0; i < d.length; i += 4) {
+                    sum += ch === "alpha" ? d[i + 3] : 255 - d[i];
+                }
                 return sum / (pw * ph) >= NO_PERSON_ALPHA;
             } catch {
                 return true; // 读不到像素时不误判，维持原有扣图路径
@@ -522,13 +550,62 @@
                     return r.blob();
                 }).then((pngBlob) => createImageBitmap(pngBlob))
                   .then((bmp) => {
-                      // 只采纳最新请求的响应，过期 mask 丢弃（人已移走）
-                      if (seq !== _visionSeq) return null;
+                      // 只作废「已被更新的结果取代」或「积压太旧」的响应。
+                      // 旧写法要求 seq 恰是最新发出的那一个，而 Vision 往返
+                      // ~35ms 与 VISION_POLL_MS(50) 同量级，主线程还要让给
+                      // detectForVideo：同节奏实测 60 次请求 0 次被采纳，
+                      // lastMask 永远是 null，drawPerson 只能走兜底画原帧，
+                      // 用户看到的就是「抠图没成功」。
+                      if (seq < _visionApplied) return null;
+                      if (_visionSeq - seq > MAX_VISION_LAG) return null;
+                      _visionApplied = seq;
+                      visionFail = 0; // 通一次即恢复，不再累计降级
                       lastMaskFace = capturedFace;
                       return bmp;
                   })
-                  .catch(() => { visionMode = "off"; return null; });
+                  .catch(() => {
+                      // 单次失败不降级：一次网络抖动或瞬时占满就永久关掉
+                      // Vision，之后整条抠图链只剩「不抠」。连续失败才降级。
+                      if (++visionFail >= VISION_FAIL_LIMIT) visionMode = "off";
+                      return null;
+                  });
             });
+        }
+
+        // 把引擎 mask 归一小图（mw x mh）写进 maskSmall，并回报覆盖率均值。
+        // 归一后 maskSmall 的 alpha 通道就是人物覆盖率：下游 destination-in
+        // 读到的正是人形区域，两种引擎（Vision / MediaPipe）的通道差异
+        // 在这一步被抹平。降采样同时承担羽化，不必另做模糊。
+        let lastMatteCoverage = 0;
+
+        function buildMatte(src, mw, mh) {
+            if (maskSmall.width !== mw || maskSmall.height !== mh) {
+                maskSmall.width = mw; maskSmall.height = mh;
+            }
+            maskSmallCtx.clearRect(0, 0, mw, mh);
+            maskSmallCtx.globalCompositeOperation = "source-over";
+            maskSmallCtx.imageSmoothingEnabled = true;
+            maskSmallCtx.drawImage(src, 0, 0, mw, mh);
+            const d = maskSmallCtx.getImageData(0, 0, mw, mh).data;
+            const ch = matteChannel(d);
+            let sum = 0;
+            if (ch === "rgb") {
+                // 覆盖率在 RGB、alpha 恒 255：反相写进 alpha。
+                // destination-in 只读源 alpha，RGB 填白即可。
+                const out = maskSmallCtx.createImageData(mw, mh);
+                const o = out.data;
+                for (let i = 0, j = 3; i < d.length; i += 4, j += 4) {
+                    const cov = 255 - d[i];
+                    o[j] = cov;
+                    o[j - 3] = o[j - 2] = o[j - 1] = 255;
+                    sum += cov;
+                }
+                maskSmallCtx.putImageData(out, 0, 0);
+            } else if (ch === "alpha") {
+                for (let i = 3; i < d.length; i += 4) sum += d[i];
+            }
+            lastMatteCoverage = sum / (mw * mh);
+            return lastMatteCoverage;
         }
 
         function drawPerson(w, h, mask) {
@@ -539,16 +616,18 @@
                 drawVideoFrame(ctx, w, h); // 兜底人像方向随镜像开关
                 return;
             }
-            // mask 先降采样再上采样：边缘经双线性插值天然羽化，
-            // 得到 Apple 人像模式的柔和抠图过渡（无生硬切割线）
+            // mask 先归一小图（alpha=人物覆盖率）再上采样：边缘经双线性
+            // 插值天然羽化，得到 Apple 人像模式的柔和抠图过渡（无生硬切割线）
             const mw = Math.max(2, Math.round(w / MASK_FEATHER));
             const mh = Math.max(2, Math.round(h / MASK_FEATHER));
-            if (maskSmall.width !== mw || maskSmall.height !== mh) {
-                maskSmall.width = mw; maskSmall.height = mh;
+            buildMatte(mask, mw, mh);
+
+            // 单帧保险：这一帧归一后的覆盖率仍然接近 0 就不抠，直接画原帧。
+            // 偶发的空 mask 若照旧 destination-in，人会在一两帧内整块消失。
+            if (lastMatteCoverage < NO_PERSON_ALPHA) {
+                drawVideoFrame(ctx, w, h);
+                return;
             }
-            maskSmallCtx.clearRect(0, 0, mw, mh);
-            maskSmallCtx.imageSmoothingEnabled = true;
-            maskSmallCtx.drawImage(mask, 0, 0, mw, mh);
 
             // 在离屏画布上完成抠图，再叠回主画布，防止 destination-in 误擦背景
             if (personCanvas.width !== w || personCanvas.height !== h) {
