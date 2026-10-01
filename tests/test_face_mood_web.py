@@ -380,8 +380,12 @@ class TestFaceMoodWebMatteNormalization(unittest.TestCase):
         # 「整幅保留」——画面看着像没抠图；必须反相写进 alpha。
         self.assertIn("const out = maskSmallCtx.createImageData(mw, mh);", self.script,
                       "RGB 型 mask 必须重写为 alpha 通道")
-        self.assertIn("const cov = 255 - d[i];", self.script,
-                      "RGB 覆盖率需反相为 alpha")
+        # 极性纪律：掩码不变量是「值高=人像」，RGB 型必须原样搬进 alpha，
+        # 反相会把 255 的人物写成 0，人会被整块擦掉（比整幅保留更糟）。
+        self.assertIn("const cov = d[i];", self.script,
+                      "RGB 覆盖率应原样搬进 alpha（值高=人像），不得反相")
+        self.assertNotIn("255 - d[i]", self.script,
+                         "不得反相 matte：会把人物整块擦掉")
         self.assertIn("maskSmallCtx.putImageData(out, 0, 0);", self.script,
                       "重写后的 matte 必须写回画布")
 

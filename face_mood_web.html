@@ -511,8 +511,10 @@
                 const ch = matteChannel(d);
                 if (ch === "none") return false;
                 let sum = 0;
+                // 「值高=人像」是本仓库掩码的统一不变量：Vision 的 alpha、
+                // MediaPipe 的 alpha 位图、以及 matte 落在 RGB 的构建都如此。
                 for (let i = 0; i < d.length; i += 4) {
-                    sum += ch === "alpha" ? d[i + 3] : 255 - d[i];
+                    sum += ch === "alpha" ? d[i + 3] : d[i];
                 }
                 return sum / (pw * ph) >= NO_PERSON_ALPHA;
             } catch {
@@ -590,12 +592,15 @@
             const ch = matteChannel(d);
             let sum = 0;
             if (ch === "rgb") {
-                // 覆盖率在 RGB、alpha 恒 255：反相写进 alpha。
-                // destination-in 只读源 alpha，RGB 填白即可。
+                // 覆盖率在 RGB、alpha 恒 255：把 RGB 原样搬进 alpha。
+                // 不能反相——本仓库的掩码不变量一律是「值高=人像」：
+                // vision_segment.py 的 putalpha(mask)、MediaPipe 的 alpha
+                // 位图都是高值=人。反相会把 255 的人物写成了 0（全擦掉），
+                // 比「整幅保留」更糟。destination-in 只读源 alpha，RGB 填白。
                 const out = maskSmallCtx.createImageData(mw, mh);
                 const o = out.data;
                 for (let i = 0, j = 3; i < d.length; i += 4, j += 4) {
-                    const cov = 255 - d[i];
+                    const cov = d[i];
                     o[j] = cov;
                     o[j - 3] = o[j - 2] = o[j - 1] = 255;
                     sum += cov;
