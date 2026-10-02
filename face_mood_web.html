@@ -227,7 +227,10 @@
             AU6:      { label: "脸颊提升",     keys: ["cheekSquintLeft", "cheekSquintRight"], op: "max" },
             AU7:      { label: "眼睑收紧",     keys: ["eyeSquintLeft", "eyeSquintRight"], op: "max" },
             AU9:      { label: "鼻纹",         keys: ["noseSneerLeft", "noseSneerRight"], op: "max" },
-            AU10:     { label: "上唇上提",     keys: ["mouthUpperUpLeft", "mouthUpperUpRight", "noseSneerLeft", "noseSneerRight"], op: "max" },
+            // 只取上唇：noseSneer 已由 AU9 单独表示。若 AU10 也吃 noseSneer，
+            // AU9 与 AU10 会取到同一个值，厌恶的两个必需 AU 沦为同一份证据，
+            // 单一鼻纹动作（含噪声虚高）即可让厌恶完整成立。
+            AU10:     { label: "上唇上提",     keys: ["mouthUpperUpLeft", "mouthUpperUpRight"], op: "max" },
             AU12:     { label: "嘴角上扬",     keys: ["mouthSmileLeft", "mouthSmileRight"], op: "mean" },
             AU12asym: { label: "单侧嘴角上扬", keys: ["mouthSmileLeft", "mouthSmileRight"], op: "asym" },
             AU14:     { label: "酒窝",         keys: ["mouthDimpleLeft", "mouthDimpleRight"], op: "mean" },
