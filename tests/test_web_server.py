@@ -61,7 +61,9 @@ class HealthCheckTests(unittest.TestCase):
             self.assertEqual(body["status"], "degraded")
             self.assertTrue(body["ok"], "摄像头故障不应把核心服务标记为不可用")
         else:
-            self.assertEqual(body["status"], "ok")
+            # 摄像头正常但可选后端（macOS Vision）在非 macOS 平台不可用 → 允许 degraded
+            self.assertIn(body["status"], ("ok", "degraded"))
+            self.assertTrue(body["ok"], "摄像头正常时核心服务应可用")
 
 
 class RoutingTests(unittest.TestCase):

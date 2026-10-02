@@ -879,8 +879,11 @@ class Handler(SimpleHTTPRequestHandler):
         except Exception as e:  # noqa: BLE001
             add("camera_device", False, "cv2 不可用：{}".format(e))
 
+        # 可降级项：硬件（摄像头）与平台专属增强后端（macOS Vision），
+        # 它们缺失时 MediaPipe 回退仍可用，整体只应降级而非报错
+        optional = ("camera_device", "vision_face_mood")
         all_ok = all(c["ok"] for c in checks)
-        core_ok = all(c["ok"] for c in checks if c["name"] != "camera_device")
+        core_ok = all(c["ok"] for c in checks if c["name"] not in optional)
         self._send_json({
             "ok": core_ok,
             "status": "ok" if all_ok else ("degraded" if core_ok else "error"),
