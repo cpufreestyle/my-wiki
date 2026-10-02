@@ -83,6 +83,36 @@ class TestTodos(unittest.TestCase):
             f.write("{ not json ]")
         self.assertEqual(wiki_data.load_todos(), [])
 
+    def test_corrupt_file_is_backed_up(self):
+        """损坏文件必须备份：否则任一写操作会以 [] 写回，历史待办被静默清空。"""
+        with open(self.todo_file, "w", encoding="utf-8") as f:
+            f.write("{ broken json ]")
+        self.assertEqual(wiki_data.load_todos(), [])
+        backups = [n for n in os.listdir(self.tmp) if ".corrupt." in n]
+        self.assertEqual(len(backups), 1, "损坏文件应备份一份，避免数据静默丢失")
+
+    def test_concurrent_add_no_lost_update(self):
+        """并发新增不应互相覆盖（read-modify-write 无锁会丢数据）。"""
+        import threading
+        n = 30
+        barrier = threading.Barrier(n)
+        errors = []
+
+        def worker(i):
+            try:
+                barrier.wait()
+                wiki_data.add_todo("任务%d" % i)
+            except Exception as e:  # noqa: BLE001
+                errors.append(e)
+
+        threads = [threading.Thread(target=worker, args=(i,)) for i in range(n)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        self.assertFalse(errors, "并发写入出现异常: {}".format(errors))
+        self.assertEqual(len(wiki_data.load_todos()), n, "并发新增应全部落盘，不应丢失")
+
 
 class TestReport(unittest.TestCase):
     def setUp(self):
@@ -143,6 +173,33 @@ class TestReport(unittest.TestCase):
         data = wiki_report.collect_report("2026-09-01", "2026-09-30")
         self.assertEqual(len(data["todos_pending"]), 1)
         self.assertIn("写报告", wiki_report.render_report(data))
+
+
+class TestFrontmatterTags(unittest.TestCase):
+    """frontmatter tags 解析：行式与块式都要支持。"""
+
+    def test_inline_array(self):
+        self.assertEqual(
+            wiki_data.parse_frontmatter_tags("---\ntags: [a, b]\n---\n正文"), ["a", "b"])
+
+    def test_inline_csv(self):
+        self.assertEqual(
+            wiki_data.parse_frontmatter_tags("---\ntags: a, b\n---\n正文"), ["a", "b"])
+
+    def test_block_style(self):
+        """块式写法此前会解析成空列表，导致整篇笔记的标签在标签页中丢失。"""
+        text = "---\ntitle: X\ntags:\n  - daily\n  - obsidian-setup\n---\n正文"
+        self.assertEqual(wiki_data.parse_frontmatter_tags(text), ["daily", "obsidian-setup"])
+
+    def test_block_style_with_other_keys(self):
+        text = "---\ntags:\n  - a\ndate: 2026-01-01\n---\n正文"
+        self.assertEqual(wiki_data.parse_frontmatter_tags(text), ["a"])
+
+    def test_no_frontmatter(self):
+        self.assertEqual(wiki_data.parse_frontmatter_tags("只有正文"), [])
+
+    def test_no_tags_key(self):
+        self.assertEqual(wiki_data.parse_frontmatter_tags("---\ntitle: X\n---\n正文"), [])
 
 
 if __name__ == "__main__":

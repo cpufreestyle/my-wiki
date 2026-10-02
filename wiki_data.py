@@ -10,6 +10,9 @@ Share 标签页经 sys.path.insert 动态加载，重名会被 sys.modules 缓�
 import json
 import os
 import re
+import sys
+import shutil
+import threading
 from collections import Counter
 from datetime import datetime
 
@@ -177,24 +180,47 @@ def cancel_reminder(rid):
 # ==================== TODO / 待办清单 ====================
 PRIORITY_ORDER = {"high": 0, "medium": 1, "low": 2}
 
+# 待办文件的读写锁：「load → 改 → save」三步必须原子。
+# web_server 是多线程 HTTP 服务，且桌面端与网页端共用同一份 vault/todos.json，
+# 无锁时并发操作会互相覆盖。
+_todos_lock = threading.Lock()
+
 
 def load_todos():
-    """读取待办列表（文件缺失或损坏时返回空列表）。"""
+    """读取待办列表。文件缺失返回 []；损坏时先备份原文件再返回 []。
+
+    不能静默吞掉损坏：后续任一写操作都会以 [] 为基础写回，
+    等于把全部历史待办清空且无任何提示。
+    """
     if os.path.exists(TODO_FILE):
         try:
             with open(TODO_FILE, "r", encoding="utf-8") as f:
                 data = json.load(f)
             return data if isinstance(data, list) else []
-        except Exception:
+        except Exception as e:
+            try:
+                backup = "{}.corrupt.{}".format(
+                    TODO_FILE, datetime.now().strftime("%Y%m%d%H%M%S"))
+                shutil.copy2(TODO_FILE, backup)
+                print("[WARN] todos.json 解析失败，已备份为 {}: {}".format(backup, e),
+                      file=sys.stderr)
+            except Exception:
+                print("[WARN] todos.json 解析失败且备份失败: {}".format(e), file=sys.stderr)
             return []
     return []
 
 
 def save_todos(todos):
-    """保存待办列表。"""
+    """原子保存待办列表（临时文件 + os.replace）。
+
+    直接 open(...,"w") 会先截断：web_server 是多线程 HTTP 服务，
+    且桌面端与网页端共用同一份文件，并发写会产生半截 JSON。
+    """
     os.makedirs(os.path.dirname(TODO_FILE), exist_ok=True)
-    with open(TODO_FILE, "w", encoding="utf-8") as f:
+    tmp_path = TODO_FILE + ".tmp"
+    with open(tmp_path, "w", encoding="utf-8") as f:
         json.dump(todos, f, ensure_ascii=False, indent=2)
+    os.replace(tmp_path, TODO_FILE)
 
 
 def normalize_priority(priority):
@@ -208,42 +234,45 @@ def add_todo(text, priority="medium", due=""):
     text = (text or "").strip()
     if not text:
         raise ValueError("待办内容不能为空")
-    todos = load_todos()
-    tid = max([t.get("id", 0) for t in todos], default=0) + 1
-    todo = {
-        "id": tid,
-        "text": text,
-        "priority": normalize_priority(priority),
-        "due": (due or "").strip(),
-        "done": False,
-        "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "done_at": "",
-    }
-    todos.append(todo)
-    save_todos(todos)
+    with _todos_lock:
+        todos = load_todos()
+        tid = max([t.get("id", 0) for t in todos], default=0) + 1
+        todo = {
+            "id": tid,
+            "text": text,
+            "priority": normalize_priority(priority),
+            "due": (due or "").strip(),
+            "done": False,
+            "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "done_at": "",
+        }
+        todos.append(todo)
+        save_todos(todos)
     return todo
 
 
 def toggle_todo(tid):
     """切换待办的完成状态，返回更新后的 dict；找不到返回 None。"""
-    todos = load_todos()
-    for t in todos:
-        if t.get("id") == tid:
-            t["done"] = not bool(t.get("done"))
-            t["done_at"] = (datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                            if t["done"] else "")
-            save_todos(todos)
-            return t
+    with _todos_lock:
+        todos = load_todos()
+        for t in todos:
+            if t.get("id") == tid:
+                t["done"] = not bool(t.get("done"))
+                t["done_at"] = (datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                                if t["done"] else "")
+                save_todos(todos)
+                return t
     return None
 
 
 def delete_todo(tid):
     """删除一条待办，返回是否删除成功。"""
-    todos = load_todos()
-    kept = [t for t in todos if t.get("id") != tid]
-    if len(kept) != len(todos):
-        save_todos(kept)
-        return True
+    with _todos_lock:
+        todos = load_todos()
+        kept = [t for t in todos if t.get("id") != tid]
+        if len(kept) != len(todos):
+            save_todos(kept)
+            return True
     return False
 
 
@@ -290,14 +319,33 @@ def read_text_safe(path):
 def parse_frontmatter_tags(text):
     """从 Markdown 前言（frontmatter）解析 tags 列表。
 
-    支持 `tags: [a, b]` 与 `tags: a, b` 两种写法。
+    支持三种写法：
+      tags: [a, b]    内联数组
+      tags: a, b      内联逗号分隔
+      tags:           块式（后续 `- item` 行）
+        - a
+        - b
+
+    块式此前会被解析成空列表，导致相当一部分笔记的标签在标签页中丢失。
     """
     m = re.match(r"^---\s*\n(.*?)\n---", text, re.DOTALL)
     if not m:
         return []
-    for line in m.group(1).splitlines():
+    lines = m.group(1).splitlines()
+    for i, line in enumerate(lines):
         s = line.strip()
-        if s.startswith("tags:"):
-            val = s.split(":", 1)[1].strip().strip("[]")
+        if not s.startswith("tags:"):
+            continue
+        val = s.split(":", 1)[1].strip().strip("[]")
+        if val:
             return [x.strip().strip("\"'") for x in val.split(",") if x.strip()]
+        # 块式：吃掉紧随其后的 "- item" 行
+        tags = []
+        for nxt in lines[i + 1:]:
+            t = nxt.strip()
+            if t.startswith("- "):
+                tags.append(t[2:].strip().strip("\"'"))
+            elif t and not t.startswith("#"):
+                break
+        return [t for t in tags if t]
     return []

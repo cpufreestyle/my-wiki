@@ -66,6 +66,12 @@ py-modules = [
     "wiki_tabs_mood",
     "wiki_tabs_reminder",
     "wiki_tabs_share",
+    "wiki_tabs_todo",
+    "wiki_tabs_search",
+    "wiki_tabs_tags",
+    "wiki_tabs_report",
+    "wiki_report",
+    "face_mood",
     "wiki_theme",
     "wiki_tool",
 ]

@@ -624,6 +624,9 @@ class Handler(SimpleHTTPRequestHandler):
         mood_dir = os.path.join(WIKI_DIR, "mood")
         os.makedirs(mood_dir, exist_ok=True)
         fpath = os.path.join(mood_dir, date + ".json")
+        # 兜底：确保最终落盘路径仍在 mood 目录内，防调用方漏校验导致路径穿越
+        if not os.path.realpath(fpath).startswith(os.path.realpath(mood_dir) + os.sep):
+            raise ValueError("非法的 date 路径")
         records = []
         if os.path.exists(fpath):
             try:
@@ -664,6 +667,10 @@ class Handler(SimpleHTTPRequestHandler):
             self._send_json({"ok": False, "error": "无效 JSON"}, status=400)
             return
         date = data.get("date") or datetime.now().strftime("%Y-%m-%d")
+        # date 会拼进文件路径，先严格校验，防止 ../ 路径穿越
+        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", str(date)):
+            self._send_json({"ok": False, "error": "date 需为 YYYY-MM-DD"}, status=400)
+            return
         record = {k: data.get(k) for k in ("time", "mood", "text", "confidence", "reason")}
         try:
             self._append_mood_record(date, record)
@@ -687,6 +694,10 @@ class Handler(SimpleHTTPRequestHandler):
             self._send_json({"ok": False, "error": "缺少 emotion 字段"}, status=400)
             return
         date = data.get("date") or datetime.now().strftime("%Y-%m-%d")
+        # date 会拼进文件路径，先严格校验，防止 ../ 路径穿越
+        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", str(date)):
+            self._send_json({"ok": False, "error": "date 需为 YYYY-MM-DD"}, status=400)
+            return
         # features 可能较大，仅保留数值类便于回看，多余的忽略
         features = data.get("features") or {}
         if isinstance(features, dict):
