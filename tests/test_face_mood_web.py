@@ -118,7 +118,9 @@ class TestFaceMoodWebStructure(unittest.TestCase):
         self.assertEqual(len(keys), 52, f"BLENDSHAPE_KEYS 应为 52 项，实际 {len(keys)}")
         for k in ["_neutral", "browOuterUpLeft", "eyeSquintLeft",
                   "mouthUpperUpLeft", "mouthDimpleLeft", "jawForward"]:
-            self.assertIn(k, f"BLENDSHAPE_KEYS 缺 {k}")
+            # 注意：第二个参数必须是 keys 本身。此前误写成消息串（消息串本身包含 k），
+            # 导致断言恒为真、完全失去校验作用。
+            self.assertIn(k, keys, f"BLENDSHAPE_KEYS 缺 {k}")
 
     def test_blendshape_keys_match_model_output(self):
         # 与 models/face_landmarker.task 内 face_blendshapes.tflite 的真实输出类别对齐，

@@ -487,6 +487,28 @@
             return au;
         }
 
+        // 动作单元 EMA 平滑，抑制单帧抖动（纯函数，便于单测）。
+        // 在 AU 层平滑而不是在 blendshape 层：先估 AU 再平滑，等价于对每个动作单元单独去抖。
+        //
+        // 必须在这里重算 peak：peak 是"是否有动作单元活跃"的证据，classifyExpression 里
+        // 平静分 = 1 - NEUTRAL_DECAY * peak。平滑后若不重算（或沿用 estimateAUs 的旧值），
+        // peak 会缺失而变成 0，平静恒为 1.0，所有表情都会塌缩成平静。
+        function smoothAU(prev, raw, alpha) {
+            const out = {};
+            if (!prev) {
+                for (const k of AU_KEYS) out[k] = raw[k] || 0;
+                out.AU12asym = raw.AU12asym || 0;
+            } else {
+                for (const k of AU_KEYS) {
+                    out[k] = prev[k] * (1 - alpha) + (raw[k] || 0) * alpha;
+                }
+                out.AU12asym = prev.AU12asym * (1 - alpha) + (raw.AU12asym || 0) * alpha;
+            }
+            out.peak = 0;
+            for (const k of AU_KEYS) out.peak = Math.max(out.peak, out[k] || 0);
+            return out;
+        }
+
         // 在"安静帧"上累积这个人自己的中性脸基准。
         // 只在所有 AU 都很低时更新：否则一露出表情就把表情学进基准，
         // 之后同类表情会被自己抵消掉。
@@ -958,17 +980,7 @@
                 // blendshape 层：先估 AU 再平滑，等价于对每个动作单元单独去抖。
                 const rawAU = estimateAUs(result.faceBlendshapes[0]);
                 updateNeutralBaseline(rawAU);   // 安静帧才学这个人的中性脸
-                if (!smoothedAU) {
-                    smoothedAU = {};
-                    for (const k of AU_KEYS) smoothedAU[k] = rawAU[k] || 0;
-                    smoothedAU.AU12asym = rawAU.AU12asym || 0;
-                } else {
-                    for (const k of AU_KEYS) {
-                        smoothedAU[k] = smoothedAU[k] * (1 - SMOOTH_ALPHA) + (rawAU[k] || 0) * SMOOTH_ALPHA;
-                    }
-                    smoothedAU.AU12asym = smoothedAU.AU12asym * (1 - SMOOTH_ALPHA)
-                        + (rawAU.AU12asym || 0) * SMOOTH_ALPHA;
-                }
+                smoothedAU = smoothAU(smoothedAU, rawAU, SMOOTH_ALPHA);
                 const r = classifyExpression(smoothedAU);
                 // 标签多数投票，避免结果在相邻情绪间闪烁
                 labelVotes.push(r.label);

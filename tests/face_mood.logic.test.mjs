@@ -74,10 +74,10 @@ const CONSTS = [
     "EMOTIONS", "BLENDSHAPE_KEYS", "BLENDSHAPE_INDEX", "AU_DEFS", "AU_KEYS",
     "EMOTION_AU", "AU_ON", "REQ_PENALTY", "CLASSIFY_TEMPERATURE",
     "REQ_WEIGHT", "INH_PENALTY", "NEUTRAL_DECAY",
-    "NEUTRAL_ALPHA", "NEUTRAL_QUIET",
+    "NEUTRAL_ALPHA", "NEUTRAL_QUIET", "SMOOTH_ALPHA",
 ];
 const FNS = [
-    "estimateAUs", "updateNeutralBaseline", "subtractNeutral",
+    "estimateAUs", "smoothAU", "updateNeutralBaseline", "subtractNeutral",
     "classifyExpression", "topFeatures",
 ];
 
@@ -89,6 +89,7 @@ function makeSandbox() {
     for (const c of CONSTS) parts.push("this." + c + " = " + c + ";");
     for (const f of FNS) parts.push(extractFunction(script, f));
     parts.push("this.estimateAUs = estimateAUs;");
+    parts.push("this.smoothAU = smoothAU;");
     parts.push("this.updateNeutralBaseline = updateNeutralBaseline;");
     parts.push("this.subtractNeutral = subtractNeutral;");
     parts.push("this.classifyExpression = classifyExpression;");
@@ -241,5 +242,36 @@ test("topFeatures 只回报达到阈值的 AU 并带中文标签", () => {
     for (const k of keys) assert.ok(k.includes("("), `应带中文标签: ${k}`);
     assert.ok(keys.some((k) => k.startsWith("AU4")), "愤怒应回报 AU4");
     assert.ok(keys.some((k) => k.startsWith("AU7")), "愤怒应回报 AU7");
+});
+
+// ---------- EMA 平滑：peak 必须保留（生产路径回归） ----------
+// 生产路径是 estimateAUs → smoothAU(EMA) → classifyExpression。
+// 若 EMA 后 peak 丢失，classifyExpression 里「平静」分 = 1 - NEUTRAL_DECAY * 0 = 1.0，
+// 所有表情都会塌缩成平静；而只把 estimateAUs 的输出喂给 classifyExpression 的用例
+// 完全看不见这个 bug（那正是此前的盲区）。
+test("smoothAU 必须重算 peak（否则平静恒 1.0、表情塌缩）", () => {
+    const raw = S.estimateAUs(bs(PROTOTYPES.开心));
+    assert.ok(raw.peak > 0, "estimateAUs 应给出 peak");
+
+    // 首次（prev 为空）
+    let sm = S.smoothAU(null, raw, S.SMOOTH_ALPHA);
+    assert.ok(typeof sm.peak === "number", "smoothAU 必须产出 peak");
+    assert.ok(sm.peak > 0, "首次平滑后 peak 应 > 0");
+
+    // 连续多帧平滑，peak 不得丢失
+    for (let i = 0; i < 12; i++) sm = S.smoothAU(sm, raw, S.SMOOTH_ALPHA);
+    assert.ok(sm.peak > 0, "多帧平滑后 peak 仍应 > 0");
+    assert.ok(Math.abs(sm.peak - raw.peak) < 0.05, "收敛后 peak 应接近原始 peak");
+});
+
+test("生产路径（EMA 后）不应把强表情判成平静", () => {
+    for (const [emo, spec] of Object.entries(PROTOTYPES)) {
+        if (emo === "平静") continue;
+        const raw = S.estimateAUs(bs(spec));
+        let sm = S.smoothAU(null, raw, S.SMOOTH_ALPHA);
+        for (let i = 0; i < 10; i++) sm = S.smoothAU(sm, raw, S.SMOOTH_ALPHA);
+        const r = S.classifyExpression(sm);
+        assert.notEqual(r.label, "平静", `${emo} 经 EMA 后不应判为平静（peak=${sm.peak}）`);
+    }
 });
 
