@@ -77,6 +77,30 @@ class RoutingTests(unittest.TestCase):
         self.assertIn('"/api/health"', src)
 
 
+class StaticWhitelistTests(unittest.TestCase):
+    """静态文件白名单：敏感文件必须拒绝，网页资源必须放行。"""
+
+    def test_sensitive_paths_rejected(self):
+        """实测过：此前 .git/HEAD、config/obsidian.json 都能直接下载（200）。"""
+        for p in ("/.git/HEAD", "/config/obsidian.json", "/wiki_app.py",
+                  "/requirements.txt", "/.venv/pyvenv.cfg", "/rag.py"):
+            self.assertFalse(web_server._static_allowed(p), "{} 不应被放行".format(p))
+
+    def test_directory_traversal_rejected(self):
+        for p in ("/../../etc/passwd", "/assets/../../config/obsidian.json",
+                  "/assets/..%2f..%2fconfig/obsidian.json"):
+            self.assertFalse(web_server._static_allowed(p), "{} 不应被放行".format(p))
+
+    def test_web_resources_allowed(self):
+        for p in ("/index.html", "/mood_web.html", "/todo_web.html",
+                  "/assets/web/theme.js", "/assets/web/apple-ui.css",
+                  "/assets/backgrounds/studio.jpg",
+                  "/models/face_landmarker.task",
+                  "/vendor/mediapipe/selfie_segmentation.js",
+                  "/voice-controller.js"):
+            self.assertTrue(web_server._static_allowed(p), "{} 应被放行".format(p))
+
+
 class MoodCacheTests(unittest.TestCase):
     """/api/mood/range 的聚合缓存：向已存在的文件追加也必须让缓存失效。"""
 

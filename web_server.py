@@ -310,6 +310,39 @@ def _record_worker(duration):
         _voice_done.set()
 
 
+# ---- 静态文件白名单 ----
+# 服务器以仓库根作为静态目录（directory=ROOT）。此前不加限制，实测局域网内
+# 任何人都能直接下载 .git/HEAD、config/obsidian.json（含本机绝对路径）与全部源码。
+# 这里只放行网页运行真正需要的资源（html/js/css、assets/、models/、vendor/mediapipe）。
+STATIC_ALLOWED_DIRS = ("assets", "models", "vendor")
+STATIC_ALLOWED_EXTS = (
+    ".html", ".js", ".css", ".json", ".png", ".jpg", ".jpeg", ".gif",
+    ".svg", ".ico", ".task", ".woff", ".woff2", ".ttf",
+)
+
+
+def _static_allowed(raw_path):
+    """静态请求白名单校验。
+
+    拒绝：隐藏文件/目录（.git / .venv 等）、上级穿越、以及白名单之外的源码与配置。
+    """
+    from urllib.parse import unquote, urlparse
+    path = unquote(urlparse(raw_path).path or "/")
+    if path.endswith("/"):
+        path += "index.html"
+    parts = [p for p in path.lstrip("/").split("/") if p not in ("", ".")]
+    if not parts:
+        return True
+    # 隐藏文件/目录与上级穿越一律拒绝
+    if any(p.startswith(".") or p == ".." for p in parts):
+        return False
+    # 子目录：只放行白名单目录
+    if len(parts) > 1:
+        return parts[0] in STATIC_ALLOWED_DIRS
+    # 根目录单文件：只放行网页资源扩展名
+    return os.path.splitext(parts[0])[1].lower() in STATIC_ALLOWED_EXTS
+
+
 class Handler(SimpleHTTPRequestHandler):
     def _send_json(self, obj, status=200):
         payload = json.dumps(obj, ensure_ascii=False).encode("utf-8")
@@ -318,13 +351,6 @@ class Handler(SimpleHTTPRequestHandler):
         self.send_header("Content-Length", str(len(payload)))
         self.end_headers()
         self.wfile.write(payload)
-
-    def end_headers(self):
-        # 允许跨域（部分运行时以不同 origin 加载本页）
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
-        super().end_headers()
 
     def do_OPTIONS(self):
         self.send_response(204)
@@ -367,6 +393,10 @@ class Handler(SimpleHTTPRequestHandler):
             return
         if self.path.split("?")[0] == "/api/todos":
             self._handle_todos_get()
+            return
+        # 静态文件：白名单校验，避免把整个仓库暴露给局域网
+        if not _static_allowed(self.path):
+            self.send_error(403, "Forbidden")
             return
         return super().do_GET()
 
