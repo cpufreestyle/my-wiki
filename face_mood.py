@@ -21,6 +21,7 @@ import os
 import statistics
 import subprocess
 import sys
+import threading
 import time
 import urllib.request
 
@@ -36,6 +37,30 @@ MODEL_PATH = os.path.join(MODEL_DIR, "face_landmarker.task")
 MODEL_URL = ("https://storage.googleapis.com/mediapipe-models/"
              "face_landmarker/face_landmarker/float16/latest/"
              "face_landmarker.task")
+
+# 模块级缓存：FaceLandmarker 实例较重（加载模型），跨调用复用，避免每次重建
+_landmarker = None
+_landmarker_lock = threading.Lock()
+
+
+def _get_landmarker():
+    """惰性创建并缓存 FaceLandmarker 实例（running_mode=VIDEO）。
+
+    复用同一实例需时间戳严格递增（detect_for_video 要求），调用方用
+    ``int(time.monotonic() * 1000)`` 作为时间戳即可保证全局单调递增。
+    """
+    global _landmarker
+    if _landmarker is not None:
+        return _landmarker
+    from mediapipe.tasks.python import BaseOptions
+    from mediapipe.tasks.python import vision
+    options = vision.FaceLandmarkerOptions(
+        base_options=BaseOptions(model_asset_path=MODEL_PATH),
+        running_mode=vision.RunningMode.VIDEO,
+        num_faces=1,
+        min_face_detection_confidence=0.5)
+    _landmarker = vision.FaceLandmarker.create_from_options(options)
+    return _landmarker
 
 
 # ---------- 依赖管理（模式与 voice_mood 一致） ----------
@@ -252,8 +277,6 @@ def capture_and_analyze(num_frames=DEFAULT_FRAMES, interval=DEFAULT_INTERVAL,
 
     import cv2
     import mediapipe as mp
-    from mediapipe.tasks.python import BaseOptions
-    from mediapipe.tasks.python import vision
 
     # Windows 下 CAP_DSHOW 打开更快（避免 MSMF 后端数秒延迟）
     if sys.platform == "win32":
@@ -266,25 +289,23 @@ def capture_and_analyze(num_frames=DEFAULT_FRAMES, interval=DEFAULT_INTERVAL,
 
     features_list = []
     try:
-        options = vision.FaceLandmarkerOptions(
-            base_options=BaseOptions(model_asset_path=MODEL_PATH),
-            running_mode=vision.RunningMode.VIDEO,
-            num_faces=1,
-            min_face_detection_confidence=0.5)
-        landmarker = vision.FaceLandmarker.create_from_options(options)
-        t0 = time.monotonic()
-        for _ in range(num_frames):
-            ok, frame = cap.read()
-            if not ok:
-                break
-            rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
-            ts_ms = int((time.monotonic() - t0) * 1000)
-            result = landmarker.detect_for_video(mp_image, ts_ms)
-            if result.face_landmarks:
-                lm = result.face_landmarks[0]
-                features_list.append(extract_features(lm))
-            time.sleep(interval)
+        # 复用缓存的 landmarker 实例（加锁防止并发调用）
+        with _landmarker_lock:
+            landmarker = _get_landmarker()
+            for _ in range(num_frames):
+                ok, frame = cap.read()
+                if not ok:
+                    break
+                rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
+                # 全局单调递增时间戳，满足 detect_for_video 的递增要求
+                ts_ms = int(time.monotonic() * 1000)
+                result = landmarker.detect_for_video(mp_image, ts_ms)
+                if result.face_landmarks:
+                    features_list.append(extract_features(result.face_landmarks[0]))
+                time.sleep(interval)
+    except Exception as e:
+        return {"error": "面部识别失败：{}".format(e)}
     finally:
         cap.release()
 
