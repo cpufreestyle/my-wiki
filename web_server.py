@@ -162,18 +162,47 @@ def _get_rag_engine():
 # ---- 知识图谱响应缓存（文件 mtime 未变则直接复用上次结果） ----
 _graph_cache = {"path": None, "mtime": None, "payload": None}
 
-# ---- mood 按日聚合缓存（签名 = mood/ 目录 mtime；写入新记录即失效） ----
+# ---- mood 按日聚合缓存 ----
+# 签名 = (目录 mtime, 所有 .json 的 max mtime, 文件数)。
+# 不能只用目录 mtime：向已存在文件追加不会更新目录 mtime，会让当天新记录永不生效。
 _mood_cache = {"sig": None, "days_data": []}
+
+
+def _mood_signature(mood_dir):
+    """mood 目录变更签名：(目录 mtime, 所有 .json 的 max mtime, 文件数)。
+
+    只用目录 mtime 是不够的：POSIX 下仅创建 / 删除 / 重命名目录项才更新目录
+    mtime，向已存在的文件追加内容只改文件 mtime —— 当天第一条记录之后的
+    所有追加都不会让签名变化，情绪报表会整天显示陈旧数据。
+    这里只做 stat / listdir，不读文件内容。
+    """
+    try:
+        dir_mtime = os.stat(mood_dir).st_mtime
+    except OSError:
+        return None
+    latest = 0.0
+    count = 0
+    try:
+        for fn in os.listdir(mood_dir):
+            if not fn.endswith(".json"):
+                continue
+            count += 1
+            try:
+                m = os.stat(os.path.join(mood_dir, fn)).st_mtime
+            except OSError:
+                continue
+            if m > latest:
+                latest = m
+    except OSError:
+        return None
+    return (dir_mtime, latest, count)
 
 
 def _mood_range_cache_get():
     """返回全量按日聚合（按日期升序）。签名未变直接命中，避免每次全量 IO。"""
     global _mood_cache
     mood_dir = os.path.join(WIKI_DIR, "mood")
-    try:
-        sig = os.stat(mood_dir).st_mtime if os.path.isdir(mood_dir) else None
-    except OSError:
-        sig = None
+    sig = _mood_signature(mood_dir) if os.path.isdir(mood_dir) else None
     if _mood_cache["sig"] == sig:
         return _mood_cache["days_data"]
     by_day = {}
