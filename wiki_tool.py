@@ -300,6 +300,11 @@ Wiki 维护工具
   python wiki_tool.py links <笔记>   # 列出该笔记的出链；不给参数则显示出链最多的笔记
   python wiki_tool.py backlinks <笔记> # 反向链接：哪些笔记链接到它
   python wiki_tool.py orphans        # 孤儿笔记（无入链）+ 失效链接清单
+  python wiki_tool.py publish        # 导出静态站点（复刻 Obsidian Publish）
+  python wiki_tool.py clip <url>     # 剪藏网页为笔记（复刻 Notion Web Clipper）
+  python wiki_tool.py review         # 间隔重复复习（复刻 RemNote/Readwise）
+  python wiki_tool.py cards          # 列出所有复习卡片
+  python wiki_tool.py digest         # 每日摘要（复刻 Notion AI）
         """)
     elif args[0] == "update":
         update_index()
@@ -322,9 +327,21 @@ Wiki 维护工具
             show_links(args[0], " ".join(args[1:]))
     elif args[0] == "orphans":
         show_orphans()
+    elif args[0] == "publish":
+        import wiki_publish
+        return wiki_publish.main(args[1:])
+    elif args[0] == "clip":
+        import wiki_clip
+        return wiki_clip.main(args[1:])
+    elif args[0] in ("review", "cards"):
+        import wiki_srs
+        return wiki_srs.main(args)
+    elif args[0] == "digest":
+        import wiki_digest
+        return wiki_digest.main(args[1:])
     else:
         print(f"[ERROR] 未知命令: {args[0]}")
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

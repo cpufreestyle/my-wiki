@@ -211,19 +211,6 @@ def advance_reminder(reminder_id, now=None):
     return None
 
 
-def mark_reminder_sent(reminder_id):
-    """标记提醒已发送，并删除 Windows 任务"""
-    reminders = load_reminders()
-    for r in reminders:
-        if r["id"] == reminder_id:
-            r["status"] = "sent"
-            
-            # 删除 Windows 任务
-            if r.get("task_name"):
-                delete_windows_task(r["task_name"])
-            break
-    save_reminders(reminders)
-
 def cancel_reminder(reminder_id):
     """取消提醒（删除 Windows 任务）"""
     reminders = load_reminders()

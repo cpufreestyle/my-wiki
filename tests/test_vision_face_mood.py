@@ -209,6 +209,13 @@ class SubprocessIsolationTest(unittest.TestCase):
 class CameraRobustnessTest(unittest.TestCase):
     """「摄像头无法打开」的定位与重试。"""
 
+    class FakeCv2:
+        """注入用假 cv2：capture 路径不应依赖本机是否装了 opencv-python。"""
+
+        @staticmethod
+        def imencode(_ext, _frame):
+            return True, bytearray(b"jpeg-bytes")
+
     @classmethod
     def setUpClass(cls):
         cls.mod = _load_module()
@@ -302,7 +309,7 @@ class CameraRobustnessTest(unittest.TestCase):
             "mood": "开心", "confidence": 0.5, "detail": "嘴角上扬",
             "frames": len(frames), "backend": "vision"}
         try:
-            out = mod.capture_and_analyze(num_frames=1)
+            out = mod.capture_and_analyze(num_frames=1, cv2mod=self.FakeCv2)
         finally:
             (mod._avf_state, mod._open_camera, mod._read_frames,
              mod.analyze_frames) = real
@@ -317,11 +324,23 @@ class CameraRobustnessTest(unittest.TestCase):
         mod._avf_state = lambda: state
         mod._open_camera = lambda cam_index, tries=None: (None, False)
         try:
-            out = mod.capture_and_analyze(num_frames=1)
+            out = mod.capture_and_analyze(num_frames=1, cv2mod=self.FakeCv2)
         finally:
             mod._avf_state, mod._open_camera = real
         self.assertIn("error", out)
         self.assertIn("占用", out["error"])
+
+    def test_missing_opencv_reports_install_hint(self):
+        """没装 opencv-python 时要给出可执行的安装提示，而不是让 import cv2 炸掉子进程。"""
+        mod = self.mod
+        real = mod.deps_status
+        mod.deps_status = lambda: (True, False)
+        try:
+            out = mod.capture_and_analyze(num_frames=1)
+        finally:
+            mod.deps_status = real
+        self.assertIn("opencv-python", out["error"])
+        self.assertIn("pip install opencv-python", out["error"])
 
     def test_main_supports_camera_probe(self):
         import io as _io

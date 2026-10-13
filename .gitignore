@@ -161,15 +161,26 @@ _verify_*.py
 _verify_*.log
 
 # Agent 工具工作目录（本地工具产物，不入库）
+# 注意：旧规则只盖了 .codely-cli/auto-saves/，漏了 settings.json 等根级工具态；
+# 目录形式的规则（dir/）不匹配目录本身，故同时列出目录根名。
 .codely/
+.codely-cli/
+.codely
+.codely-cli
 .zion-mcp/
-.codely-cli/auto-saves/
+.zion-mcp
 
 # 快速捕捉收件箱（运行时写入，按需归档）
 inbox/
 
 # 图标替换时的旧版本备份（本地保留，不进仓库）
+# 带斜杠的写法额外匹配目录本身，避免“文件已删但目录仍被当新增”。
+.icons-backup*/
 .icons-backup*
 
 # playwright-cli 快照工作目录（UI 验证时写入，不入库）
 .playwright-cli/
+
+# 静态站点导出产物与间隔重复状态（本地运行时生成）
+dist-publish/
+srs.json

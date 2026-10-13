@@ -8,42 +8,17 @@ tests/test_daily_web.py — daily_web.html 结构 / 选择器一致性单元测�
 """
 import re
 import unittest
-from html.parser import HTMLParser
 from pathlib import Path
 
+from _html_probe import _load
+
 HTML_PATH = Path(__file__).resolve().parent.parent / "daily_web.html"
-
-
-class _Collector(HTMLParser):
-    def __init__(self):
-        super().__init__()
-        self.ids = set()
-        self.classes = set()
-        self.tags = []
-
-    def handle_starttag(self, tag, attrs):
-        d = dict(attrs)
-        self.tags.append((tag, d))
-        if "id" in d and d["id"]:
-            self.ids.add(d["id"])
-        if "class" in d and d["class"]:
-            for c in d["class"].split():
-                self.classes.add(c)
-
-
-def _load():
-    text = HTML_PATH.read_text(encoding="utf-8")
-    parser = _Collector()
-    parser.feed(text)
-    m = re.search(r"<script>(.*?)</script>", text, re.DOTALL)
-    script = m.group(1) if m else ""
-    return text, parser, script
 
 
 class TestDailyWebStructure(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.text, cls.p, cls.script = _load()
+        cls.text, cls.p, cls.script = _load(HTML_PATH)
 
     def test_file_exists(self):
         self.assertTrue(HTML_PATH.exists(), f"缺少文件: {HTML_PATH}")

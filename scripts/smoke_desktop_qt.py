@@ -52,10 +52,6 @@ def _tab_page_of(app, widget):
 
 
 def main():
-    # 拦截可能弹出系统对话框的调用
-    with mock.patch.object(w, "QMessageBox", create=True) if hasattr(w, "QMessageBox") else mock.MagicMock():
-        pass
-
     app = w.QApplication(sys.argv)
     w.apply_qss(app, w.get_mode())
     print("OK 1: QApplication 创建 + apply_qss 应用, 模式=", w.get_mode())
@@ -114,15 +110,30 @@ def main():
     pump()
     print("OK 6: WelcomeDialog 构建并显示")
 
-    # 主题切换（浅<->深）：会重建并重新 apply_qss
-    before = w.get_mode()
-    window.toggle_theme()
-    pump()
-    after = w.get_mode()
-    assert after != before, "toggle_theme 未切换模式"
-    print("OK 7: toggle_theme 切换成功 {} -> {}".format(before, after))
-    window.toggle_theme()  # 切回
-    pump()
+    # 主题切换（浅<->深）：会重建并重新 apply_qss。
+    # set_mode 会把偏好写进 config/theme_pref.txt —— 那是被 git 跟踪的用户偏好，
+    # 冒烟测试跑到一半崩溃就会留下翻转过的一次。这里把偏好文件重定向到临时目录。
+    import shutil
+    import tempfile
+    import theme as _theme
+    _real_pref, _real_dir = _theme.PREF_FILE, _theme._PREF_DIR
+    _pref_tmp = tempfile.mkdtemp(prefix="smoke_theme_")
+    _theme.PREF_FILE = os.path.join(_pref_tmp, "theme_pref.txt")
+    _theme._PREF_DIR = _pref_tmp
+    try:
+        before = w.get_mode()
+        window.toggle_theme()
+        pump()
+        after = w.get_mode()
+        assert after != before, "toggle_theme 未切换模式"
+        assert os.path.exists(_theme.PREF_FILE), "toggle_theme 应持久化偏好（写到临时文件）"
+        print("OK 7: toggle_theme 切换成功 {} -> {}（偏好写入临时目录，不碰 config/）".format(
+            before, after))
+        window.toggle_theme()  # 切回
+        pump()
+    finally:
+        _theme.PREF_FILE, _theme._PREF_DIR = _real_pref, _real_dir
+        shutil.rmtree(_pref_tmp, ignore_errors=True)
 
     # 语言切换（中<->英）：重建界面
     before_lang = w.get_lang()

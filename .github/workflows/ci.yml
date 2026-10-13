@@ -24,6 +24,14 @@ jobs:
         with:
           node-version: "20"
 
+      - name: 安装单测第三方依赖（只有 Pillow）
+        # 单元测试步骤在 requirements.txt 之前跑，全套用例只允许标准库 + 仓库内一方
+        # 模块；目前唯一的例外是 tests/test_face_mood_web.py 的人像抠图尺寸用例要用
+        # Pillow。不装整份 requirements.txt —— opencv / mediapipe 会让 CI 多下载几百
+        # MB。用例新增第三方 import 时，同步补这一行（tests/test_ci_dependency_contract.py
+        # 会在本地就把漏改抓出来）。
+        run: python -m pip install Pillow
+
       - name: Python 单元测试（tests/run_all.py 全套模块）
         run: python tests/run_all.py
 

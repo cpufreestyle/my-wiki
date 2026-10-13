@@ -7,7 +7,6 @@ web_server.py - MyWiki 统一本地服务器
   - POST /api/voice/start   开始录音（后端用 ffmpeg 录系统麦克风）
   - POST /api/voice/stop    停止录音并识别，返回 { text, acoustics }
   - POST /api/mood          保存心情（与 mood_web.html 的 fetch 对应）
-  - GET  /api/reminders/pending  兼容原 reminder_server
 
 适用场景：
   在缺少浏览器 Web Speech API 的运行时（如 InkView / QuickJS），或想用
@@ -949,9 +948,10 @@ class Handler(SimpleHTTPRequestHandler):
         except Exception as e:  # noqa: BLE001
             add("camera_device", False, "cv2 不可用：{}".format(e))
 
-        # 可降级项：硬件（摄像头）与平台专属增强后端（macOS Vision），
-        # 它们缺失时 MediaPipe 回退仍可用，整体只应降级而非报错
-        optional = ("camera_device", "vision_face_mood")
+        # 可降级项：硬件（摄像头）与面部识别的后端依赖（macOS Vision / cv2 /
+        # MediaPipe）。它们缺失只影响「面部情绪」一个功能，网页与 mood 服务
+        # 仍可用，因此整体只应降级而非报错；核心项是页面存在与 mood 目录可写。
+        optional = ("camera_device", "vision_face_mood", "opencv", "mediapipe")
         all_ok = all(c["ok"] for c in checks)
         core_ok = all(c["ok"] for c in checks if c["name"] not in optional)
         self._send_json({

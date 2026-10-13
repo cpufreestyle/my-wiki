@@ -64,10 +64,10 @@ except ModuleNotFoundError as e:
     sys.exit(1)
 import voice_mood
 from backup_snapshots import create_snapshot
-from wiki_paths import ICON_PATH, WIKI_DIR, _SCRIPT_DIR
+from wiki_paths import ICON_PATH, _SCRIPT_DIR
 from wiki_theme import (
     FONT_SCALE, apply_card_shadow, apply_qss, get_mode, get_theme_colors, get_ui_pref,
-    is_dark, reload_ui_prefs, set_mode, set_ui_pref,
+    reload_ui_prefs, set_mode, set_ui_pref,
 )
 from wiki_i18n import get_lang, set_lang, t
 from wiki_data import get_now, get_today, load_daily, save_daily

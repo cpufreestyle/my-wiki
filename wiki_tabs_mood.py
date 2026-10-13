@@ -12,7 +12,7 @@ from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QCheckBox, QDialog, QGridLayout, QHBoxLayout, QLabel, QMessageBox,
-    QPlainTextEdit, QPushButton, QVBoxLayout, QGraphicsDropShadowEffect,
+    QPlainTextEdit, QPushButton, QVBoxLayout,
 )
 
 import voice_mood

@@ -8,44 +8,17 @@ tests/test_rag_web.py — rag_web.html 语义检索页结构 / 选择器一致�
 """
 import re
 import unittest
-from html.parser import HTMLParser
 from pathlib import Path
 
+from _html_probe import _load
+
 HTML_PATH = Path(__file__).resolve().parent.parent / "rag_web.html"
-VOICE_JS_PATH = Path(__file__).resolve().parent.parent / "voice-controller.js"
-
-
-class _Collector(HTMLParser):
-    def __init__(self):
-        super().__init__()
-        self.ids = set()
-        self.classes = set()
-        self.tags = []
-
-    def handle_starttag(self, tag, attrs):
-        d = dict(attrs)
-        self.tags.append((tag, d))
-        if "id" in d and d["id"]:
-            self.ids.add(d["id"])
-        if "class" in d and d["class"]:
-            for c in d["class"].split():
-                self.classes.add(c)
-
-
-def _load():
-    text = HTML_PATH.read_text(encoding="utf-8")
-    parser = _Collector()
-    parser.feed(text)
-    blocks = re.findall(r"<script>(.*?)</script>", text, re.DOTALL)
-    script = blocks[-1] if blocks else ""
-    voice_js = VOICE_JS_PATH.read_text(encoding="utf-8") if VOICE_JS_PATH.exists() else ""
-    return text, parser, script, voice_js
 
 
 class TestRagWebStructure(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.text, cls.p, cls.script, cls.voice_js = _load()
+        cls.text, cls.p, cls.script, cls.voice_js = _load(HTML_PATH, voice=True, last=True)
 
     def test_file_exists(self):
         self.assertTrue(HTML_PATH.exists(), f"缺少文件: {HTML_PATH}")

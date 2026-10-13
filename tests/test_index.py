@@ -9,46 +9,18 @@ tests/test_index.py — index.html 网页端总入口门户页结构 / 导航一
 import os
 import re
 import unittest
-from html.parser import HTMLParser
 from pathlib import Path
+
+from _html_probe import _load
 
 HTML_PATH = Path(__file__).resolve().parent.parent / "index.html"
 ROOT = Path(__file__).resolve().parent.parent
 
 
-class _Collector(HTMLParser):
-    def __init__(self):
-        super().__init__()
-        self.ids = set()
-        self.classes = set()
-        self.tags = []
-        self.href = []  # 记录所有 <a href>
-
-    def handle_starttag(self, tag, attrs):
-        d = dict(attrs)
-        self.tags.append((tag, d))
-        if "id" in d and d["id"]:
-            self.ids.add(d["id"])
-        if "class" in d and d["class"]:
-            for c in d["class"].split():
-                self.classes.add(c)
-        if tag == "a" and d.get("href"):
-            self.href.append(d["href"])
-
-
-def _load():
-    text = HTML_PATH.read_text(encoding="utf-8")
-    parser = _Collector()
-    parser.feed(text)
-    blocks = re.findall(r"<script>(.*?)</script>", text, re.DOTALL)
-    script = blocks[-1] if blocks else ""
-    return text, parser, script
-
-
 class TestIndexStructure(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.text, cls.p, cls.script = _load()
+        cls.text, cls.p, cls.script = _load(HTML_PATH, last=True)
 
     def test_file_exists(self):
         self.assertTrue(HTML_PATH.exists(), f"缺少文件: {HTML_PATH}")

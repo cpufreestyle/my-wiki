@@ -10,13 +10,10 @@ import requests
 from datetime import datetime
 from pathlib import Path
 
+from rss_feeds import load_feeds
+
 WIKI_DIR = Path(__file__).parent.parent
-RSS_FEEDS = [
-    {"name": "Hacker News",    "url": "https://hnrss.org/frontpage",                   "tag": "tech"},
-    {"name": "GitHub Blog",    "url": "https://github.blog/feed/",                    "tag": "github"},
-    {"name": "Real Python",    "url": "https://realpython.com/atom.xml",               "tag": "python"},
-    {"name": "MIT Tech Review","url": "https://www.technologyreview.com/feed/",        "tag": "tech"},
-]
+RSS_FEEDS = load_feeds()
 
 def main():
     out_dir = WIKI_DIR / "daily" / "rss"

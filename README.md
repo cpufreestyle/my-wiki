@@ -16,6 +16,7 @@
 - [详细安装指南](#详细安装指南)
 - [操作流程](#操作流程)
 - [目录结构](#目录结构)
+- [项目规格](#项目规格)
 - [功能模块](#功能模块)
 - [集成工具](#集成工具)
 - [本地模型支持](#本地模型支持)
@@ -361,7 +362,6 @@ my-wiki/
 ├── wiki_links.py                  # 双链解析 / 反向链接 / 孤儿与失效链接检测（[[wikilink]]，零依赖）🆕
 ├── rag.py                         # 语义 RAG 检索引擎 (BM25 / Ollama embedding)
 ├── voice_mood.py                  # 语音心情（ffmpeg 录音 + SpeechRecognition 在线识别）🆕
-├── daily_ui.py                    # 日记桌面端 UI 🆕
 ├── reminder_ui.py                 # 提醒桌面端 UI 🆕
 ├── reminder_rrule.py              # 重复提醒规则引擎（RRULE 子集，零依赖，融合 dateutil/RFC 5545 语义）🆕
 ├── theme.py                       # 统一设计 token（Apple 风浅/深色）🆕
@@ -423,14 +423,27 @@ my-wiki/
 ├── run-mywiki.command             # macOS 一键启动桌面 GUI 🆕
 ├── MyWiki.app/                    # macOS 应用包（可选）🆕
 ├── MyWiki.spec                    # PyInstaller 打包配置 🆕
+├── SPEC.md                        # 项目契约规格（入口/路由/打包资源/验收 harness）🆕
 └── .gitignore                     # Git 忽略规则
 ```
 
 ---
 
+## 📐 项目规格
+
+**[项目契约规格 (SPEC.md)](SPEC.md)** —— 改动代码前应对照的「硬契约」清单（可核对、有测试守门）：
+
+- **三个入口**：`mywiki`（CLI）/ `mywiki-app`（PySide6 桌面）/ `mywiki-server`（本地 Web）
+- **HTTP 路由与静态白名单**：GET / POST 全量端点 + 目录与扩展名白名单
+- **目录边界**：`brain/` `daily/` `wiki/` 只读，`vendor/mediapipe/` 只增不改
+- **打包契约**：`MyWiki.spec` 必带资源清单 + 版本单一数据源 `pyproject.toml`
+- **验收 harness**：`python tests/run_all.py` + `node --test` + 冒烟脚本
+
+---
+
 ## 🔌 功能模块
 
-MyWiki v2.9.0 集成以下功能模块，位于 `modules/` 目录：
+MyWiki v2.10.1 集成以下功能模块，位于 `modules/` 目录：
 
 ### 模块列表
 
@@ -635,7 +648,7 @@ MYWIKI_RAG_MODE=ollama python rag.py "你的问题" --rebuild
 - ✅ **桌面端内置网页版**：打开 `wiki_app.py`（或打包后的 `MyWiki.app`）时会自动在后台拉起 `web_server.py`（端口 8082），顶栏「🌐 网页版」按钮一键在浏览器打开知识图谱 / 语义检索页；关闭桌面 App 时网页版服务一并停止，无需手动启停。打包时 `web_server.py`、`rag.py`、`voice_mood.py`、各 `*_web.html` 与 `knowledge_graph.json` 已随 `MyWiki.spec` 一并打入
 - ✅ **卡片高度可调**：三个网页版的卡片均保证高度高于字体（`--card-h` 变量兜底），并提供「卡片高度」滑块手动统一调节，偏好持久化到 `localStorage`（daily 的编辑器高度随滑块联动）
 - ✅ **设计规格沉淀**：`FIGMA_DESIGN_SPEC.md` 记录界面设计稿与规范，便于后续迭代与协作
-- ✅ **一致体验**：`reminder_ui.py` / `daily_ui.py` / `wiki_app.py` 同步适配统一 token
+- ✅ **一致体验**：`reminder_ui.py` / `wiki_app.py` 同步适配统一 token
 
 ### 10. 待办 / 搜索 / 标签 / 报告（桌面端 + 网页端）🆕
 
@@ -719,6 +732,25 @@ git push origin main
 
 # 从 GitHub 拉取
 git pull origin main
+```
+
+#### 付费能力复刻（零第三方依赖）
+
+以开源组件 + 黑盒行为对照方式复刻的第三方付费功能，仅用 Python 标准库：
+
+| 命令 | 复刻对象 | 说明 |
+|------|---------|------|
+| `publish` | Obsidian Publish | 导出带搜索、标签页、反向链接的静态站点 |
+| `clip <url>` | Notion Web Clipper | 剪藏网页正文到 inbox/clips/，带来源 frontmatter |
+| `review` | RemNote Pro / Readwise | SM-2 lite 间隔重复复习 |
+| `cards` | 同上 | 列出所有卡片及到期状态 |
+| `digest` | Notion AI | 每日摘要；有 Ollama 走 AI，否则抽取式兜底 |
+
+```bash
+python wiki_tool.py publish --out dist-publish --clean   # 导出静态站点
+python wiki_tool.py clip https://example.com/post        # 剪藏网页
+python wiki_tool.py review --limit 10                    # 开始复习
+python wiki_tool.py digest --no-ai                       # 强制抽取式摘要
 ```
 
 ---
@@ -848,8 +880,8 @@ python wiki_app.py
 仓库自带轻量测试（零第三方依赖），并配有 GitHub Actions 持续集成。
 
 ```bash
-# 1) Web UI 结构 / 选择器一致性（Python 标准库，防 null 引用类 bug）
-python -m unittest discover -s tests -p "test_*.py" -v
+# 1) Python 全套（自动发现 tests/test_*.py；与 AGENTS.md / CI 同源）
+python tests/run_all.py
 
 # 2) Web UI 纯逻辑（Node 内置 test runner，从 HTML 抽取函数运行）
 node --test "tests/**/*.test.mjs"
@@ -885,4 +917,4 @@ QT_QPA_PLATFORM=offscreen python scripts/smoke_desktop_qt.py
 
 **最后更新**: 2026-08-02（多源上下文采集：飞书/企微聊天 + 妙记 + 本地录音转写 → 共享 Obsidian vault / 桌面端内置网页版 / macOS 代码签名打包修复）
 
-**版本**: v2.9.0
+**版本**: v2.10.1

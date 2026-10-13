@@ -10,7 +10,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
-    QScrollArea, QVBoxLayout, QWidget, QGraphicsDropShadowEffect,
+    QScrollArea, QVBoxLayout, QWidget,
 )
 
 from wiki_theme import get_theme_colors, get_ui_pref, set_ui_pref, is_dark, apply_card_shadow

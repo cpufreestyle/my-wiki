@@ -8,7 +8,9 @@ version = "2.10.1"
 description = "MyWiki — 个人知识管理工具集（日记、心情、提醒、语义检索、桌面 GUI）"
 readme = "README.md"
 license = { text = "MIT" }
-requires-python = ">=3.9"
+# 下限由代码实际语法决定：theme.py / llm_qa.py 用 PEP 604 注解（str | None），
+# 3.9 上 import 即 TypeError，声明 >=3.9 会让 pip 放过跑不起来的解释器
+requires-python = ">=3.10"
 authors = [
     { name = "Michael Qiu" },
 ]
@@ -74,6 +76,16 @@ py-modules = [
     "face_mood",
     "wiki_theme",
     "wiki_tool",
+    # 以下 4 个模块此前漏登记（在盘上运行正常，pip install / 打包会漏带）
+    "wiki_links",
+    "reminder_rrule",
+    "llm_qa",
+    "vision_face_mood",
+    # 复刻第三方付费能力（零第三方依赖，仅标准库 + 一方模块）
+    "wiki_publish",
+    "wiki_clip",
+    "wiki_srs",
+    "wiki_digest",
 ]
 
 [tool.setuptools.packages.find]
@@ -81,4 +93,5 @@ where = ["."]
 include = ["modules*", "scripts*"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+# tests/ 与模块内核测试（modules/<模块>/test_*.py）两处发现根，与 tests/run_all.py 保持一致
+testpaths = ["tests", "modules"]

@@ -19,11 +19,11 @@ test_mood_web.py 一致：守住 JS 引用的元素 id 不存在、关键 DOM / 
 import os
 import re
 import unittest
-from html.parser import HTMLParser
 from pathlib import Path
 
+from _html_probe import _load
+
 HTML_PATH = Path(__file__).resolve().parent.parent / "face_mood_web.html"
-WEB_SERVER_PATH = Path(__file__).resolve().parent.parent / "web_server.py"
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 # 页面不得再出现的外网 CDN 域名（含常见的 MediaPipe 模型托管域名）
@@ -35,38 +35,10 @@ FORBIDDEN_CDN_HOSTS = (
 )
 
 
-class _Collector(HTMLParser):
-    def __init__(self):
-        super().__init__()
-        self.ids = set()
-        self.classes = set()
-        self.tags = []
-
-    def handle_starttag(self, tag, attrs):
-        d = dict(attrs)
-        self.tags.append((tag, d))
-        if "id" in d and d["id"]:
-            self.ids.add(d["id"])
-        if "class" in d and d["class"]:
-            for c in d["class"].split():
-                self.classes.add(c)
-
-
-def _load():
-    text = HTML_PATH.read_text(encoding="utf-8")
-    parser = _Collector()
-    parser.feed(text)
-    # 本页脚本为 <script type="module">，裸 <script> 正则匹配不到，需定向提取
-    m = re.search(r'<script type="module">(.*?)</script>', text, re.DOTALL)
-    script = m.group(1) if m else ""
-    server = WEB_SERVER_PATH.read_text(encoding="utf-8") if WEB_SERVER_PATH.exists() else ""
-    return text, parser, script, server
-
-
 class TestFaceMoodWebStructure(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.text, cls.p, cls.script, cls.server = _load()
+        cls.text, cls.p, cls.script, cls.server = _load(HTML_PATH, server=True, module_script=True)
 
     # ---------- 文件与脚本 ----------
     def test_file_exists(self):
@@ -254,7 +226,7 @@ class TestFaceMoodWebLocalAssets(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.text, cls.p, cls.script, cls.server = _load()
+        cls.text, cls.p, cls.script, cls.server = _load(HTML_PATH, server=True, module_script=True)
 
     def test_no_external_cdn_reference(self):
         # 页面（含 <script type="module"> 正文）不得再引用任何公网 CDN
@@ -329,7 +301,7 @@ class TestFaceMoodWebMirror(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.text, cls.p, cls.script, cls.server = _load()
+        cls.text, cls.p, cls.script, cls.server = _load(HTML_PATH, server=True, module_script=True)
 
     def test_mirror_toggle_present(self):
         self.assertIn("mirrorBtn", self.p.ids, "缺少方向/镜像开关按钮 mirrorBtn")
@@ -389,7 +361,7 @@ class TestFaceMoodWebMaskFallback(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.text, cls.p, cls.script, cls.server = _load()
+        cls.text, cls.p, cls.script, cls.server = _load(HTML_PATH, server=True, module_script=True)
 
     def test_person_presence_probe_defined(self):
         self.assertIn("function maskHasPerson", self.script,
@@ -427,7 +399,7 @@ class TestFaceMoodWebMatteNormalization(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.text, cls.p, cls.script, cls.server = _load()
+        cls.text, cls.p, cls.script, cls.server = _load(HTML_PATH, server=True, module_script=True)
 
     def test_build_matte_defined(self):
         # 抠图前必须把引擎返回的 mask 归一小图，否则无法保证
@@ -476,7 +448,7 @@ class TestFaceMoodWebMaskDelivery(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.text, cls.p, cls.script, cls.server = _load()
+        cls.text, cls.p, cls.script, cls.server = _load(HTML_PATH, server=True, module_script=True)
 
     def test_stale_logic_does_not_discard_everything(self):
         # 旧逻辑：if (seq !== _visionSeq) return null;

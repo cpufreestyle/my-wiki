@@ -380,12 +380,17 @@ def camera_probe(cam_index=0):
 
 
 def capture_and_analyze(num_frames=DEFAULT_FRAMES, interval=DEFAULT_INTERVAL,
-                        cam_index=0):
-    """打开摄像头采样若干帧并分析面部情绪（Vision 后端）。"""
-    if not deps_status()[1]:
-        return {"error": "缺少依赖：opencv-python。"
-                "可运行 python -m pip install opencv-python"}
-    import cv2
+                        cam_index=0, cv2mod=None):
+    """打开摄像头采样若干帧并分析面部情绪（Vision 后端）。
+
+    cv2mod 与 _read_frames 同构：生产调用留空（自行 import cv2 并先查依赖），
+    测试注入假模块，使摄像头重试逻辑在没有 opencv-python 的 runner 上也能跑。
+    """
+    if cv2mod is None:
+        if not deps_status()[1]:
+            return {"error": "缺少依赖：opencv-python。"
+                    "可运行 python -m pip install opencv-python"}
+        import cv2 as cv2mod
     state = _avf_state()
     # 被其它程序占用时多等几轮，避免一句「无法打开摄像头」把用户挡死
     tries = CAMERA_OPEN_TRIES if state.get("busy_by_other") else 1
@@ -393,7 +398,7 @@ def capture_and_analyze(num_frames=DEFAULT_FRAMES, interval=DEFAULT_INTERVAL,
     try:
         if not opened:
             return {"error": camera_hint(state)}
-        frames = _read_frames(cap, num_frames, interval, cv2mod=cv2)
+        frames = _read_frames(cap, num_frames, interval, cv2mod=cv2mod)
     finally:
         if cap is not None:
             cap.release()
