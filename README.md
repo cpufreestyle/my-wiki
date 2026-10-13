@@ -458,24 +458,31 @@ MyWiki v2.10.1 集成以下功能模块，位于 `modules/` 目录：
 ### 模块使用
 
 ```bash
-# 视频分析
-python wiki_tool.py video <video_path> --interval 30 --title "标题"
+# 以下为各扩展模块的独立入口脚本（与 wiki_tool.py 子命令相互独立）。
 
-# Memo 同步
-python wiki_tool.py memo-push <file.md> --title "标题"
-python wiki_tool.py memo-list
-python wiki_tool.py memo-search "关键词"
-python wiki_tool.py memo-pull
+# 视频分析：ffprobe → 抽帧 → 关键帧采样 → Markdown 报告骨架
+python modules/video-analysis/analyze.py <video_path> --interval 30 --title "标题"
 
-# Obsidian 双 Vault 同步
-python wiki_tool.py sync-obsidian              # 同步到所有 Vault
-python wiki_tool.py sync-obsidian --vault documents  # 仅 Documents
+# Memo 双向同步（子命令：push / push-dir / pull / list / search）
+python modules/memo-sync/sync.py push <file.md> --title "标题"
+python modules/memo-sync/sync.py push-dir <dir> --pattern "*.md"
+python modules/memo-sync/sync.py list --limit 20
+python modules/memo-sync/sync.py search "关键词"
+python modules/memo-sync/sync.py pull --limit 10
 
-# 共享层 (让 Obsidian 与所有 Agent 共享同一个 Wiki)
-python wiki_tool.py serve          # 启动 MCP Server，Agent 可接入
-python wiki_tool.py agents         # 发现电脑里所有 Agent
-python wiki_tool.py obsidian       # 发现 Obsidian Vault
-python wiki_tool.py broadcast wiki.updated daily/2026-07-12.md  # 广播更新
+# Obsidian 多 Vault 同步
+python modules/obsidian-sync/sync.py                    # 同步到所有 Vault
+python modules/obsidian-sync/sync.py --vault documents  # 仅 Documents
+python modules/obsidian-sync/sync.py --generate-index    # 仅重建各 Vault 首页
+
+# 共享层：MCP Server（stdio，由宿主 Agent 拉起，让所有 Agent 读写同一 Wiki）
+python modules/shared-wiki/mcp_server.py
+
+# 发现本机 Agent / Obsidian Vault
+python modules/shared-wiki/agent_registry.py   # 发现电脑里所有 Agent
+python modules/shared-wiki/obsidian_bridge.py  # 发现 Obsidian Vault
+
+# 广播知识更新为 Python API（无独立 CLI）：agent_registry.broadcast("wiki.updated", "daily/2026-07-12.md")
 ```
 
 ### 模块架构
@@ -507,21 +514,21 @@ modules/
 # 基础命令
 python wiki_tool.py update                    # 更新 INDEX.md
 python wiki_tool.py daily                     # 创建今日笔记
-python wiki_tool.py search <query>            # 搜索 wiki
+python wiki_tool.py search <query>            # 语义搜索 wiki
+python wiki_tool.py capture <文本>            # 快速捕捉到 inbox/
+python wiki_tool.py links <笔记>              # 出链（无参显示出链最多的笔记）
+python wiki_tool.py backlinks <笔记>          # 反向链接
+python wiki_tool.py orphans                   # 孤儿笔记 + 失效链接
 
-# 模块命令
-python wiki_tool.py video <path> [opts]       # 视频分析
-python wiki_tool.py memo-push <file> [opts]   # 推送到 Memo
-python wiki_tool.py memo-list                 # 列出 Memo 文档
-python wiki_tool.py memo-search <keyword>     # 搜索 Memo
-python wiki_tool.py memo-pull                 # 从 Memo 拉取
-python wiki_tool.py sync-obsidian [opts]      # 同步到 Obsidian
+# 复刻的付费功能
+python wiki_tool.py publish                   # 导出静态站点（Obsidian Publish）
+python wiki_tool.py clip <url>                # 剪藏网页为笔记（Web Clipper）
+python wiki_tool.py review                    # 间隔重复复习（RemNote/Readwise）
+python wiki_tool.py cards                     # 列出所有复习卡片
+python wiki_tool.py digest                    # 每日摘要（Notion AI）
 
-# 共享层 (Agent 共享 Wiki)
-python wiki_tool.py serve                     # 启动 MCP Server
-python wiki_tool.py agents                    # 发现所有 Agent
-python wiki_tool.py obsidian                  # 发现 Obsidian Vault
-python wiki_tool.py broadcast <event> [rel]   # 广播 Wiki 更新
+# 扩展模块（视频 / Memo / Obsidian 同步 / MCP Server / Agent 发现）为独立脚本入口，
+# 不经 wiki_tool.py，调用方式见下方「模块使用」。
 ```
 
 ---
