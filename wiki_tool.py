@@ -6,6 +6,7 @@ import os
 import json
 import sys
 import subprocess
+import importlib.util
 from datetime import datetime
 from pathlib import Path
 
@@ -285,6 +286,27 @@ def show_orphans():
         print(f"  - [[{target}]]  <- {', '.join(sources)}")
 
 
+def _load_legacy(module_name, rel_path):
+    """按文件路径加载 modules/ 下的扩展脚本并返回模块对象。
+
+    这些脚本位于带连字符的目录（video-analysis 等）或与其它模块同名
+    （两个 sync.py），无法用 import 按名字导入，故用 importlib 按路径加载，
+    并以唯一模块名注册，避免互相覆盖。父目录加入 sys.path，供 mcp_server
+    等同目录 import（wiki_core / agent_registry）解析。
+    """
+    path = REPO_ROOT / rel_path
+    parent = str(path.parent)
+    if parent not in sys.path:
+        sys.path.insert(0, parent)
+    if module_name in sys.modules:
+        return sys.modules[module_name]
+    spec = importlib.util.spec_from_file_location(module_name, str(path))
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
 def main():
     args = sys.argv[1:]
     
@@ -305,6 +327,13 @@ Wiki 维护工具
   python wiki_tool.py review         # 间隔重复复习（复刻 RemNote/Readwise）
   python wiki_tool.py cards          # 列出所有复习卡片
   python wiki_tool.py digest         # 每日摘要（复刻 Notion AI）
+  python wiki_tool.py video <path>   # 视频分析
+  python wiki_tool.py memo <sub>     # Memo 同步（push/push-dir/pull/list/search）
+  python wiki_tool.py sync-obsidian  # 同步到 Obsidian 多 Vault
+  python wiki_tool.py serve          # 启动 MCP Server（Agent 可接入）
+  python wiki_tool.py agents         # 发现本机所有 Agent
+  python wiki_tool.py obsidian       # 发现 Obsidian Vault
+  python wiki_tool.py broadcast <event> [rel]  # 广播 Wiki 更新
         """)
     elif args[0] == "update":
         update_index()
@@ -339,6 +368,20 @@ Wiki 维护工具
     elif args[0] == "digest":
         import wiki_digest
         return wiki_digest.main(args[1:])
+    elif args[0] == "video":
+        return _load_legacy("_mywiki_video_analyze", "modules/video-analysis/analyze.py").main(args[1:])
+    elif args[0] == "memo":
+        return _load_legacy("_mywiki_memo_sync", "modules/memo-sync/sync.py").main(args[1:])
+    elif args[0] == "sync-obsidian":
+        return _load_legacy("_mywiki_obsidian_sync", "modules/obsidian-sync/sync.py").main(args[1:])
+    elif args[0] == "serve":
+        return _load_legacy("_mywiki_mcp_server", "modules/shared-wiki/mcp_server.py").main(args[1:])
+    elif args[0] == "agents":
+        return _load_legacy("_mywiki_agent_registry", "modules/shared-wiki/agent_registry.py").main(args[1:])
+    elif args[0] == "obsidian":
+        return _load_legacy("_mywiki_obsidian_bridge", "modules/shared-wiki/obsidian_bridge.py").main(args[1:])
+    elif args[0] == "broadcast":
+        return _load_legacy("_mywiki_agent_registry", "modules/shared-wiki/agent_registry.py").main(["broadcast"] + args[1:])
     else:
         print(f"[ERROR] 未知命令: {args[0]}")
 

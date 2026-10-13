@@ -269,9 +269,22 @@ def broadcast(event: str, payload: dict = None, only_capable: str = None) -> dic
     return {"sent": sent, "failed": failed, "skipped": skipped}
 
 
-if __name__ == "__main__":
+def main(argv=None):
+    """CLI 入口：无参数发现并列出所有 Agent；broadcast <event> [rel] 广播知识更新。"""
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if argv and argv[0] == "broadcast":
+        event = argv[1] if len(argv) > 1 else "wiki.updated"
+        payload = {"path": argv[2]} if len(argv) > 2 else None
+        result = broadcast(event, payload)
+        print(f"📡 broadcast {event} -> sent={len(result.get('sent', []))} failed={len(result.get('failed', []))} skipped={len(result.get('skipped', []))}")
+        return 0
     print("=== 发现电脑里的 Agent ===")
     found = discover()
     for a in found:
         print(f"  ✅ {a['name']}  [{a['status']}]  {a['url'] or a.get('discovered_via','')}")
     print(f"\n共发现 {len(found)} 个 Agent")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

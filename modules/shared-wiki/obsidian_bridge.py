@@ -215,7 +215,8 @@ def _poll(wiki_root, callback, debounce):
         time.sleep(max(0.2, debounce))
 
 
-if __name__ == "__main__":
+def main(argv=None):
+    """CLI 入口：发现本机 Obsidian Vault 并显示与当前 wiki 的关系。"""
     print("=== Obsidian Vault 发现 ===")
     for v in discover_vaults():
         print(f"  📓 {v['name']}  ->  {v['path']}")
@@ -227,3 +228,8 @@ if __name__ == "__main__":
         print("\n⚠️  当前 wiki 目录未被 Obsidian 作为 vault 打开。")
         print("   若 vault 是另一个目录（如 AI Shared/wiki），请在")
         print("   config/obsidian.json 配置 vault_name 或 vault_path。")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -118,13 +118,13 @@ def generate_report(video_path, metadata, key_frames, title=None):
     return md
 
 
-def main():
+def main(argv=None):
     parser = argparse.ArgumentParser(description="Video Analysis Module")
     parser.add_argument("video", help="Video file path")
     parser.add_argument("--interval", type=int, default=30, help="Frame interval in seconds")
     parser.add_argument("--title", help="Report title")
     parser.add_argument("--output-dir", default=None, help="Output directory")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     video_path = Path(args.video).expanduser()
     if not video_path.exists():

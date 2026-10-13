@@ -378,7 +378,7 @@ def serve_minimal_jsonrpc():
     sys.exit(0)
 
 
-def main():
+def main(argv=None):
     try:
         serve_with_mcp_sdk()
     except ImportError:

@@ -244,7 +244,7 @@ def search_memo(keyword):
     conn.close()
 
 
-def main():
+def main(argv=None):
     parser = argparse.ArgumentParser(description="OpenClaw ↔ Memo Sync")
     sub = parser.add_subparsers(dest="command")
 
@@ -271,7 +271,7 @@ def main():
     p_search = sub.add_parser("search", help="Search Memo content")
     p_search.add_argument("keyword")
 
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     if args.command == "push":
         push_to_memo(args.file, args.title)

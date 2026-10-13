@@ -126,11 +126,11 @@ def sync_to_vault(vault_name: str):
     print(f"✅ Synced {total} files to {vault_name} vault: {vault}")
 
 
-def main():
+def main(argv=None):
     parser = argparse.ArgumentParser(description="Obsidian Vault Sync")
     parser.add_argument("--vault", choices=["documents", "all"], default="all")
     parser.add_argument("--generate-index", action="store_true")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     if args.generate_index:
         for name in VAULTS:
