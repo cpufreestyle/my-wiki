@@ -73,12 +73,13 @@ CI 的单元测试步骤在任何依赖安装之前运行，所以**测试用例
 
 ## 项目规格（SPEC.md）
 
-改动**入口 / HTTP 路由 / 静态白名单 / 打包资源清单 / 版本号** 前，先看 [SPEC.md](SPEC.md)——它是可核对的硬契约：
+改动**入口 / CLI 子命令 / HTTP 路由 / 静态白名单 / 模块表 / 打包资源清单 / 版本号** 前，先看 [SPEC.md](SPEC.md)——它是可核对的硬契约：
 
 - 打包必带资源（`assets/web/*`、`voice-controller.js`、`models/*.task`、`vendor/mediapipe/*`、每个 `*_web.html`、接口本地依赖）由 `tests/test_packaging_spec.py` 守门：**新增打包资源必须同步补一条断言**。
-- HTTP 路由表（3.2 / 3.3）、静态文件白名单（3.4）、「版本号只在 `pyproject.toml`」（6.2）由
-  `tests/test_spec_contract.py` 与 `web_server.py` / `MyWiki.spec` **双向**核对：改了路由或白名单
-  就得同步改本文件，反之文档里多写一条实际不存在的路由（客户端只会拿到 404）同样会报红。
+- HTTP 路由表（3.2 / 3.3）、静态文件白名单（3.4）、默认端口（3.1）、CLI 子命令清单（2）、
+  Python 版本下限（1）、模块表入口文件（5）、测试发现根（7.1）、「版本号只在 `pyproject.toml`」（6.2）
+  由 `tests/test_spec_contract.py` 与代码 **双向**核对：改了代码就得同步改 SPEC（反之文档里多写一条
+  实际不存在的路由/命令，调用只会拿到 404 或 `[ERROR]`，同样会报红）。
 - 版本号单一数据源是 `pyproject.toml`；`MyWiki.spec` 的 `VERSION` 与 `BUNDLE` 必须引用它，不得硬编码。
 - 另两份手工清单由 `tests/test_module_manifest_completeness.py` 守门：`pyproject.toml` 的
   `py-modules` 必须覆盖入口 import 闭包（漏一个 = 装完就 `ModuleNotFoundError`，盘上却一切正常）、

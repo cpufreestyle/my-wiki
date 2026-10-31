@@ -13,13 +13,13 @@
 
 MyWiki 是个人知识库系统，同时作为多个 AI Agent 的共享知识中枢。三种形态共用同一份核心代码：
 
-- **桌面端**：PySide6 GUI（日记 / 心情 / 提醒 / 待办 / 搜索 / 标签 / 报告）
+- **桌面端**：PySide6 GUI（日记 / 心情 / 提醒 / 待办 / 搜索 / 标签 / 报告 / 共享）
 - **网页端**：标准库 http.server 提供的本地 Web UI（端口 8082）
 - **CLI**：wiki_tool.py 子命令
 
 | 项 | 值 |
 |---|---|
-| Python | >= 3.9（CI 用 3.12） |
+| Python | >= 3.10（CI 用 3.12） |
 | 版本号 | pyproject.toml 的 [project].version（**唯一数据源**） |
 | 许可证 | MIT |
 | 依赖 | 见 requirements.txt / pyproject.toml |
@@ -38,7 +38,13 @@ MyWiki 是个人知识库系统，同时作为多个 AI Agent 的共享知识中
 
 ### CLI 子命令契约（wiki_tool.py）
 
-update / daily / search <query> / capture <文本> / links <笔记> / backlinks <笔记> / orphans / publish [--root DIR] [--out DIR] [--clean] [--source a,b] [--name X] / clip <url> [--title T] / review / cards / digest [YYYY-MM-DD] [--no-ai]。
+内置：update / daily / search <query> / capture <文本> / links <笔记> / backlinks <笔记> /
+orphans / publish [--root DIR] [--out DIR] [--clean] [--source a,b] [--name X] /
+clip <url> [--title T] / review / cards / digest [YYYY-MM-DD] [--no-ai]
+
+扩展模块委托：video <path> / memo <push|push-dir|pull|list|search> / sync-obsidian /
+serve / agents / obsidian / broadcast <event> [rel]（经 wiki_tool._load_legacy 按路径加载，
+见 §5 模块表）。
 
 注意：内置子命令**不认 --help**，无参数或 help 时才打印用法；未知命令打印
 [ERROR] 未知命令: <x> 后附用法。publish / clip / review / cards / digest 五个子命令
@@ -167,8 +173,9 @@ _MEIPASS 拷到用户目录 → 开发机路径兜底。**保持「只读打包 
     python tests/run_all.py              # Python 全套（自动发现 tests/test_*.py）
     node --test "tests/**/*.test.mjs"    # Node 端纯逻辑（从 HTML 抽取函数运行）
 
-run_all.py 按文件名**自动发现** test_*.py：**新增测试文件无需注册**，
-也不要在文档或 CI 里另维护测试清单——手工清单会漏注册，使失败测试被静默跳过。
+run_all.py 按文件名**自动发现**两处：`tests/test_*.py` 与与被测代码同目录的
+`modules/<模块>/test_*.py`。**新增测试文件无需注册**，也不要在文档或 CI 里另维护
+测试清单——手工清单会漏注册，使失败测试被静默跳过。
 
 ### 7.2 冒烟脚本
 
@@ -180,8 +187,8 @@ WelcomeDialog），无头验证界面构建、QSS、语音信号槽、主题/语
 
 ### 7.3 CI（.github/workflows/ci.yml）
 
-push / PR 到 main 时依次执行：Python 3.12 + Node 20 → run_all.py →
-node --test → 装 libgl1/libglib2.0-0/libegl1/libdbus-1-3 + PySide6 →
+push / PR 到 main 时依次执行：Python 3.12 + Node 20 → 装 Pillow（单测唯一第三方依赖）→
+run_all.py → node --test → 装 libgl1/libglib2.0-0/libegl1/libdbus-1-3 + PySide6 →
 冒烟脚本 → python rag.py "本地模型 ollama 配置" --limit 3（BM25 零依赖）→
 python -c "import theme; assert theme.LIGHT and theme.DARK"。
 
@@ -222,6 +229,8 @@ Hidden import 'mcp_server'/'watchdog'/'watchdog.observers'/'watchdog.events' not
 
 ## 9. 修改本文件的规则
 
-改动以下任一项时，**必须同步更新 SPEC.md 对应小节**：入口（§2）、路由与白名单（§3）、
-打包资源清单（§6）、验收命令（§7）。若新增资源被打进 .app，请同时补一条
-tests/test_packaging_spec.py 断言——契约没有测试守门就等于没有契约。
+改动以下任一项时，**必须同步更新 SPEC.md 对应小节**：技术栈下限（§1）、入口与 CLI 子命令
+（§2）、路由、端口与白名单（§3）、模块表（§5）、打包资源清单（§6）、验收命令与发现根（§7）。
+上述小节都有测试双向核对（文档 ↔ 代码）：§1 / §2 / §3 / §5 / §7.1 由 tests/test_spec_contract.py
+守着，§6 由 tests/test_packaging_spec.py 守着——改一边不改另一边会直接报红。
+若新增资源被打进 .app，请同时补一条 tests/test_packaging_spec.py 断言——契约没有测试守门就等于没有契约。

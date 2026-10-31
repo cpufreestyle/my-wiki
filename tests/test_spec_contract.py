@@ -22,9 +22,10 @@ REPO = Path(__file__).resolve().parent.parent
 
 
 def read_tracked(rel_path):
-    """SPEC.md 目前仍是未纳入版本控制的未跟踪文件——全新检出的 CI 里它可能不在。
+    """读取必须随仓库提交的契约文件。
 
-    缺了它这条核对就没有对象，报错要说清「把 SPEC.md 一起提交」，而不是一句 FileNotFoundError。
+    SPEC.md 已纳入版本控制（全新检出的 CI 里也在）；缺了它这条核对就没有对象，
+    报错要说清「把 SPEC.md 一起提交」，而不是一句 FileNotFoundError。
     """
     path = REPO / rel_path
     if not path.is_file():
@@ -36,6 +37,13 @@ def read_tracked(rel_path):
 
 SPEC = read_tracked("SPEC.md")
 SERVER_SRC = read_tracked("web_server.py")
+
+
+def spec_section(start_marker, end_marker="\n---"):
+    """截取 SPEC.md 从 start_marker 到 end_marker 之间的文本。"""
+    start = SPEC.index(start_marker)
+    end = SPEC.find(end_marker, start + len(start_marker))
+    return SPEC[start:end if end != -1 else len(SPEC)]
 
 
 def spec_table_routes(heading):
@@ -148,6 +156,126 @@ class VersionSourceTest(unittest.TestCase):
             "MyWiki.spec 又硬编码了版本号 {}：应引用 pyproject 的 _pyproject_version()".format(
                 hardcoded))
         self.assertIn("pyproject", spec_src)
+
+
+class StackContractTest(unittest.TestCase):
+    def test_python_floor_matches_pyproject(self):
+        """§1 写 >= 3.9 而 pyproject 要求 3.10 时，按文档建环境的人会踩语法错误。"""
+        documented = re.search(r"\| Python \| >= (\d+\.\d+)", SPEC)
+        self.assertIsNotNone(documented, "SPEC §1 的 Python 版本行格式变了")
+        pyproject = (REPO / "pyproject.toml").read_text(encoding="utf-8")
+        declared = re.search(r'requires-python\s*=\s*">=(\d+\.\d+)"', pyproject)
+        self.assertIsNotNone(declared, "pyproject 未声明 requires-python")
+        self.assertEqual(documented.group(1), declared.group(1))
+
+
+def cli_subcommands():
+    """wiki_tool.main() 里 `args[0] ==/in (...)` 派发的子命令（含 help 伪命令）。"""
+    tree = ast.parse((REPO / "wiki_tool.py").read_text(encoding="utf-8"))
+
+    def names(node):
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            return {node.value}
+        if isinstance(node, (ast.Tuple, ast.List, ast.Set)):
+            return {e.value for e in node.elts
+                    if isinstance(e, ast.Constant) and isinstance(e.value, str)}
+        return set()
+
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.FunctionDef) and node.name == "main"):
+            continue
+        found = set()
+        for sub in ast.walk(node):
+            if not isinstance(sub, ast.Compare):
+                continue
+            left = sub.left
+            if not (isinstance(left, ast.Subscript) and isinstance(left.value, ast.Name)
+                    and left.value.id == "args" and isinstance(left.slice, ast.Constant)
+                    and left.slice.value == 0):
+                continue
+            for comparator in sub.comparators:
+                found |= names(comparator)
+        return found
+    raise AssertionError("wiki_tool.py 找不到 main()")
+
+
+def spec_cli_commands():
+    """§2 命令清单：按 " / " 分段取每段首个单词（跳过 "注意：" 之后的行为说明）。
+
+    命令清单分成两段（内置 / 扩展模块委托），段与段之间是空行而非 " / "，
+    所以先按段落切，再把段内折行接起来。
+    """
+    body = spec_section("### CLI 子命令契约").split("注意：")[0]
+    found = set()
+    for paragraph in body.split("\n\n"):
+        for segment in " ".join(paragraph.split()).split(" / "):
+            segment = segment.rsplit("：", 1)[-1].strip()
+            token = segment.split()[0] if segment.split() else ""
+            if re.fullmatch(r"[a-z][\w-]*", token):
+                found.add(token)
+    return found
+
+
+class CliContractTest(unittest.TestCase):
+    def test_subcommand_list_matches_wiki_tool_dispatch(self):
+        """§2 漏写子命令，用户就不知道能力存在；写了不存在的，调用只会打 [ERROR]。"""
+        self.assertGreaterEqual(len(spec_cli_commands()), 10, "§2 命令清单没被解析出来")
+        self.assertEqual(spec_cli_commands(), cli_subcommands() - {"help"})
+
+
+class HarnessDiscoveryTest(unittest.TestCase):
+    def test_spec_lists_every_discovery_root_of_the_runner(self):
+        """§7.1 少写一个发现根，新增在 modules/ 下的测试就会被当成不存在。"""
+        runner = (REPO / "tests" / "run_all.py").read_text(encoding="utf-8")
+        globs = set(re.findall(r'glob\(\s*"([^"]*test_\*\.py)"\s*\)', runner))
+        markers = {"test_*.py": "tests/test_*.py",
+                   "*/test_*.py": "modules/<模块>/test_*.py"}
+        self.assertEqual(globs, set(markers),
+                         "run_all.py 的发现根变了：同步更新 SPEC §7.1 与本测试")
+        section = spec_section("### 7.1", "\n### 7.2")
+        for marker in markers.values():
+            self.assertIn(marker, section, "SPEC §7.1 未写明发现根 " + marker)
+
+
+class PortContractTest(unittest.TestCase):
+    def test_default_port_matches_server_and_launch_script(self):
+        documented = re.search(r"默认端口 \*\*(\d+)\*\*", SPEC)
+        self.assertIsNotNone(documented, "SPEC §3.1 不再声明默认端口？同步更新本测试")
+        port = documented.group(1)
+        code_port = None
+        for node in ast.walk(ast.parse(SERVER_SRC)):
+            if (isinstance(node, ast.Assign)
+                    and any(isinstance(t, ast.Name) and t.id == "p" for t in node.targets)
+                    and isinstance(node.value, ast.Constant)
+                    and isinstance(node.value.value, int)):
+                code_port = str(node.value.value)
+        self.assertEqual(code_port, port, "web_server.main() 的默认端口与 SPEC 不一致")
+        launch = (REPO / "scripts" / "launch_web.sh").read_text(encoding="utf-8")
+        self.assertIn("MYWIKI_PORT:-" + port, launch,
+                      "scripts/launch_web.sh 的默认端口与 SPEC 不一致")
+
+
+class ModuleTableContractTest(unittest.TestCase):
+    def test_every_listed_module_and_entry_exists(self):
+        """§5 的模块表是 Agent 找扩展入口的地图：指向不存在的文件等于死链。"""
+        section = spec_section("## 5. 扩展模块")
+        checked = 0
+        for line in section.splitlines():
+            if not line.strip().startswith("|"):
+                continue
+            row = [cell.strip() for cell in line.strip().strip("|").split("|")]
+            if len(row) < 3 or not row[0].endswith("/") or row[0] == "模块":
+                continue
+            module_dir = REPO / "modules" / row[0].rstrip("/")
+            self.assertTrue(module_dir.is_dir(),
+                            "SPEC §5 列出的模块目录不存在: {}".format(module_dir))
+            for entry in re.findall(r"[\w.-]+\.py", row[2]):
+                self.assertTrue(
+                    (module_dir / entry).is_file(),
+                    "SPEC §5 列出的入口 {} 不在 {} 里".format(entry, module_dir))
+                checked += 1
+        self.assertGreaterEqual(checked, 6,
+                                "§5 模块表没解析出入口文件，守卫空跑了")
 
 
 if __name__ == "__main__":
