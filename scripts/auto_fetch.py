@@ -11,17 +11,13 @@ import os, re, requests
 from datetime import datetime
 from pathlib import Path
 
+from github_repos import load_repos
 from rss_feeds import load_feeds
 
 WIKI_DIR = Path(__file__).parent.parent
 GITHUB_TOKEN = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN", "")
 
-GITHUB_REPOS = [
-    "cpufreestyle/psvr2-panel",
-    "cpufreestyle/sanguosha-mobile",
-    "cpufreestyle/stock-crewai",
-    "cpufreestyle/my-wiki",
-]
+GITHUB_REPOS = load_repos()
 
 RSS_FEEDS = load_feeds()
 

@@ -1,0 +1,8 @@
+{
+  "repos": [
+    {"name": "cpufreestyle/psvr2-panel", "enabled": true},
+    {"name": "cpufreestyle/sanguosha-mobile", "enabled": true},
+    {"name": "cpufreestyle/stock-crewai", "enabled": true},
+    {"name": "cpufreestyle/my-wiki", "enabled": true}
+  ]
+}
