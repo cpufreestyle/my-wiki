@@ -96,7 +96,10 @@ def find_wiki_root() -> Path:
 
 WIKI_ROOT = find_wiki_root()
 CATEGORIES = ["daily", "projects", "concepts", "people", "brain"]
-SKIP_DIRS = {".obsidian", ".git", "__pycache__", "node_modules", "attachments", ".trash"}
+SKIP_DIRS = {
+    ".obsidian", ".git", "__pycache__", "node_modules", "attachments", ".trash",
+    ".venv", "venv", "dist", "build", "backups", "logs",
+}
 CACHE_PATH = WIKI_ROOT / "wiki" / ".rag_index.json"
 OLLAMA_URL = os.environ.get("MYWIKI_OLLAMA_URL", "http://localhost:11434")
 EMBED_MODEL = os.environ.get("MYWIKI_EMBED_MODEL", "nomic-embed-text")

@@ -10,11 +10,10 @@ vault 里「跳过哪些目录」「有哪些知识分类」这条规则目前�
 | `wiki_data.py` | `VAULT_SKIP_DIRS` | 搜索 / 标签浏览 |
 | `wiki_links.py` | `SKIP_DIRS` | 链接图 |
 
-四份抄本已经漂了（`wiki_links.py` 多跳 `.venv`/`inbox` 等）。把常量收敛成单一来源代价高——
-`wiki_core.py` 刻意在没有仓库根时也能独立运行——所以这里守住**一致性**本身：
-公共部分四家必须都有，任何*新增*的不对称要么四家一起改，要么显式登记进
-`DOCUMENTED_EXTRA_SKIP`，让「只改一个索引」变成 CI 报红而不是用户眼里的一个诡异 bug
-（比如「搜索能搜到、知识图谱里没有」）。
+把常量收敛成单一来源代价高——`wiki_core.py` 刻意在没有仓库根时也能独立运行——所以这里
+守住**一致性**本身：每家跳过的目录必须恰好是「公共集合 + 该家登记的白名单」。
+既不许少跳（少了这份笔记会进搜索/索引），也不许多跳（多了这条笔记只在一个入口消失）。
+`inbox/` 是唯一的例外：它是临时捕获区，只对链接图排除。
 
 只用 AST 读字面量、不 import 被测模块：`rag.py` 会 import requests，
 CI 的裸测试步骤里没有它（见 tests/test_ci_dependency_contract.py）。
@@ -26,13 +25,15 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 
-# 四家都必须跳过的目录：Obsidian 配置、版本库、缓存、二进制附件与回收站
+# 四家都必须跳过的目录：Obsidian 配置、版本库、缓存、二进制附件、回收站，
+# 以及安装/构建/备份产物（.venv、venv、dist、build、backups、logs）。
 COMMON_SKIP_DIRS = {".obsidian", ".git", "__pycache__", "node_modules",
-                    "attachments", ".trash"}
+                    "attachments", ".trash", ".venv", "venv", "dist", "build",
+                    "backups", "logs"}
 
-# 有意保留的差异（不是漏改）。inbox/ 是临时捕获区，不进链接图；构建产物只对链接图成立。
+# 有意保留的差异（不是漏改）。inbox/ 是临时捕获区，不进链接图。
 DOCUMENTED_EXTRA_SKIP = {
-    "wiki_links.py": {".venv", "venv", "dist", "build", "backups", "logs", "inbox"},
+    "wiki_links.py": {"inbox"},
 }
 
 WALKERS = {
@@ -80,20 +81,30 @@ class WalkerConsistencyTest(unittest.TestCase):
                     "{} 的 {} 漏跳了 {}：这份笔记会被索引进搜索结果".format(
                         rel_path, key, sorted(missing)))
 
-    def test_no_undocumented_divergence_between_walkers(self):
-        """某一跳目录只出现在一家、其他三家没有——要么四家一起改，要么登记进白名单。"""
-        skip_sets = {}
+    def test_walkers_skip_exactly_the_common_set_plus_documented_extras(self):
+        """多跳与少跳一样是 bug：某一入口看不到的笔记，在别的入口却还在。"""
         for rel_path, names in WALKERS.items():
             for key, value in literals(rel_path, names).items():
-                if key.endswith("SKIP_DIRS"):
-                    skip_sets[rel_path] = set(value)
-        for rel_path, own in skip_sets.items():
-            others = set().union(*(s for p, s in skip_sets.items() if p != rel_path))
-            extra = own - others - DOCUMENTED_EXTRA_SKIP.get(rel_path, set())
-            self.assertFalse(
-                extra,
-                "{} 的 {} 只被一家跳过：其余索引会把这些目录里的笔记算进来".format(
-                    rel_path, sorted(extra)))
+                if not key.endswith("SKIP_DIRS"):
+                    continue
+                expected = COMMON_SKIP_DIRS | DOCUMENTED_EXTRA_SKIP.get(rel_path, set())
+                actual = set(value)
+                self.assertEqual(
+                    actual - expected, set(),
+                    "{} 的 {} 多跳了 {}：这些目录里的笔记会在该入口凭空消失".format(
+                        rel_path, key, sorted(actual - expected)))
+                self.assertEqual(
+                    expected - actual, set(),
+                    "{} 的 {} 漏跳了 {}：其余入口会把这些目录算进来".format(
+                        rel_path, key, sorted(expected - actual)))
+
+    def test_documentation_covers_every_walker(self):
+        """白名单里写了不存在的 walker，等于以为登记过其实没人核对。"""
+        stale = set(DOCUMENTED_EXTRA_SKIP) - set(WALKERS)
+        self.assertFalse(
+            stale,
+            "DOCUMENTED_EXTRA_SKIP 里的 {} 不在 WALKERS 表中：同步更新本文件".format(
+                sorted(stale)))
 
     def test_indexers_agree_on_categories(self):
         """RAG 与内核的分类目录不一致时，同一篇笔记在一个入口搜得到、另一个入口不存在。"""

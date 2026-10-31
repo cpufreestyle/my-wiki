@@ -116,6 +116,11 @@ serve / agents / obsidian / broadcast <event> [rel]（经 wiki_tool._load_legacy
 根目录新增 wiki_*.py 前需确认**不与 modules/ 下模块重名**：modules/shared-wiki/ 已有
 wiki_core.py，根目录同名会被 sys.modules 缓存遮蔽导致加载错模块。
 
+vault 遍历（语义索引 / 搜索 / 标签 / 链接图）一律跳过生成物、版本库与缓存、二进制区与回收站：
+`.venv/ venv/ dist/ build/ backups/ logs/ .git/ .obsidian/ __pycache__/ node_modules/
+attachments/ .trash/`。四份实现的一致性由 `tests/test_vault_walker_consistency.py` 守门，
+`inbox/` 仅对链接图排除（临时捕获区）。
+
 ---
 
 ## 5. 扩展模块（modules/）

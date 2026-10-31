@@ -97,8 +97,11 @@ WIKI_ROOT = find_wiki_root()
 # 知识分类目录
 CATEGORIES = ["daily", "projects", "concepts", "people", "brain"]
 
-# 跳过这些目录（Obsidian 配置、缓存等）
-SKIP_DIRS = {".obsidian", ".git", "__pycache__", "node_modules", "attachments", ".trash"}
+# 跳过这些目录（Obsidian 配置、缓存、安装/构建/备份产物等）
+SKIP_DIRS = {
+    ".obsidian", ".git", "__pycache__", "node_modules", "attachments", ".trash",
+    ".venv", "venv", "dist", "build", "backups", "logs",
+}
 
 
 # ---------------------------------------------------------------------------

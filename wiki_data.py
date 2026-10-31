@@ -297,7 +297,10 @@ def pending_todos():
 
 
 # ==================== vault 遍历 / 标签解析（搜索、标签页共用） ====================
-VAULT_SKIP_DIRS = {".git", ".obsidian", "__pycache__", "node_modules", ".trash", "attachments"}
+VAULT_SKIP_DIRS = {
+    ".git", ".obsidian", "__pycache__", "node_modules", ".trash", "attachments",
+    ".venv", "venv", "dist", "build", "backups", "logs",
+}
 
 
 def iter_vault_md():
