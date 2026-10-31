@@ -36,7 +36,9 @@ jobs:
         run: python tests/run_all.py
 
       - name: Node 单元测试（reminder_web 纯日期逻辑）
-        run: node --test "tests/**/*.test.mjs"
+        # 传目录而非引号包裹的 glob：Node 20 的 --test 不展开 glob，会把字面量
+        # "tests/**/*.test.mjs" 当路径去 stat，报 Could not find 并让步骤失败。
+        run: node --test tests/
 
       - name: 安装桌面端依赖（PySide6）
         run: |

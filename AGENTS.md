@@ -53,7 +53,7 @@ MyWiki 是一个个人知识管理系统，同时作为多个 AI Agent 的共享
 
 ```bash
 python tests/run_all.py              # Python 全部单元测试（自动发现 tests/ 与 modules/ 两处）
-node --test "tests/**/*.test.mjs"    # Node 端纯逻辑测试
+node --test tests/                   # Node 端纯逻辑测试（目录递归发现）
 ```
 
 `tests/run_all.py` 按文件名自动发现两处测试：**本目录**的 `tests/test_*.py`，以及

@@ -176,7 +176,7 @@ _MEIPASS 拷到用户目录 → 开发机路径兜底。**保持「只读打包 
 ### 7.1 本地两条命令（提交前必跑）
 
     python tests/run_all.py              # Python 全套（自动发现 tests/test_*.py）
-    node --test "tests/**/*.test.mjs"    # Node 端纯逻辑（从 HTML 抽取函数运行）
+    node --test tests/                   # Node 端纯逻辑（从 HTML 抽取函数运行）
 
 run_all.py 按文件名**自动发现**两处：`tests/test_*.py` 与与被测代码同目录的
 `modules/<模块>/test_*.py`。**新增测试文件无需注册**，也不要在文档或 CI 里另维护

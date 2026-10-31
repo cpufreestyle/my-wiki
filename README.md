@@ -900,7 +900,7 @@ python wiki_app.py
 python tests/run_all.py
 
 # 2) Web UI 纯逻辑（Node 内置 test runner，从 HTML 抽取函数运行）
-node --test "tests/**/*.test.mjs"
+node --test tests/
 
 # 3) 桌面端启动冒烟（PySide6，offscreen 无头，等价 __main__ 启动链路）
 QT_QPA_PLATFORM=offscreen python scripts/smoke_desktop_qt.py
