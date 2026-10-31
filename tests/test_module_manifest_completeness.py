@@ -18,11 +18,26 @@
 import ast
 import os
 import re
+import shutil
+import tempfile
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 PYPROJECT = ROOT / "pyproject.toml"
+
+# 不是本包源码的目录：安装/构建/备份产物、用户内容、运行时缓存与嵌套仓库。
+# 扫描这些目录会让守卫依赖「本机恰好存在什么」——本地 dist/ 里打包的 cv2 会
+# import numpy，于是 numpy 被当成「有人 import」，CI 干净检出里同一个检查却报红。
+GENERATED_DIRS = {
+    ".venv", "venv", "dist", "build", "backups", "logs", "inbox",
+    "stock-dashboard", "node_modules", ".git", "vendor", "__pycache__",
+    ".qoder", "daily", "brain", "wiki",
+}
+
+# hiddenimports 里属于三方库、由依赖在运行时动态 import 的名字：一方源码里没有
+# 对应 import 语句，不能据此判为残骸（numpy 是 cv2 运行时的依赖）。
+RUNTIME_ONLY_HIDDEN = {"numpy"}
 PEP604_ANNOTATION = re.compile(
     r"->\s*[\w\.\[\]]+\s*\|[\w\.\s|None]*|:\s*[\w\.\[\]]+\s*\|\s*(?:None|[\w\.\[\]])")
 
@@ -130,12 +145,11 @@ def first_party_module_files():
     return files
 
 
-def source_files():
-    """全仓 Python 源码（排除虚拟环境与用户内容目录）。"""
-    skip = {".venv", "node_modules", ".git", "vendor", "__pycache__", ".qoder",
-            "daily", "brain", "wiki"}
-    return [p for p in ROOT.rglob("*.py")
-            if not skip.intersection(p.relative_to(ROOT).parts)]
+def source_files(root=ROOT):
+    """本包的 Python 源码（排除生成物、用户内容与嵌套仓库）。"""
+    root = Path(root)
+    return [p for p in root.rglob("*.py")
+            if not GENERATED_DIRS.intersection(p.relative_to(root).parts)]
 
 
 def imported_names():
@@ -151,6 +165,14 @@ def imported_names():
         out |= {m.split(".")[0]
                 for m in re.findall(r'(?:import_module|__import__)\(\s*["\']([\w.]+)', src)}
     return out
+
+
+def stale_hidden_names(hidden, imported, runtime_only=RUNTIME_ONLY_HIDDEN):
+    """hiddenimports 里既没人 import、也不在运行时白名单中的名字（残骸）。"""
+    return sorted(
+        name for name in hidden
+        if name.split(".")[0] not in imported
+        and name.split(".")[0] not in runtime_only)
 
 
 def path_injected_imports():
@@ -247,10 +269,43 @@ class HiddenImportsTest(unittest.TestCase):
 
     def test_hiddenimports_have_no_stale_names(self):
         """模块改名/删除后，hiddenimports 里的旧名只会让 PyInstaller 打一行警告。"""
-        stale = sorted(n for n in self.hidden if n.split(".")[0] not in self.imported)
+        stale = stale_hidden_names(self.hidden, self.imported)
         self.assertEqual(stale, [],
                          "hiddenimports 里的名字已无人 import（模块改名或删除后的残骸）："
                          + str(stale))
+
+    def test_unimported_first_party_name_is_reported_stale(self):
+        self.assertEqual(stale_hidden_names({"gone_module"}, set()), ["gone_module"])
+
+    def test_runtime_only_third_party_name_is_not_stale(self):
+        """numpy 由 cv2 在运行时 import，一方源码里没有 import 语句。"""
+        self.assertEqual(stale_hidden_names({"numpy"}, set()), [])
+
+    def test_runtime_only_list_does_not_shadow_first_party_modules(self):
+        """白名单误收一方模块，会让该模块的残骸检查永远失效。"""
+        overlap = RUNTIME_ONLY_HIDDEN & set(first_party_module_files())
+        self.assertFalse(overlap, "RUNTIME_ONLY_HIDDEN 混入了一方模块：{}".format(
+            sorted(overlap)))
+
+
+class SourceScanScopeTest(unittest.TestCase):
+    def test_generated_dirs_cover_build_outputs(self):
+        """dist/build/backups/logs 是打包与本地运行真实产生的目录，漏一个本地结果就失真。"""
+        missing = {"dist", "build", "backups", "logs"} - GENERATED_DIRS
+        self.assertFalse(missing, "GENERATED_DIRS 漏了构建产物目录：{}".format(
+            sorted(missing)))
+
+    def test_source_scan_ignores_generated_and_nested_trees(self):
+        """守卫只能看本包源码；生成物里的 import 会让结果随本机状态漂移。"""
+        tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, tmp, True)
+        (tmp / "pkg").mkdir()
+        (tmp / "pkg" / "kept.py").write_text("import kept\n", encoding="utf-8")
+        for name in sorted(GENERATED_DIRS):
+            (tmp / name).mkdir(parents=True, exist_ok=True)
+            (tmp / name / "noise.py").write_text("import numpy\n", encoding="utf-8")
+        found = {p.relative_to(tmp).as_posix() for p in source_files(tmp)}
+        self.assertEqual(found, {"pkg/kept.py"})
 
 
 class WebServerPackagingTest(unittest.TestCase):
