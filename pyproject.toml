@@ -57,6 +57,7 @@ py-modules = [
     "reminder_ui",
     "send_reminder",
     "theme",
+    "tts_client",
     "vision_segment",
     "voice_mood",
     "web_server",
