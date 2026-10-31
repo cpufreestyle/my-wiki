@@ -982,7 +982,8 @@ class Handler(SimpleHTTPRequestHandler):
         try:
             if action == "add":
                 todo = wiki_data.add_todo(
-                    data.get("text", ""), data.get("priority", "medium"), data.get("due", ""))
+                    data.get("text", ""), data.get("priority", wiki_data.DEFAULT_PRIORITY),
+                    data.get("due", ""))
                 self._send_json({"ok": True, "todo": todo})
             elif action == "toggle":
                 todo = wiki_data.toggle_todo(int(data.get("id")))

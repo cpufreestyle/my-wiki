@@ -179,6 +179,8 @@ def cancel_reminder(rid):
 
 # ==================== TODO / 待办清单 ====================
 PRIORITY_ORDER = {"high": 0, "medium": 1, "low": 2}
+# 默认档位：归一化、排序与桌面/网页端的缺省值都取这里，别处不要再写 "medium"
+DEFAULT_PRIORITY = "medium"
 
 # 待办文件的读写锁：「load → 改 → save」三步必须原子。
 # web_server 是多线程 HTTP 服务，且桌面端与网页端共用同一份 vault/todos.json，
@@ -226,10 +228,10 @@ def save_todos(todos):
 def normalize_priority(priority):
     """把任意输入归一为 high / medium / low。"""
     p = str(priority or "").strip().lower()
-    return p if p in PRIORITY_ORDER else "medium"
+    return p if p in PRIORITY_ORDER else DEFAULT_PRIORITY
 
 
-def add_todo(text, priority="medium", due=""):
+def add_todo(text, priority=DEFAULT_PRIORITY, due=""):
     """新增一条待办并落盘，返回新建的 dict。text 为空时抛 ValueError。"""
     text = (text or "").strip()
     if not text:
@@ -282,7 +284,7 @@ def sort_todos(todos):
         todos,
         key=lambda t: (
             1 if t.get("done") else 0,
-            PRIORITY_ORDER.get(t.get("priority", "medium"), 1),
+            PRIORITY_ORDER.get(t.get("priority", DEFAULT_PRIORITY), 1),
             t.get("due") or "9999-99-99",
             t.get("id", 0),
         ),

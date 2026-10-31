@@ -11,9 +11,12 @@ from PySide6.QtWidgets import (
 
 from wiki_theme import get_theme_colors
 from wiki_i18n import t
-from wiki_data import add_todo, delete_todo, load_todos, sort_todos, toggle_todo
+from wiki_data import (
+    DEFAULT_PRIORITY, PRIORITY_ORDER, add_todo, delete_todo, load_todos,
+    sort_todos, toggle_todo,
+)
 
-# 优先级 → 主题色 token
+# 优先级 → 主题色 token；档位本身只认 wiki_data.PRIORITY_ORDER
 PRIORITY_COLORS = {"high": "ORANGE", "medium": "ACCENT", "low": "TEXT2"}
 
 
@@ -37,9 +40,10 @@ class TodoTabMixin:
         self.todo_input.returnPressed.connect(self.add_todo_ui)
         row.addWidget(self.todo_input, stretch=1)
         self.todo_priority = QComboBox()
-        for label, val in ((t("pri_high"), "high"), (t("pri_medium"), "medium"), (t("pri_low"), "low")):
-            self.todo_priority.addItem(label, val)
-        self.todo_priority.setCurrentIndex(1)
+        for p in PRIORITY_ORDER:
+            self.todo_priority.addItem(t("pri_" + p), p)
+        self.todo_priority.setCurrentIndex(
+            self.todo_priority.findData(DEFAULT_PRIORITY))
         self.todo_priority.setFixedWidth(80)
         row.addWidget(self.todo_priority)
         self.todo_due = QLineEdit()
@@ -109,7 +113,7 @@ class TodoTabMixin:
         h.addWidget(text, stretch=1)
 
         # 优先级 · 截止
-        p = todo.get("priority", "medium")
+        p = todo.get("priority", DEFAULT_PRIORITY)
         meta = [t(f"pri_{p}")]
         if todo.get("due"):
             meta.append(todo["due"])
