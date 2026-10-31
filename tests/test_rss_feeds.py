@@ -9,6 +9,7 @@ tests/test_rss_feeds.py — RSS 订阅源单一数据源单元测试
 纯标准库实现（unittest + json + re），不导入 feedparser/requests——CI 的
 Python 测试步骤在 `pip install` 之前运行，依赖第三方包会让本文件在 CI 报错。
 """
+import ast
 import json
 import re
 import sys
@@ -86,8 +87,8 @@ class TestFetchersHaveOwnFeedListRemoved(unittest.TestCase):
     def test_no_fetcher_hardcodes_a_feed_url(self):
         """守卫的是漂移本身：脚本里再出现订阅源 URL 就是第二份数据源
 
-        整行注释不计入——fetch_rss_enhanced.py 保留了一行被注释掉的
-        SCRAPLING_FEEDS 用法示例，那是文档而非数据源。
+        整行注释不计入——脚本头部与使用示例里会保留注释掉的源条目写法，
+        那是文档而非数据源。
         """
         for name in FETCHERS:
             src = (SCRIPTS_DIR / name).read_text(encoding="utf-8")
@@ -109,6 +110,26 @@ class TestConfigHasSingleReader(unittest.TestCase):
     SKIP = {".venv", "node_modules", ".git", "vendor", "__pycache__", ".qoder",
             "daily", "brain", "wiki"}
 
+    @staticmethod
+    def code_strings(tree):
+        """AST 里的字符串常量，排除模块/类/函数的 docstring。
+
+        注释本就不在 AST 里；docstring 只是文档，提到配置文件名不等于绕开
+        load_feeds 自己解析——按文本扫会把它误报成第二份数据源。
+        """
+        docs = set()
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef,
+                                 ast.AsyncFunctionDef)):
+                body = node.body
+                if (body and isinstance(body[0], ast.Expr)
+                        and isinstance(body[0].value, ast.Constant)
+                        and isinstance(body[0].value.value, str)):
+                    docs.add(id(body[0].value))
+        return [n.value for n in ast.walk(tree)
+                if isinstance(n, ast.Constant) and isinstance(n.value, str)
+                and id(n) not in docs]
+
     def test_no_other_file_names_the_config_directly(self):
         """绕开 load_feeds 自己 open+解析，等于开出第二份数据源
 
@@ -121,7 +142,8 @@ class TestConfigHasSingleReader(unittest.TestCase):
             rel = path.relative_to(root).as_posix()
             if rel in self.ALLOWED or self.SKIP.intersection(rel.split("/")):
                 continue
-            if CONFIG_PATH.name in path.read_text(encoding="utf-8"):
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            if any(CONFIG_PATH.name in s for s in self.code_strings(tree)):
                 offenders.append(rel)
         self.assertEqual(
             offenders, [],

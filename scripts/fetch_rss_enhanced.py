@@ -1,18 +1,13 @@
 #!/usr/bin/env python3
 """
-fetch_rss_enhanced.py - Scrapling 增强版 RSS 抓取器
+fetch_rss_enhanced.py - RSS 抓取（feedparser 为主，Scrapling 兜底）
 
-改进:
-1. 使用 Scrapling 替代 requests，支持动态渲染页面
-2. 内置反爬绕过（自动处理 User-Agent、延迟、重试）
-3. 智能元素追踪（自动适应页面结构变化）
-4. 失败时 fallback 到原 feedparser
+订阅源只来自 config/rss_feeds.json（rss_feeds.load_feeds）。feedparser 解析为空时
+改用 Scrapling 抓动态渲染页面；Scrapling 缺失或仍无结果则跳过该源。
 """
 
 import re
-import os
 import feedparser
-import requests
 from datetime import datetime
 from pathlib import Path
 
@@ -20,12 +15,6 @@ from rss_feeds import load_feeds
 
 WIKI_DIR = Path(__file__).parent.parent
 RSS_FEEDS = load_feeds()
-
-# Scrapling 增强: 支持需要 JS 渲染的页面
-SCRAPLING_FEEDS = [
-    # 可以在这里添加需要 JS 渲染的页面
-    # {"name": "示例", "url": "https://example.com/news", "tag": "custom", "selector": ".news-item"}
-]
 
 
 def fetch_with_scrapling(url: str, selector: str = None) -> list:
@@ -107,34 +96,6 @@ def main():
             out_file.write_text(''.join(lines), encoding='utf-8')
             print(f"  ✅ {feed['name']} → {out_file.name}")
 
-        except Exception as e:
-            print(f"  ❌ {feed['name']}: {e}")
-
-    # Scrapling 增强 feeds（JS 渲染页面）
-    for feed in SCRAPLING_FEEDS:
-        try:
-            print(f"[Scrapling] Fetching {feed['name']}...")
-            items = fetch_with_scrapling(feed['url'], feed.get('selector'))
-            
-            if not items:
-                continue
-            
-            safe = "".join(c if c.isalnum() else "-" for c in feed['name'])[:20]
-            out_file = out_dir / f"{today}-{feed['tag']}-{safe}.md"
-            
-            lines = [f"# {feed['name']} · {today}\n\n",
-                     f"**标签**: #{feed['tag']}\n\n---\n\n"]
-            for i, item in enumerate(items[:10], 1):
-                lines.append(f"## {i}. {item.get('title', 'No Title')}\n\n")
-                lines.append(f"- 🔗 {item.get('link', '')}\n")
-                summary = item.get('summary', '')[:200]
-                if summary:
-                    lines.append(f"- {summary}...\n")
-                lines.append("\n")
-            
-            out_file.write_text(''.join(lines), encoding='utf-8')
-            print(f"  ✅ {feed['name']} → {out_file.name}")
-            
         except Exception as e:
             print(f"  ❌ {feed['name']}: {e}")
 

@@ -91,8 +91,8 @@ def import_closure(starts):
     return seen | {s for s in starts if s in root_modules()}
 
 
-def spec_datas_names():
-    """符号执行 MyWiki.spec，取 Analysis(datas=...) 里的文件名集合。
+def spec_analysis_kwargs():
+    """符号执行 MyWiki.spec，取 Analysis(...) 的关键字参数。
 
     spec 用相对路径与 glob，所以执行时把 CWD 临时切到仓库根；Analysis 等构造全部
     换成占位对象，不会真的开始打包分析。
@@ -115,7 +115,67 @@ def spec_datas_names():
         exec(compile(read(ROOT / "MyWiki.spec"), "MyWiki.spec", "exec"), namespace)
     finally:
         os.chdir(prior)
-    return {Path(str(src)).name for src, _ in (captured["Analysis"].get("datas") or [])}
+    return captured["Analysis"]
+
+
+def spec_datas_names():
+    """Analysis(datas=...) 里的文件名集合。"""
+    return {Path(str(src)).name for src, _ in (spec_analysis_kwargs().get("datas") or [])}
+
+
+def first_party_module_files():
+    """仓库里可被 import 的一方模块：根目录单文件 + modules/<模块>/*.py。"""
+    files = {p.stem: p for p in ROOT.glob("*.py")}
+    files.update({p.stem: p for p in ROOT.glob("modules/*/*.py")})
+    return files
+
+
+def source_files():
+    """全仓 Python 源码（排除虚拟环境与用户内容目录）。"""
+    skip = {".venv", "node_modules", ".git", "vendor", "__pycache__", ".qoder",
+            "daily", "brain", "wiki"}
+    return [p for p in ROOT.rglob("*.py")
+            if not skip.intersection(p.relative_to(ROOT).parts)]
+
+
+def imported_names():
+    """全仓 import 语句（含字面量动态 import）里出现过的顶层名。"""
+    out = set()
+    for path in source_files():
+        src = read(path)
+        for node in ast.walk(ast.parse(src)):
+            if isinstance(node, ast.Import):
+                out |= {alias.name.split(".")[0] for alias in node.names}
+            elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+                out.add(node.module.split(".")[0])
+        out |= {m.split(".")[0]
+                for m in re.findall(r'(?:import_module|__import__)\(\s*["\']([\w.]+)', src)}
+    return out
+
+
+def path_injected_imports():
+    """先改写 sys.path 再 import 的一方模块 -> 发起 import 的文件名。
+
+    PyInstaller 在构建机上看不到这些目录（只有运行时才插进 sys.path），
+    所以静态分析必然漏掉，只能靠 hiddenimports 或 datas 补上。
+    """
+    importable_at_build = set(first_party_module_files()) - root_modules()
+    found = {}
+    for path in sorted(ROOT.glob("*.py")):
+        src = read(path)
+        if "sys.path.insert" not in src and "sys.path.append" not in src:
+            continue
+        for node in ast.walk(ast.parse(src)):
+            if isinstance(node, ast.Import):
+                names = [alias.name.split(".")[0] for alias in node.names]
+            elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+                names = [node.module.split(".")[0]]
+            else:
+                continue
+            for name in names:
+                if name in importable_at_build:
+                    found.setdefault(name, path.name)
+    return found
 
 
 class ModuleManifestTest(unittest.TestCase):
@@ -147,6 +207,50 @@ class ModuleManifestTest(unittest.TestCase):
         self.assertEqual(sorted(self.declared - root_modules()), [],
                          "py-modules 登记了盘上不存在的模块："
                          + str(sorted(self.declared - root_modules())))
+
+
+class HiddenImportsTest(unittest.TestCase):
+    """hiddenimports 是 PyInstaller 唯一看不见的动态依赖：既不能漏，也不能留死名。"""
+
+    @classmethod
+    def setUpClass(cls):
+        kwargs = spec_analysis_kwargs()
+        cls.hidden = set(kwargs.get("hiddenimports") or [])
+        cls.datas = {Path(str(src)).name for src, _ in (kwargs.get("datas") or [])}
+        cls.injected = path_injected_imports()
+        cls.imported = imported_names()
+
+    def test_manifests_are_discovered(self):
+        """守卫自身不能空跑：解析不到清单时，下面几条会永远绿。"""
+        self.assertGreaterEqual(len(self.hidden), 10, "spec 的 hiddenimports 解析为空")
+        self.assertGreaterEqual(len(self.datas), 10, "spec 的 datas 解析为空")
+
+    def test_path_injected_imports_are_discovered(self):
+        """wiki_tabs_share 会先插 sys.path 再 import，这里确认静态扫描还能看见它们。"""
+        self.assertGreaterEqual(len(self.injected), 3,
+                                "只发现 {} 个路径注入后 import 的模块".format(
+                                    sorted(self.injected)))
+
+    def test_injected_imports_are_hidden_or_packaged(self):
+        """只在运行时插进 sys.path 的模块，构建期静态分析必然漏掉。
+
+        打包版靠 hiddenimports 编进 PYZ，或者靠 datas 落到包内目录再动态加载；
+        两者都没有时，标签页在装好的应用里会 ModuleNotFoundError。
+        """
+        missing = sorted(
+            "{}（由 {} import）".format(name, importer)
+            for name, importer in self.injected.items()
+            if name not in self.hidden and name + ".py" not in self.datas)
+        self.assertEqual(missing, [],
+                         "以下模块只被路径注入后 import，既不在 hiddenimports 也不在 "
+                         "datas，打包版会 import 失败：" + str(missing))
+
+    def test_hiddenimports_have_no_stale_names(self):
+        """模块改名/删除后，hiddenimports 里的旧名只会让 PyInstaller 打一行警告。"""
+        stale = sorted(n for n in self.hidden if n.split(".")[0] not in self.imported)
+        self.assertEqual(stale, [],
+                         "hiddenimports 里的名字已无人 import（模块改名或删除后的残骸）："
+                         + str(stale))
 
 
 class WebServerPackagingTest(unittest.TestCase):
