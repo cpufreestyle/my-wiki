@@ -25,8 +25,8 @@ dependencies = [
     'pyobjc-framework-Quartz>=10.0; sys_platform == "darwin"',
 ]
 
-# 可选依赖（对应功能未安装时自动降级）：
-#   SpeechRecognition  语音识别（voice_mood.py）
+# 可选能力未安装时自动降级：
+#   media / voice      见下方 optional-dependencies（requirements.txt 全量安装）
 #   watchdog           Obsidian 文件监听（obsidian_bridge.py）
 #   static-ffmpeg      ffmpeg 自动分发（voice_mood.py）
 #   mcp                MCP 协议完整支持（mcp_server.py 可降级为 JSON-RPC stdio）
@@ -36,6 +36,16 @@ dependencies = [
 dev = [
     "pytest>=7.0",
     "playwright",
+]
+# 运行时可选依赖：功能缺失时自动降级。requirements.txt 是完整安装清单，
+# 因此这些条目必须与 requirements.txt 保持逐字一致
+# （tests/test_dependency_manifests.py 双向核对）。
+media = [
+    "mediapipe>=1.0.0",
+    "opencv-python>=4.8.0",
+]
+voice = [
+    "SpeechRecognition>=3.10.0",
 ]
 
 [project.scripts]

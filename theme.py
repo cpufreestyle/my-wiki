@@ -1,5 +1,5 @@
 # MyWiki UI 统一设计 token —— Apple 风（浅色 / 深色）
-# 三个界面（reminder_web.html / reminder_ui.py / daily_ui.py）共用同一套值。
+# 三个界面（reminder_web.html / reminder_ui.py / wiki_app.py）共用同一套值。
 # 修改这里即可整体换肤。
 
 import os
